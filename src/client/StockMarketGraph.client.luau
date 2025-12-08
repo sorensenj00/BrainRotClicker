@@ -23,10 +23,10 @@ local AssetService = game:GetService("AssetService")
 
 -- Configuration
 local CONFIG = {
-	-- Canvas size (matches SurfaceGui canvas)
-	CANVAS_WIDTH = 1440,
-	CANVAS_HEIGHT = 720,
-	PADDING = 40,
+	-- Canvas size (EditableImage max is 1024x1024, using 1024x512 for 2:1 aspect)
+	CANVAS_WIDTH = 1024,
+	CANVAS_HEIGHT = 512,
+	PADDING = 28,
 	
 	-- Graph appearance
 	LINE_THICKNESS = 8,
@@ -651,7 +651,7 @@ local function initialize()
 	-- Timer update loop
 	RunService.Heartbeat:Connect(updateTimer)
 	
-	print("✓ StockMarketGraph initialized with Triangle-based EditableImage")
+	print("✓ StockMarketGraph initialized with Scanline-based EditableImage")
 end
 
 -- Start

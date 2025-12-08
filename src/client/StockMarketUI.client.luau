@@ -7,7 +7,7 @@
 
 -- Disabled - billboards now handle stock market display
 return
-
+--[[
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -189,3 +189,4 @@ RunService.Heartbeat:Connect(function()
 end)
 
 print("✓ StockMarketUI initialized")
+]]

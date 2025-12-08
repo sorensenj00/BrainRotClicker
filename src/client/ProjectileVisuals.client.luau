@@ -64,6 +64,9 @@ local activeProjectileCount = 0
 -- Track unit loops (to clean up when units are removed)
 local unitLoops: {[Instance]: thread} = {}
 
+-- Cache true original sizes for storage parts to prevent size drift
+local storageOriginalSizes: {[BasePart]: Vector3} = {}
+
 -- ============================================================================
 -- MATH HELPER: BEZIER CURVE
 -- ============================================================================
@@ -87,6 +90,34 @@ local function sampleBezier(startPos: Vector3, endPos: Vector3, height: number, 
 	local p0 = startPos:Lerp(midPoint, t)
 	local p1 = midPoint:Lerp(endPos, t)
 	return p0:Lerp(p1, t)
+end
+
+--[[
+	Calculates dynamic arc height based on distance and elevation.
+	For brainrots on higher-tier islands, this creates a high-arcing trajectory
+	that rises above intermediate islands before landing in the storage.
+	
+	@param startPos Vector3 - Starting position (brainrot unit)
+	@param endPos Vector3 - Ending position (storage tank)
+	@return number - The calculated arc height above the midpoint
+]]
+local function calculateDynamicArcHeight(startPos: Vector3, endPos: Vector3): number
+	-- Calculate horizontal distance (ignoring Y)
+	local horizontalDistance = (Vector3.new(endPos.X, 0, endPos.Z) - Vector3.new(startPos.X, 0, startPos.Z)).Magnitude
+	
+	-- Calculate elevation difference (positive if brainrot is higher than storage)
+	local elevationDiff = startPos.Y - endPos.Y
+	
+	-- Base arc height scales with horizontal distance
+	-- A projectile traveling 100 studs should arc ~25 studs high
+	local distanceBasedArc = horizontalDistance * 0.25
+	
+	-- If brainrot is higher than storage, add extra height to create a nice lob
+	-- The projectile should go UP first, then come DOWN gracefully to the storage
+	local elevationBoost = math.max(0, elevationDiff * 0.5)
+	
+	-- Use the configured minimum as the floor
+	return math.max(PROJECTILE_CONFIG.ARC_HEIGHT, distanceBasedArc + elevationBoost)
 end
 
 -- ============================================================================
@@ -178,11 +209,17 @@ end
 --[[
 	Plays a squash animation on the storage part.
 	Scales up briefly then returns to normal.
+	Uses cached original size to prevent compounding growth.
 	
 	@param storage BasePart - The storage part to animate
 ]]
 local function playSquashAnimation(storage: BasePart)
-	local originalSize = storage.Size
+	-- Cache the true original size on first impact (prevents size drift)
+	if not storageOriginalSizes[storage] then
+		storageOriginalSizes[storage] = storage.Size
+	end
+	
+	local originalSize = storageOriginalSizes[storage]
 	local squashedSize = originalSize * PROJECTILE_CONFIG.SQUASH_SCALE
 	
 	-- Scale up
@@ -192,7 +229,7 @@ local function playSquashAnimation(storage: BasePart)
 		{Size = squashedSize}
 	)
 	
-	-- Scale back down
+	-- Scale back down to the CACHED original size (not current size)
 	local returnTween = TweenService:Create(
 		storage,
 		TweenInfo.new(PROJECTILE_CONFIG.SQUASH_DURATION, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
@@ -261,6 +298,9 @@ local function fireProjectile(startPos: Vector3, endPos: Vector3, color: Color3,
 		return
 	end
 	
+	-- Calculate dynamic arc height based on distance and elevation
+	local arcHeight = calculateDynamicArcHeight(startPos, endPos)
+	
 	activeProjectileCount = activeProjectileCount + 1
 	
 	-- Create the projectile part
@@ -290,7 +330,7 @@ local function fireProjectile(startPos: Vector3, endPos: Vector3, color: Color3,
 	task.spawn(function()
 		for i = 1, PROJECTILE_CONFIG.STEPS do
 			local t = i / PROJECTILE_CONFIG.STEPS
-			local newPos = sampleBezier(startPos, endPos, PROJECTILE_CONFIG.ARC_HEIGHT, t)
+			local newPos = sampleBezier(startPos, endPos, arcHeight, t)
 			
 			-- Use TweenService for smooth interpolation between steps
 			local tween = TweenService:Create(

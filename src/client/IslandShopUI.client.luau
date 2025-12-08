@@ -137,7 +137,7 @@ local function createShopUI()
 	tiersLabel.Size = UDim2.new(1, -20, 0, 30)
 	tiersLabel.Position = UDim2.new(0, 10, 0, 10)
 	tiersLabel.BackgroundTransparency = 1
-	tiersLabel.Text = "Current Tiers: 1 / 6"
+	tiersLabel.Text = "Current Islands: 1 / 6"
 	tiersLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
 	tiersLabel.TextSize = 18
 	tiersLabel.Font = Enum.Font.GothamBold
@@ -161,7 +161,7 @@ local function createShopUI()
 	fillLabel.Size = UDim2.new(1, -20, 0, 25)
 	fillLabel.Position = UDim2.new(0, 10, 0, 65)
 	fillLabel.BackgroundTransparency = 1
-	fillLabel.Text = "Models per tier: 12"
+	fillLabel.Text = "Models per island: 12"
 	fillLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
 	fillLabel.TextSize = 14
 	fillLabel.Font = Enum.Font.Gotham
@@ -186,7 +186,7 @@ local function createShopUI()
 	purchaseTitle.Size = UDim2.new(1, -20, 0, 30)
 	purchaseTitle.Position = UDim2.new(0, 10, 0, 10)
 	purchaseTitle.BackgroundTransparency = 1
-	purchaseTitle.Text = "🛒 Purchase Next Tier"
+	purchaseTitle.Text = "🛒 Purchase New Island"
 	purchaseTitle.TextColor3 = Color3.fromRGB(255, 220, 100)
 	purchaseTitle.TextSize = 18
 	purchaseTitle.Font = Enum.Font.GothamBold
@@ -210,7 +210,7 @@ local function createShopUI()
 	purchaseButton.Size = UDim2.new(1, -20, 0, 40)
 	purchaseButton.Position = UDim2.new(0, 10, 0, 70)
 	purchaseButton.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
-	purchaseButton.Text = "PURCHASE TIER"
+	purchaseButton.Text = "PURCHASE ISLAND"
 	purchaseButton.TextColor3 = Color3.new(1, 1, 1)
 	purchaseButton.TextSize = 18
 	purchaseButton.Font = Enum.Font.GothamBold
@@ -277,19 +277,19 @@ local function updateShopInfo()
 	if not info then return end
 	
 	-- Update status labels
-	statusFrame.TiersLabel.Text = string.format("Current Tiers: %d / %d", info.CurrentTiers, info.MaxTiers)
+	statusFrame.TiersLabel.Text = string.format("Current Islands: %d / %d", info.CurrentTiers, info.MaxTiers)
 	statusFrame.ModelsLabel.Text = string.format("Total Models: %d", info.TotalModels)
-	statusFrame.FillLabel.Text = string.format("Models per tier: %d", info.ModelsPerTier)
+	statusFrame.FillLabel.Text = string.format("Models per island: %d", info.ModelsPerTier)
 	
 	-- Update purchase section
 	if info.CanPurchase then
 		purchaseFrame.PriceLabel.Text = string.format("Price: %s", formatMoney(info.NextTierPrice))
 		purchaseFrame.PurchaseButton.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
-		purchaseFrame.PurchaseButton.Text = "PURCHASE TIER"
+		purchaseFrame.PurchaseButton.Text = "PURCHASE ISLAND"
 	else
-		purchaseFrame.PriceLabel.Text = "Max tiers reached!"
+		purchaseFrame.PriceLabel.Text = "Max islands reached!"
 		purchaseFrame.PurchaseButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-		purchaseFrame.PurchaseButton.Text = "MAX TIERS"
+		purchaseFrame.PurchaseButton.Text = "MAX ISLANDS"
 	end
 end
 

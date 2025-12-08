@@ -32,8 +32,16 @@ local CONFIG = {
 local TIER_CONFIG = {
 	MODELS_PER_TIER = 12,      -- Number of models before tier is full
 	MAX_TIERS = 6,             -- Maximum tiers per player
-	TIER_HEIGHT_OFFSET = 40,   -- Y increase per tier
-	TIER_DISTANCE = 100,       -- Fixed radius from parent plot
+	-- Height variation (always positive, new tier is higher than parent)
+	TIER_HEIGHT_MIN = 20,      -- Minimum Y increase per tier
+	TIER_HEIGHT_MAX = 60,      -- Maximum Y increase per tier
+	-- Distance variation
+	TIER_DISTANCE_MIN = 80,    -- Minimum distance from parent plot
+	TIER_DISTANCE_MAX = 140,   -- Maximum distance from parent plot
+	-- Stair configuration
+	STAIR_WIDTH = 10,          -- Width of each stair step
+	STAIR_DEPTH = 4,           -- Depth of each stair step
+	STAIR_HEIGHT = 3,          -- Height of each stair step
 	GRID_COLUMNS = 6,          -- Models per row
 	GRID_ROWS = 2,             -- Rows per tier
 	-- Sides: 0=North (+Z), 1=East (+X), 2=South (-Z), 3=West (-X)
@@ -314,11 +322,17 @@ local function spawnTierPlot(player: Player, parentTier: TierPlotData): TierPlot
 		return nil
 	end
 	
-	-- Calculate new tier position
+	-- Calculate new tier position with randomized distance and height
 	local parentCFrame = parentTier.Model:GetPivot()
 	local sideOffset = TIER_CONFIG.SIDE_OFFSETS[side]
-	local newHeight = parentCFrame.Position.Y + TIER_CONFIG.TIER_HEIGHT_OFFSET
-	local newPosition = parentCFrame.Position + (sideOffset * TIER_CONFIG.TIER_DISTANCE)
+	
+	-- Random height (always positive, new tier is higher)
+	local heightOffset = math.random(TIER_CONFIG.TIER_HEIGHT_MIN, TIER_CONFIG.TIER_HEIGHT_MAX)
+	local newHeight = parentCFrame.Position.Y + heightOffset
+	
+	-- Random distance
+	local tierDistance = math.random(TIER_CONFIG.TIER_DISTANCE_MIN, TIER_CONFIG.TIER_DISTANCE_MAX)
+	local newPosition = parentCFrame.Position + (sideOffset * tierDistance)
 	newPosition = Vector3.new(newPosition.X, newHeight, newPosition.Z)
 	
 	-- Clone the plot template
@@ -340,25 +354,70 @@ local function spawnTierPlot(player: Player, parentTier: TierPlotData): TierPlot
 	newPlotModel:SetAttribute("TierIndex", newTierIndex)
 	newPlotModel.Parent = PlotsFolder
 	
-	-- Create bridge between parent and new tier
-	local bridgeCFrame, bridgeDistance = calculateTierBridgeCFrame(parentCFrame, newCFrame)
-	local bridgeModel = BridgeTemplate:Clone()
-	bridgeModel.Name = string.format("Bridge_%d_Tier_%d", tierSystem.BasePlotIndex, newTierIndex)
+	-- Create STAIRS between parent and new tier (instead of flat bridge)
+	local stairsModel = Instance.new("Model")
+	stairsModel.Name = string.format("Stairs_%d_Tier_%d", tierSystem.BasePlotIndex, newTierIndex)
 	
-	-- Scale the bridge
-	for _, part in bridgeModel:GetDescendants() do
-		if part:IsA("BasePart") then
-			part.Size = Vector3.new(part.Size.X, part.Size.Y, bridgeDistance)
-		end
-	end
+	-- Calculate stair parameters
+	local parentEdgePos = parentCFrame.Position + (sideOffset * 40) -- Edge of parent plot
+	parentEdgePos = Vector3.new(parentEdgePos.X, parentCFrame.Position.Y + 2, parentEdgePos.Z) -- +2 for slight offset above surface
 	
-	if bridgeModel.PrimaryPart then
-		bridgeModel:SetPrimaryPartCFrame(bridgeCFrame)
+	local childEdgePos = newPosition - (sideOffset * 40) -- Edge of child plot
+	childEdgePos = Vector3.new(childEdgePos.X, newPosition.Y + 2, childEdgePos.Z) -- Same offset for child
+	
+	local horizontalDistance = (Vector3.new(childEdgePos.X, 0, childEdgePos.Z) - Vector3.new(parentEdgePos.X, 0, parentEdgePos.Z)).Magnitude
+	local verticalDistance = childEdgePos.Y - parentEdgePos.Y
+	
+	print(string.format("  Stairs debug: horizontal=%.1f, vertical=%.1f", horizontalDistance, verticalDistance))
+	
+	-- Calculate number of steps needed
+	local numSteps = math.max(1, math.floor(verticalDistance / TIER_CONFIG.STAIR_HEIGHT))
+	local stepHeight = verticalDistance / numSteps
+	local stepDepth = horizontalDistance / numSteps
+	
+	print(string.format("  Stairs debug: numSteps=%d, stepHeight=%.1f, stepDepth=%.1f", numSteps, stepHeight, stepDepth))
+	
+	-- Direction from parent to child (normalized XZ)
+	local directionVector = Vector3.new(childEdgePos.X, 0, childEdgePos.Z) - Vector3.new(parentEdgePos.X, 0, parentEdgePos.Z)
+	if directionVector.Magnitude < 0.001 then
+		warn("Stairs creation: direction vector is zero, cannot create stairs!")
+		stairsModel.Parent = workspace -- Still parent it even if empty
 	else
-		bridgeModel:PivotTo(bridgeCFrame)
+		local direction = directionVector.Unit
+		
+		-- Create each step
+		for i = 0, numSteps - 1 do
+			local step = Instance.new("Part")
+			step.Name = "Step_" .. i
+			step.Size = Vector3.new(TIER_CONFIG.STAIR_WIDTH, math.max(0.5, stepHeight), math.max(0.5, stepDepth))
+			step.BrickColor = BrickColor.new("Medium stone grey")
+			step.Material = Enum.Material.Concrete
+			step.Anchored = true
+			step.CanCollide = true
+			
+			-- Position each step
+			local stepX = parentEdgePos.X + direction.X * (i + 0.5) * stepDepth
+			local stepZ = parentEdgePos.Z + direction.Z * (i + 0.5) * stepDepth
+			local stepY = parentEdgePos.Y + (i + 0.5) * stepHeight
+			step.Position = Vector3.new(stepX, stepY, stepZ)
+			
+			-- Rotate step to align with direction
+			step.CFrame = CFrame.new(step.Position) * CFrame.Angles(0, math.atan2(direction.X, direction.Z), 0)
+			
+			step.Parent = stairsModel
+		end
+		
+		print(string.format("  Created %d steps in stairs model", numSteps))
 	end
 	
-	bridgeModel.Parent = workspace
+	-- Set primary part for the stairs model
+	local firstStep = stairsModel:FindFirstChild("Step_0")
+	if firstStep then
+		stairsModel.PrimaryPart = firstStep
+	end
+	
+	stairsModel.Parent = workspace
+	print(string.format("  Stairs model '%s' parented to workspace", stairsModel.Name))
 	
 	-- Mark parent side as used
 	table.insert(parentTier.UsedSides, side)
@@ -370,7 +429,7 @@ local function spawnTierPlot(player: Player, parentTier: TierPlotData): TierPlot
 	local newTierData: TierPlotData = {
 		TierIndex = newTierIndex,
 		Model = newPlotModel,
-		Bridge = bridgeModel,
+		Bridge = stairsModel, -- Now stores the stairs model instead of bridge
 		ParentTier = parentTier,
 		BlockedSide = incomingSide,
 		UsedSides = {},
@@ -380,7 +439,7 @@ local function spawnTierPlot(player: Player, parentTier: TierPlotData): TierPlot
 	-- Add to player's tier system
 	table.insert(tierSystem.Tiers, newTierData)
 	
-	print(string.format("✓ Spawned Tier %d for %s on side %d", newTierIndex, player.Name, side))
+	print(string.format("✓ Spawned Tier %d for %s (distance: %d, height: +%d)", newTierIndex, player.Name, tierDistance, heightOffset))
 	
 	return newTierData
 end
@@ -920,5 +979,55 @@ _G.MapSystem = {
 			return tierSystem.Tiers[tierSystem.CurrentTier]
 		end
 		return nil
+	end,
+	ResetPlayerPlot = function(player: Player)
+		local plotIndex = PlayerToPlot[player]
+		if plotIndex then
+			print(string.format("🔄 Admin resetting plot %d for %s", plotIndex, player.Name))
+			clearPlayerPlot(player)
+			-- Small delay to ensure cleanup
+			task.wait(0.1)
+			assignPlotToPlayer(player, plotIndex)
+			-- Teleport back
+			task.delay(0.5, function() 
+				teleportPlayerToPlot(player) 
+			end)
+		end
+	end,
+	-- Persistence: Restore tiers from saved data
+	RestoreTiers = function(player: Player, tierCount: number)
+		local tierSystem = PlayerTierSystems[player]
+		if not tierSystem then
+			warn("RestoreTiers: No tier system found for " .. player.Name)
+			return
+		end
+		
+		if tierCount <= 1 then
+			print(string.format("RestoreTiers: Only base tier for %s, nothing to restore", player.Name))
+			return -- Only base tier, nothing to restore
+		end
+		
+		print(string.format("🔄 Restoring %d tiers for %s (current tiers: %d)", tierCount, player.Name, #tierSystem.Tiers))
+		
+		-- Spawn additional tiers up to tierCount
+		for i = 2, tierCount do
+			local currentTier = tierSystem.Tiers[#tierSystem.Tiers]
+			if currentTier then
+				print(string.format("  Spawning tier %d from parent tier %d...", i, currentTier.TierIndex))
+				local newTier = spawnTierPlot(player, currentTier)
+				if newTier then
+					tierSystem.CurrentTier = newTier.TierIndex
+					print(string.format("  ✓ Tier %d spawned successfully (bridge/stairs: %s)", 
+						i, newTier.Bridge and newTier.Bridge.Name or "nil"))
+				else
+					warn(string.format("RestoreTiers: Failed to spawn tier %d for %s", i, player.Name))
+					break
+				end
+			else
+				warn(string.format("RestoreTiers: No current tier found for iteration %d", i))
+			end
+		end
+		
+		print(string.format("✓ Restored %d tiers for %s", #tierSystem.Tiers, player.Name))
 	end,
 }

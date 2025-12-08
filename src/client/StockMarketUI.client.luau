@@ -1,15 +1,12 @@
 --[[
 	StockMarketUI Client Script
 	
-	Displays the current market rate on the player's HUD.
-	Shows:
-	- Current rate multiplier (color-coded)
-	- Rate name (NORMAL, CRASH, STONKS, HYPER INFLATION)
-	- Countdown timer to next update
-	- Mini graph of recent rates (optional)
-	
-	Also plays sounds when special events occur.
+	DISABLED: Stock market is now displayed on billboards instead of HUD.
+	See: StockMarketGraph.client.luau and StockMarketBillboards.server.luau
 ]]
+
+-- Disabled - billboards now handle stock market display
+return
 
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")

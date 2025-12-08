@@ -1,39 +1,45 @@
 --[[
 	StockMarketManager Server Script
 	
-	Handles the dynamic "Sauce" economy.
-	- Updates global market rate every 30 seconds
-	- Manages RNG for crashes and hyper inflation
-	- Replicates rate to clients via Attributes on ReplicatedStorage
+	Handles the dynamic "Sauce" economy with a realistic stock market simulation.
+	- Continuous rate range from 0.5x to 3.0x
+	- Updates every 10 seconds with random walk + mean reversion
+	- Stores 60 data points of history for graph display
+	- Replicates rate and history to clients via Attributes
 ]]
 
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
--- Players service will be used for future sound broadcasting
 
 -- Configuration
 local CONFIG = {
-	UPDATE_INTERVAL = 30, -- Seconds between updates
+	UPDATE_INTERVAL = 2, -- Seconds between updates
 	
-	-- Rate Definitions
-	RATES = {
-		CRASH = { multiplier = 0.5, chance = 0.15, name = "CRASH", color = Color3.fromRGB(255, 50, 50) },
-		NORMAL = { multiplier = 1.0, chance = 0.60, name = "NORMAL", color = Color3.fromRGB(255, 255, 255) },
-		STONKS = { multiplier = 1.5, chance = 0.20, name = "STONKS", color = Color3.fromRGB(50, 255, 50) },
-		HYPER = { multiplier = 3.0, chance = 0.05, name = "HYPER INFLATION", color = Color3.fromRGB(255, 215, 0) },
-	},
+	-- Rate Range
+	MIN_RATE = 0.5,
+	MAX_RATE = 3.0,
+	STARTING_RATE = 1.0,
 	
-	SOUNDS = {
-		CRASH = "rbxassetid://15656647153", -- Womp Womp (Placeholder ID)
-		HYPER = "rbxassetid://138081500",   -- Cha-ching (Placeholder)
-	}
+	-- Movement Settings
+	BASE_VOLATILITY = 0.3,    -- Normal change range (-0.3 to +0.3)
+	SPIKE_CHANCE = 0.10,      -- 10% chance of larger move
+	SPIKE_MULTIPLIER = 2.5,   -- Spikes are 2.5x normal volatility
+	MEAN_REVERSION = 0.05,    -- Strength of pull towards 1.0
+	
+	-- History
+	MAX_HISTORY = 60,         -- 60 data points = 10 minutes of data
 }
 
 -- State
+local currentRate = CONFIG.STARTING_RATE
 local nextUpdate = 0
 local history = {}
-local MAX_HISTORY = 10
+
+-- Initialize history with starting rate
+for i = 1, CONFIG.MAX_HISTORY do
+	table.insert(history, CONFIG.STARTING_RATE)
+end
 
 -- Setup ReplicatedStorage container
 local stockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket")
@@ -43,66 +49,93 @@ if not stockMarketFolder then
 	stockMarketFolder.Parent = ReplicatedStorage
 end
 
--- Initialize Attributes
-if not stockMarketFolder:GetAttribute("CurrentRate") then
-	stockMarketFolder:SetAttribute("CurrentRate", 1.0)
-	stockMarketFolder:SetAttribute("RateName", "NORMAL")
-	stockMarketFolder:SetAttribute("NextUpdate", 0)
+--[[
+	Serializes the history array to a comma-separated string for attribute storage.
+]]
+local function serializeHistory(): string
+	local parts = {}
+	for _, rate in ipairs(history) do
+		table.insert(parts, string.format("%.3f", rate))
+	end
+	return table.concat(parts, ",")
 end
 
 --[[
-	Selects a new rate based on chances.
+	Calculates the rate name based on the current rate value.
 ]]
-local function rollNewRate()
-	local roll = math.random()
-	local cumulative = 0
+local function getRateName(rate: number): string
+	if rate >= 2.5 then
+		return "HYPER INFLATION"
+	elseif rate >= 1.5 then
+		return "STONKS"
+	elseif rate <= 0.7 then
+		return "CRASH"
+	else
+		return "NORMAL"
+	end
+end
+
+--[[
+	Calculates a new rate using random walk with mean reversion.
+	Creates realistic stock-like movement patterns.
+]]
+local function calculateNewRate(): number
+	-- Base random change
+	local baseChange = (math.random() - 0.5) * 2 * CONFIG.BASE_VOLATILITY
 	
-	-- Sort keys to ensure deterministic order (or just hardcode check order)
-	local checkOrder = {"HYPER", "STONKS", "CRASH", "NORMAL"}
-	
-	for _, key in ipairs(checkOrder) do
-		local data = CONFIG.RATES[key]
-		cumulative = cumulative + data.chance
-		if roll <= cumulative then
-			return data
-		end
+	-- Occasional larger moves (volatility spikes)
+	if math.random() < CONFIG.SPIKE_CHANCE then
+		baseChange = baseChange * CONFIG.SPIKE_MULTIPLIER
 	end
 	
-	return CONFIG.RATES.NORMAL
+	-- Mean reversion: gently pull towards 1.0
+	local reversion = (CONFIG.STARTING_RATE - currentRate) * CONFIG.MEAN_REVERSION
+	
+	-- Apply changes
+	local newRate = currentRate + baseChange + reversion
+	
+	-- Clamp to valid range
+	return math.clamp(newRate, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
 end
 
 --[[
-	Updates the market.
+	Updates the market with a new rate.
 ]]
 local function updateMarket()
-	local newRateData = rollNewRate()
+	-- Calculate new rate
+	local newRate = calculateNewRate()
+	currentRate = newRate
 	
-	-- Update Attributes
-	stockMarketFolder:SetAttribute("CurrentRate", newRateData.multiplier)
-	stockMarketFolder:SetAttribute("RateName", newRateData.name)
+	-- Update history (add to end, remove from start if needed)
+	table.insert(history, newRate)
+	if #history > CONFIG.MAX_HISTORY then
+		table.remove(history, 1)
+	end
+	
+	-- Get rate name for display
+	local rateName = getRateName(newRate)
+	
+	-- Update Attributes for clients
+	stockMarketFolder:SetAttribute("CurrentRate", newRate)
+	stockMarketFolder:SetAttribute("RateName", rateName)
+	stockMarketFolder:SetAttribute("RateHistory", serializeHistory())
 	stockMarketFolder:SetAttribute("LastUpdate", os.time())
+	stockMarketFolder:SetAttribute("UpdateInterval", CONFIG.UPDATE_INTERVAL)
 	
-	-- Update History (store as JSON string or just simple string for now)
-	table.insert(history, 1, newRateData.multiplier)
-	if #history > MAX_HISTORY then
-		table.remove(history)
-	end
-	-- We could serialize history to an attribute if clients need the graph
-	-- For now, let's just keep it simple.
-	
-	print(string.format("📈 Stock Market Update: %s (x%.1f)", newRateData.name, newRateData.multiplier))
-	
-	-- Play global sounds based on event
-	if newRateData.name == "CRASH" then
-		-- In a real game, fire a remote to play sound for all
-		-- For now, we'll rely on client listening to attribute change
-	elseif newRateData.name == "HYPER INFLATION" then
-		-- Hype sound
-	end
+	print(string.format("📈 Stock Market: %.2fx (%s)", newRate, rateName))
 end
 
+-- Initialize Attributes
+stockMarketFolder:SetAttribute("CurrentRate", currentRate)
+stockMarketFolder:SetAttribute("RateName", getRateName(currentRate))
+stockMarketFolder:SetAttribute("RateHistory", serializeHistory())
+stockMarketFolder:SetAttribute("LastUpdate", os.time())
+stockMarketFolder:SetAttribute("UpdateInterval", CONFIG.UPDATE_INTERVAL)
+stockMarketFolder:SetAttribute("MinRate", CONFIG.MIN_RATE)
+stockMarketFolder:SetAttribute("MaxRate", CONFIG.MAX_RATE)
+
 -- Main Loop
-RunService.Heartbeat:Connect(function(dt)
+RunService.Heartbeat:Connect(function()
 	local now = os.time()
 	if now >= nextUpdate then
 		updateMarket()
@@ -112,4 +145,7 @@ RunService.Heartbeat:Connect(function(dt)
 end)
 
 -- Initial update
-updateMarket()
+nextUpdate = os.time() + CONFIG.UPDATE_INTERVAL
+stockMarketFolder:SetAttribute("NextUpdate", nextUpdate)
+
+print("✓ StockMarketManager initialized (Continuous Range: 0.5x - 3.0x)")

@@ -274,22 +274,26 @@ local function createAltar()
 	sphere.Material = Enum.Material.Neon
 	sphere.Anchored = true
 	sphere.CanCollide = true
-	sphere.Position = Vector3.new(0, 20, 50) -- Back center
+	sphere.Position = Vector3.new(30, 40, 50) -- Positioned at same Y as shops
 	sphere.Parent = altarModel
 	
 	-- Add floating animation script
-	local animScript = Instance.new("Script")
-	animScript.Source = [[
-		local part = script.Parent
-		local originalY = part.Position.Y
+	-- Add floating animation
+	task.spawn(function()
+		local RunService = game:GetService("RunService")
+		local originalY = sphere.Position.Y
 		local t = 0
-		game:GetService("RunService").Heartbeat:Connect(function(dt)
+		local connection
+		connection = RunService.Heartbeat:Connect(function(dt)
+			if not sphere or not sphere.Parent then
+				connection:Disconnect()
+				return
+			end
 			t = t + dt
-			part.Position = Vector3.new(part.Position.X, originalY + math.sin(t) * 2, part.Position.Z)
-			part.Orientation = part.Orientation + Vector3.new(0, 1, 0)
+			sphere.Position = Vector3.new(sphere.Position.X, originalY + math.sin(t) * 2, sphere.Position.Z)
+			sphere.Orientation = sphere.Orientation + Vector3.new(0, 1, 0)
 		end)
-	]]
-	animScript.Parent = sphere
+	end)
 	
 	-- Add particles
 	local particles = Instance.new("ParticleEmitter")

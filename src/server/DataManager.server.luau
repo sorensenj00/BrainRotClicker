@@ -71,6 +71,9 @@ local function getDefaultData()
 		spentMeatballs = 0,       -- Meatballs spent in shop
 		prestigeCount = 0,        -- Number of times prestiged
 		meatballUpgrades = {},    -- Purchased permanent upgrades
+		-- Brainrot persistence data
+		brainrotInventory = {},   -- Full inventory with rarities: {[unitName]: {[rarity]: {total, active}}}
+		brainrotPlacements = {},  -- Array of placed brainrots with positions/attributes
 	}
 end
 
@@ -128,7 +131,18 @@ local function loadPlayerData(player: Player): {money: number, ownedUnits: {[str
 		if not result.meatballUpgrades then
 			result.meatballUpgrades = {}
 		end
-		print(string.format("✓ Loaded data for %s: $%d, %d units unlocked, %d max storage, %d meatballs", player.Name, result.money or 0, result.unlockProgress or 5, result.maxStorage, result.totalMeatballs))
+		-- Ensure tier and brainrot persistence data exists (for older saves)
+		if not result.purchasedTiers then
+			result.purchasedTiers = 1
+		end
+		if not result.brainrotInventory then
+			result.brainrotInventory = {}
+		end
+		if not result.brainrotPlacements then
+			result.brainrotPlacements = {}
+		end
+		print(string.format("✓ Loaded data for %s: $%d, %d units unlocked, %d max storage, %d meatballs, %d tiers", 
+			player.Name, result.money or 0, result.unlockProgress or 5, result.maxStorage, result.totalMeatballs, result.purchasedTiers))
 		return result
 	else
 		print(string.format("✓ No saved data for %s, using defaults", player.Name))
@@ -253,6 +267,18 @@ function gatherPlayerData(player: Player): {money: number, ownedUnits: {[string]
 		end
 	end
 	
+	-- Get brainrot inventory (with rarities)
+	local brainrotInventory = {}
+	if BrainrotManager and BrainrotManager.GetInventoryData then
+		brainrotInventory = BrainrotManager.GetInventoryData(player) or {}
+	end
+	
+	-- Get brainrot placements (for position restoration)
+	local brainrotPlacements = {}
+	if BrainrotManager and BrainrotManager.GetPlacementData then
+		brainrotPlacements = BrainrotManager.GetPlacementData(player) or {}
+	end
+	
 	return {
 		money = money,
 		ownedUnits = ownedUnits,
@@ -265,6 +291,8 @@ function gatherPlayerData(player: Player): {money: number, ownedUnits: {[string]
 		spentMeatballs = spentMeatballs,
 		prestigeCount = prestigeCount,
 		meatballUpgrades = meatballUpgrades,
+		brainrotInventory = brainrotInventory,
+		brainrotPlacements = brainrotPlacements,
 	}
 end
 
@@ -337,32 +365,7 @@ local function onPlayerAdded(player: Player)
 			return
 		end
 		
-		-- Spawn one model per owned unit type (if count >= 1)
-		local spawnedCount = 0
-		for unitName, count in data.ownedUnits do
-			if count >= 1 then
-				local unitConfig = ShopConfig.GetConfig(unitName)
-				if unitConfig then
-					local spawnedUnit = BrainrotManager.SpawnBrainrot(player, unitConfig.ModelName)
-					if spawnedUnit then
-						-- Use milestone-aware income/cycle calculations
-						local effectiveIncome = ShopConfig.CalculateEffectiveIncome(unitName, count)
-						local effectiveCycleTime = ShopConfig.CalculateEffectiveCycleTime(unitName, count)
-						
-						spawnedUnit:SetAttribute("IncomeAmount", effectiveIncome)
-						spawnedUnit:SetAttribute("IncomeInterval", effectiveCycleTime)
-						spawnedUnit:SetAttribute("UnitType", unitName)
-						spawnedCount += 1
-					end
-				end
-			end
-		end
-		
-		if spawnedCount > 0 then
-			print(string.format("✓ Spawned %d owned brainrot models for %s", spawnedCount, player.Name))
-		end
-		
-		-- Restore maxStorage on the plot
+		-- Restore maxStorage on the plot FIRST
 		if data.maxStorage and data.maxStorage > 500 then
 			plot:SetAttribute("MaxStorage", data.maxStorage)
 			-- Update visual
@@ -373,11 +376,92 @@ local function onPlayerAdded(player: Player)
 			print(string.format("✓ Restored max storage to %d for %s", data.maxStorage, player.Name))
 		end
 		
-		-- Restore convenience upgrades
-		if data.convenienceUpgrades and #data.convenienceUpgrades > 0 then
+		-- Restore purchased tiers BEFORE spawning brainrots
+		if data.purchasedTiers and data.purchasedTiers > 1 then
+			if _G.MapSystem and _G.MapSystem.RestoreTiers then
+				print(string.format("Calling RestoreTiers for %s with %d tiers", player.Name, data.purchasedTiers))
+				_G.MapSystem.RestoreTiers(player, data.purchasedTiers)
+			else
+				warn(string.format("Cannot restore tiers for %s: MapSystem not available (MapSystem=%s)", 
+					player.Name, tostring(_G.MapSystem)))
+			end
+		end
+		
+		-- Small delay to ensure tiers are spawned
+		task.wait(0.5)
+		
+		-- Restore brainrot inventory (with rarities) - this sets up the inventory tracking
+		if data.brainrotInventory and next(data.brainrotInventory) ~= nil then
+			if BrainrotManager.SetInventoryData then
+				-- Reset active counts to 0 since we'll spawn them from placements
+				local inventoryWithZeroActive = {}
+				for unitName, rarityData in pairs(data.brainrotInventory) do
+					inventoryWithZeroActive[unitName] = {}
+					for rarity, counts in pairs(rarityData) do
+						inventoryWithZeroActive[unitName][rarity] = {
+							total = counts.total,
+							active = 0  -- Will be updated as we spawn
+						}
+					end
+				end
+				BrainrotManager.SetInventoryData(player, inventoryWithZeroActive)
+			end
+		end
+		
+		-- Spawn brainrots from saved placements (preserves rarities and attributes)
+		local spawnedCount = 0
+		if data.brainrotPlacements and #data.brainrotPlacements > 0 then
+			for _, placementData in ipairs(data.brainrotPlacements) do
+				if BrainrotManager.SpawnFromPlacement then
+					local spawnedUnit = BrainrotManager.SpawnFromPlacement(player, placementData)
+					if spawnedUnit then
+						spawnedCount += 1
+						-- Update inventory active count
+						local inventory = BrainrotManager.GetInventoryData and BrainrotManager.GetInventoryData(player)
+						if inventory and inventory[placementData.unitType] and inventory[placementData.unitType][placementData.rarity] then
+							inventory[placementData.unitType][placementData.rarity].active += 1
+						end
+					end
+				end
+			end
+			if spawnedCount > 0 then
+				print(string.format("✓ Restored %d brainrots from saved placements for %s", spawnedCount, player.Name))
+			end
+		elseif data.ownedUnits then
+			-- Fallback: Spawn from ownedUnits if no placement data (old save format)
+			for unitName, count in data.ownedUnits do
+				if count >= 1 then
+					local unitConfig = ShopConfig.GetConfig(unitName)
+					if unitConfig then
+						local spawnedUnit = BrainrotManager.SpawnBrainrot(player, unitConfig.ModelName)
+						if spawnedUnit then
+							-- Use milestone-aware income/cycle calculations
+							local effectiveIncome = ShopConfig.CalculateEffectiveIncome(unitName, count)
+							local effectiveCycleTime = ShopConfig.CalculateEffectiveCycleTime(unitName, count)
+							
+							spawnedUnit:SetAttribute("IncomeAmount", effectiveIncome)
+							spawnedUnit:SetAttribute("IncomeInterval", effectiveCycleTime)
+							spawnedUnit:SetAttribute("UnitType", unitName)
+							spawnedCount += 1
+						end
+					end
+				end
+			end
+			if spawnedCount > 0 then
+				print(string.format("✓ Spawned %d owned brainrot models for %s (legacy format)", spawnedCount, player.Name))
+			end
+		end
+		
+		-- Restore convenience upgrades (fixed: use next() instead of # for table check)
+		if data.convenienceUpgrades and next(data.convenienceUpgrades) ~= nil then
 			if _G.ConvenienceUpgrades and _G.ConvenienceUpgrades.SetPlayerUpgrades then
 				_G.ConvenienceUpgrades.SetPlayerUpgrades(player, data.convenienceUpgrades)
-				print(string.format("✓ Restored %d convenience upgrades for %s", #data.convenienceUpgrades, player.Name))
+				-- Count upgrades safely
+				local upgradeCount = 0
+				for _ in pairs(data.convenienceUpgrades) do
+					upgradeCount += 1
+				end
+				print(string.format("✓ Restored %d convenience upgrades for %s", upgradeCount, player.Name))
 			end
 		end
 		

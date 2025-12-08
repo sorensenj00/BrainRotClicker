@@ -128,7 +128,7 @@ local function createIslandShopVendor()
 	subtitleLabel.Size = UDim2.new(1, 0, 0.3, 0)
 	subtitleLabel.Position = UDim2.new(0, 0, 0.4, 0)
 	subtitleLabel.BackgroundTransparency = 1
-	subtitleLabel.Text = "Buy Tier Unlocks"
+	subtitleLabel.Text = "Buy Island Unlocks"
 	subtitleLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
 	subtitleLabel.TextScaled = true
 	subtitleLabel.Font = Enum.Font.Gotham
@@ -193,7 +193,7 @@ local function handleTierPurchase(player: Player): (boolean, string)
 	-- Check max tiers
 	local TIER_CONFIG = _G.MapSystem.TIER_CONFIG
 	if nextTierNumber > TIER_CONFIG.MAX_TIERS then
-		return false, "You've reached the maximum number of tiers!"
+		return false, "You've reached the maximum number of islands!"
 	end
 	
 	-- Get price
@@ -227,7 +227,7 @@ local function handleTierPurchase(player: Player): (boolean, string)
 	end
 	
 	if not parentTier then
-		return false, "No available space for a new tier"
+		return false, "No available space for a new island"
 	end
 	
 	-- Deduct money
@@ -238,10 +238,10 @@ local function handleTierPurchase(player: Player): (boolean, string)
 	if not newTierData then
 		-- Refund if spawn failed
 		money.Value = money.Value + price
-		return false, "Failed to create new tier"
+		return false, "Failed to create new island"
 	end
 	
-	return true, string.format("Purchased Tier %d for $%d!", nextTierNumber, price)
+	return true, string.format("Purchased Island %d for $%d!", nextTierNumber, price)
 end
 
 --------------------------------------------------------------------------------

@@ -155,33 +155,20 @@ local function createMoneyHUD(): ScreenGui
 	-- Storage tank container
 	local tankContainer = Instance.new("Frame")
 	tankContainer.Name = "TankContainer"
-	tankContainer.Size = UDim2.new(1, 0, 0, 28)
-	tankContainer.Position = UDim2.new(0, 0, 0, 58)
+	tankContainer.Size = UDim2.new(1, 0, 0, 24)
+	tankContainer.Position = UDim2.new(0, 0, 0, 60)
 	tankContainer.BackgroundTransparency = 1
 	tankContainer.Parent = hudPanel
 	
-	-- Tank label
-	local tankLabel = Instance.new("TextLabel")
-	tankLabel.Name = "TankLabel"
-	tankLabel.Size = UDim2.new(0, 50, 0, 14)
-	tankLabel.Position = UDim2.new(0, 0, 0, 0)
-	tankLabel.BackgroundTransparency = 1
-	tankLabel.Text = "TANK:"
-	tankLabel.TextColor3 = UI_CONFIG.LABEL_COLOR
-	tankLabel.TextSize = 10
-	tankLabel.Font = Enum.Font.GothamBold
-	tankLabel.TextXAlignment = Enum.TextXAlignment.Left
-	tankLabel.Parent = tankContainer
-	
-	-- Tank bar background
+	-- Tank bar background (fills container)
 	local tankBarBg = Instance.new("Frame")
 	tankBarBg.Name = "TankBarBg"
-	tankBarBg.Size = UDim2.new(1, 0, 0, 14)
-	tankBarBg.Position = UDim2.new(0, 0, 0, 14)
+	tankBarBg.Size = UDim2.new(1, 0, 1, 0)
+	tankBarBg.Position = UDim2.new(0, 0, 0, 0)
 	tankBarBg.BackgroundColor3 = UI_CONFIG.TANK_BG_COLOR
 	tankBarBg.BorderSizePixel = 0
 	tankBarBg.Parent = tankContainer
-	addCorner(tankBarBg, 4)
+	addCorner(tankBarBg, 6)
 	
 	-- Tank bar fill
 	local tankBarFill = Instance.new("Frame")
@@ -191,7 +178,7 @@ local function createMoneyHUD(): ScreenGui
 	tankBarFill.BackgroundColor3 = UI_CONFIG.TANK_FILL_COLOR
 	tankBarFill.BorderSizePixel = 0
 	tankBarFill.Parent = tankBarBg
-	addCorner(tankBarFill, 4)
+	addCorner(tankBarFill, 6)
 	
 	-- Tank amount text (overlay on bar)
 	local tankAmountLabel = Instance.new("TextLabel")
@@ -199,9 +186,9 @@ local function createMoneyHUD(): ScreenGui
 	tankAmountLabel.Size = UDim2.new(1, 0, 1, 0)
 	tankAmountLabel.Position = UDim2.new(0, 0, 0, 0)
 	tankAmountLabel.BackgroundTransparency = 1
-	tankAmountLabel.Text = "0 / 500"
+	tankAmountLabel.Text = "TANK: 0 / 500"
 	tankAmountLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	tankAmountLabel.TextSize = 10
+	tankAmountLabel.TextSize = 11
 	tankAmountLabel.Font = Enum.Font.GothamBold
 	tankAmountLabel.ZIndex = 2
 	tankAmountLabel.Parent = tankBarBg
@@ -210,7 +197,7 @@ local function createMoneyHUD(): ScreenGui
 	local shopButton = Instance.new("TextButton")
 	shopButton.Name = "ShopButton"
 	shopButton.Size = UDim2.new(1, 0, 0, 28)
-	shopButton.Position = UDim2.new(0, 0, 0, 95)
+	shopButton.Position = UDim2.new(0, 0, 0, 92)
 	shopButton.BackgroundColor3 = Color3.fromRGB(80, 60, 140)
 	shopButton.BorderSizePixel = 0
 	shopButton.Text = "🛒 Open Shop (B)"
@@ -224,7 +211,7 @@ local function createMoneyHUD(): ScreenGui
 	local brainrotsButton = Instance.new("TextButton")
 	brainrotsButton.Name = "BrainrotsButton"
 	brainrotsButton.Size = UDim2.new(1, 0, 0, 28)
-	brainrotsButton.Position = UDim2.new(0, 0, 0, 128)
+	brainrotsButton.Position = UDim2.new(0, 0, 0, 125)
 	brainrotsButton.BackgroundColor3 = Color3.fromRGB(140, 80, 160)
 	brainrotsButton.BorderSizePixel = 0
 	brainrotsButton.Text = "🧠 Brainrots (I)"
@@ -238,7 +225,7 @@ local function createMoneyHUD(): ScreenGui
 	local synergiesButton = Instance.new("TextButton")
 	synergiesButton.Name = "SynergiesButton"
 	synergiesButton.Size = UDim2.new(1, 0, 0, 28)
-	synergiesButton.Position = UDim2.new(0, 0, 0, 161)
+	synergiesButton.Position = UDim2.new(0, 0, 0, 158)
 	synergiesButton.BackgroundColor3 = Color3.fromRGB(200, 150, 60)
 	synergiesButton.BorderSizePixel = 0
 	synergiesButton.Text = "⚡ Synergies (Y)"
@@ -341,7 +328,7 @@ local function updateTankDisplay(currentStorage: number, maxStorage: number)
 	}):Play()
 	
 	-- Update text
-	TankAmountLabel.Text = string.format("%d / %d", currentStorage, maxStorage)
+	TankAmountLabel.Text = string.format("TANK: %d / %d", currentStorage, maxStorage)
 	
 	-- Change color based on fill level
 	local targetColor

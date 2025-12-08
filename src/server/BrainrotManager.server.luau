@@ -207,8 +207,8 @@ local function createStoragePart(plot: Instance, plotCFrame: CFrame)
 	storagePart.Material = Enum.Material.DiamondPlate
 	storagePart.Anchored = true
 	storagePart.CanCollide = true
-	-- Position near the front of the plot
-	storagePart.CFrame = plotCFrame * CFrame.new(25, 10, 0)
+	-- Position at the back center of the plot
+	storagePart.CFrame = plotCFrame * CFrame.new(0, 10, 35)
 	storagePart.Parent = plot
 	
 	-- Create BillboardGui for display
@@ -315,52 +315,50 @@ local function updateStorageVisual(plot: Instance, currentStorage: number, maxSt
 	end
 end
 
--- Grid configuration for 2 rows of 6 models on each side of the plot
-local GRID_CONFIG = {
-	MODELS_PER_ROW = 6,     -- 6 models per side
-	SPACING = 8,            -- Distance between each brainrot along the row
-	SIDE_OFFSET = 15,       -- Distance from center line to each row (Z axis)
-	START_OFFSET_X = -20,   -- Starting X offset from plot center
-}
-
--- Track next grid index per plot
-local PlotGridIndex: {[Instance]: number} = {}
-
 --[[
-	Gets the next available grid position for a plot.
-	Arranges models in 2 lines of 6 on opposite sides of the plot.
-	Models face inward toward the center line.
+	Calculates the grid spawn CFrame for a given index.
+	Arranges models in a neat grid layout.
 	
-	@param plot Instance - The plot to get a grid position for
 	@param plotCFrame CFrame - The center CFrame of the plot
-	@return CFrame - The grid spawn CFrame (includes rotation facing inward)
+	@param gridIndex number - The index in the grid (0-based)
+	@return CFrame - The grid spawn CFrame
 ]]
-local function getGridSpawnCFrame(plot: Instance, plotCFrame: CFrame): CFrame
-	-- Get current grid index for this plot (or start at 0)
-	local gridIndex = PlotGridIndex[plot] or 0
+local function getGridSpawnCFrame(plotCFrame: CFrame, gridIndex: number): CFrame
+	-- Config for neat grid layout
+	local COLS = 6          -- 6 columns per row
+	local COL_SPACING = 8   -- Spacing between columns (X axis)
+	local ROW_SPACING = 10  -- Spacing between rows (Z axis)
+	local BASE_Z_OFFSET = 10 -- Starting distance from center line
 	
-	-- Determine which side (0 = front row, 1 = back row) and position in row
-	local side = math.floor(gridIndex / GRID_CONFIG.MODELS_PER_ROW) -- 0 or 1
-	local positionInRow = gridIndex % GRID_CONFIG.MODELS_PER_ROW    -- 0-5
+	-- Calculate position in the grid
+	-- Pattern: Fill Left Row 0, then Right Row 0, then Left Row 1, then Right Row 1...
+	local itemsPerRowPair = COLS * 2
+	local rowPairIndex = math.floor(gridIndex / itemsPerRowPair) -- 0, 1, 2...
+	local indexInRowPair = gridIndex % itemsPerRowPair -- 0 to 11
 	
-	-- Calculate X offset (position along the row)
-	local offsetX = GRID_CONFIG.START_OFFSET_X + (positionInRow * GRID_CONFIG.SPACING)
+	local isRightSide = (indexInRowPair >= COLS) -- False=Left, True=Right
+	local colIndex = indexInRowPair % COLS -- 0-5
 	
-	-- Calculate Z offset (which side of the center line)
-	-- Side 0 = negative Z (front), Side 1 = positive Z (back)
-	local offsetZ = (side == 0) and -GRID_CONFIG.SIDE_OFFSET or GRID_CONFIG.SIDE_OFFSET
+	-- Calculate X offset (centered)
+	-- Total width = (COLS-1) * SPACING
+	-- Start X = -TotalWidth / 2
+	local totalWidth = (COLS - 1) * COL_SPACING
+	local startX = -totalWidth / 2
+	local offsetX = startX + (colIndex * COL_SPACING)
 	
-	-- Calculate rotation to face inward toward center line
-	-- Front row (side 0) faces +Z direction (toward center)
-	-- Back row (side 1) faces -Z direction (toward center)
-	local rotationY = (side == 0) and 0 or math.pi  -- 0° or 180°
+	-- Calculate Z offset (expanding outwards from center)
+	-- Left side (negative Z) expands more negative
+	-- Right side (positive Z) expands more positive
+	local zOffsetMag = BASE_Z_OFFSET + (rowPairIndex * ROW_SPACING)
+	local offsetZ = isRightSide and zOffsetMag or -zOffsetMag
+	
+	-- Calculate rotation to face center line (Z=0)
+	-- Left side faces +Z (0), Right side faces -Z (180)
+	local rotationY = isRightSide and math.pi or 0
 	
 	local offset = Vector3.new(offsetX, CONFIG.SPAWN_HEIGHT, offsetZ)
 	
-	-- Increment grid index for next spawn
-	PlotGridIndex[plot] = gridIndex + 1
-	
-	-- Return CFrame with position and rotation facing inward
+	-- Return CFrame
 	return plotCFrame * CFrame.new(offset) * CFrame.Angles(0, rotationY, 0)
 end
 
@@ -448,22 +446,9 @@ local function spawnBrainrot(player: Player, brainrotName: string?): Model?
 		end
 	end
 	
-	-- Calculate grid spawn position using tier's grid index (2 rows of 6 facing inward)
+	-- Calculate grid spawn position using the new grid system
 	local gridIndex = currentTierData.GridIndex
-	local side = math.floor(gridIndex / GRID_CONFIG.MODELS_PER_ROW) -- 0 or 1
-	local positionInRow = gridIndex % GRID_CONFIG.MODELS_PER_ROW    -- 0-5
-	
-	-- Calculate X offset (position along the row)
-	local offsetX = GRID_CONFIG.START_OFFSET_X + (positionInRow * GRID_CONFIG.SPACING)
-	
-	-- Calculate Z offset (which side of the center line)
-	local offsetZ = (side == 0) and -GRID_CONFIG.SIDE_OFFSET or GRID_CONFIG.SIDE_OFFSET
-	
-	-- Calculate rotation to face inward toward center line
-	local rotationY = (side == 0) and 0 or math.pi  -- 0° or 180°
-	
-	local offset = Vector3.new(offsetX, CONFIG.SPAWN_HEIGHT, offsetZ)
-	local spawnCFrame = plotCFrame * CFrame.new(offset) * CFrame.Angles(0, rotationY, 0)
+	local spawnCFrame = getGridSpawnCFrame(plotCFrame, gridIndex)
 	
 	-- Increment grid index for this tier
 	currentTierData.GridIndex = gridIndex + 1
@@ -986,6 +971,80 @@ end
 Players.PlayerRemoving:Connect(clearPlayerInventory)
 
 --------------------------------------------------------------------------------
+-- INVENTORY PERSISTENCE FUNCTIONS
+--------------------------------------------------------------------------------
+
+--[[
+	Sets the inventory data for a player from saved data.
+	Used by DataManager to restore inventory on player join.
+	
+	@param player Player - The player to set inventory for
+	@param inventoryData table - The saved inventory data
+]]
+local function setInventoryData(player: Player, inventoryData: {[string]: {[string]: {total: number, active: number}}})
+	if not inventoryData then return end
+	PlayerInventory[player] = inventoryData
+	print(string.format("✓ Restored inventory for %s", player.Name))
+end
+
+--[[
+	Gets the placement data for all active brainrots owned by a player.
+	Used by DataManager to save brainrot positions for restoration.
+	
+	@param player Player - The player to get placement data for
+	@return table - Array of placement data objects
+]]
+local function getPlacementData(player: Player): {{unitType: string, rarity: string, tierIndex: number, incomeAmount: number, incomeInterval: number}}
+	local placements = {}
+	
+	for _, brainrot in CollectionService:GetTagged(BRAINROT_TAG) do
+		if brainrot:GetAttribute("OwnerId") == player.UserId then
+			table.insert(placements, {
+				unitType = brainrot:GetAttribute("UnitType"),
+				rarity = brainrot:GetAttribute("Rarity") or "Normal",
+				tierIndex = brainrot:GetAttribute("TierIndex") or 1,
+				incomeAmount = brainrot:GetAttribute("IncomeAmount") or CONFIG.INCOME_AMOUNT,
+				incomeInterval = brainrot:GetAttribute("IncomeInterval") or CONFIG.INCOME_INTERVAL,
+			})
+		end
+	end
+	
+	return placements
+end
+
+--[[
+	Spawns a brainrot from saved placement data.
+	Used by DataManager to restore brainrot positions on player join.
+	
+	@param player Player - The player who owns the brainrot
+	@param placementData table - The saved placement data
+	@return Model? - The spawned brainrot model
+]]
+local function spawnFromPlacement(player: Player, placementData: {unitType: string, rarity: string, tierIndex: number, incomeAmount: number, incomeInterval: number}): Model?
+	local brainrot = spawnBrainrot(player, placementData.unitType)
+	if not brainrot then
+		return nil
+	end
+	
+	-- Set rarity attributes
+	brainrot:SetAttribute("Rarity", placementData.rarity)
+	
+	-- Apply rarity income multiplier
+	local rarityConfig = RARITY_CONFIG[placementData.rarity]
+	if rarityConfig then
+		local baseIncome = placementData.incomeAmount or CONFIG.INCOME_AMOUNT
+		-- Avoid double-applying the rarity multiplier if incomeAmount was already saved with it
+		brainrot:SetAttribute("IncomeAmount", baseIncome)
+	else
+		brainrot:SetAttribute("IncomeAmount", placementData.incomeAmount or CONFIG.INCOME_AMOUNT)
+	end
+	
+	brainrot:SetAttribute("IncomeInterval", placementData.incomeInterval or CONFIG.INCOME_INTERVAL)
+	
+	return brainrot
+end
+
+--------------------------------------------------------------------------------
 -- MODULE API (for other server scripts)
 --------------------------------------------------------------------------------
 
@@ -1035,4 +1094,9 @@ _G.BrainrotManager = {
 	RARITY_CONFIG = RARITY_CONFIG,
 	RARITY_ORDER = RARITY_ORDER,
 	CONFIG = CONFIG,
+	ClearPlayerInventory = clearPlayerInventory,
+	-- Persistence functions (for DataManager)
+	SetInventoryData = setInventoryData,
+	GetPlacementData = getPlacementData,
+	SpawnFromPlacement = spawnFromPlacement,
 }

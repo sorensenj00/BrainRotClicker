@@ -584,8 +584,10 @@ end
 --------------------------------------------------------------------------------
 
 local function onPlayerAdded(player: Player)
-	-- Initialize empty upgrades (DataManager will load saved data)
-	PlayerUpgrades[player.UserId] = {}
+	-- Only initialize if not already set by DataManager (avoids overwriting restored upgrades)
+	if PlayerUpgrades[player.UserId] == nil then
+		PlayerUpgrades[player.UserId] = {}
+	end
 	
 	-- Apply effects when character spawns
 	player.CharacterAdded:Connect(function()

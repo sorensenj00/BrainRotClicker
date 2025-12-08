@@ -319,6 +319,19 @@ local function onPlayerAdded(player: Player)
 		end
 	end
 	
+	-- Restore convenience upgrades EARLY (before ConvenienceUpgradesManager initializes)
+	-- This prevents the race condition where ConvenienceUpgradesManager sets empty upgrades
+	if data.convenienceUpgrades and next(data.convenienceUpgrades) ~= nil then
+		if _G.ConvenienceUpgrades and _G.ConvenienceUpgrades.SetPlayerUpgrades then
+			_G.ConvenienceUpgrades.SetPlayerUpgrades(player, data.convenienceUpgrades)
+			local upgradeCount = 0
+			for _ in pairs(data.convenienceUpgrades) do
+				upgradeCount += 1
+			end
+			print(string.format("✓ Early restored %d convenience upgrades for %s", upgradeCount, player.Name))
+		end
+	end
+	
 	-- Wait for ShopManager to initialize the player's data
 	task.wait(1)
 	
@@ -452,8 +465,12 @@ local function onPlayerAdded(player: Player)
 			end
 		end
 		
-		-- Restore convenience upgrades (fixed: use next() instead of # for table check)
-		if data.convenienceUpgrades and next(data.convenienceUpgrades) ~= nil then
+		-- Restore convenience upgrades (fallback if early restoration didn't work)
+		-- Check if upgrades were already restored early (before task.spawn)
+		local existingUpgrades = _G.ConvenienceUpgrades and _G.ConvenienceUpgrades.GetPlayerUpgrades and _G.ConvenienceUpgrades.GetPlayerUpgrades(player)
+		local alreadyRestored = existingUpgrades and next(existingUpgrades) ~= nil
+		
+		if not alreadyRestored and data.convenienceUpgrades and next(data.convenienceUpgrades) ~= nil then
 			if _G.ConvenienceUpgrades and _G.ConvenienceUpgrades.SetPlayerUpgrades then
 				_G.ConvenienceUpgrades.SetPlayerUpgrades(player, data.convenienceUpgrades)
 				-- Count upgrades safely
@@ -461,7 +478,7 @@ local function onPlayerAdded(player: Player)
 				for _ in pairs(data.convenienceUpgrades) do
 					upgradeCount += 1
 				end
-				print(string.format("✓ Restored %d convenience upgrades for %s", upgradeCount, player.Name))
+				print(string.format("✓ Late restored %d convenience upgrades for %s", upgradeCount, player.Name))
 			end
 		end
 		

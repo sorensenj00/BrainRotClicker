@@ -46,13 +46,41 @@ local PlotsFolder
 -- Templates
 local Templates = {}
 
+local function createPlaceholder(name, size, color)
+	local model = Instance.new("Model")
+	model.Name = name
+	local part = Instance.new("Part")
+	part.Name = "Primary"
+	part.Size = size
+	part.Color = color
+	part.Anchored = true
+	part.Parent = model
+	model.PrimaryPart = part
+	return model
+end
+
 local function initTemplates()
 	local function get(name)
 		return ServerStorage:FindFirstChild(name) or ReplicatedStorage:FindFirstChild(name)
 	end
+
 	Templates.MainIsland = get("MainIsland")
+	if not Templates.MainIsland then
+		warn("MapManager: MainIsland template not found, creating placeholder")
+		Templates.MainIsland = createPlaceholder("MainIsland", Vector3.new(100, 20, 100), Color3.fromRGB(50, 200, 50))
+	end
+
 	Templates.PlayerPlot = get("PlayerPlot")
+	if not Templates.PlayerPlot then
+		warn("MapManager: PlayerPlot template not found, creating placeholder")
+		Templates.PlayerPlot = createPlaceholder("PlayerPlot", Vector3.new(80, 15, 80), Color3.fromRGB(50, 200, 50))
+	end
+
 	Templates.Bridge = get("Bridge")
+	if not Templates.Bridge then
+		warn("MapManager: Bridge template not found, creating placeholder")
+		Templates.Bridge = createPlaceholder("Bridge", Vector3.new(10, 2, 50), Color3.fromRGB(139, 69, 19))
+	end
 end
 
 -- Math Helpers
@@ -145,9 +173,6 @@ local function spawnTierPlot(player, parentTier)
 	table.insert(parentTier.UsedSides, side)
 
 	-- Create Bridge/Stairs
-	-- Note: The logic for stairs vs flat bridge is simplified here.
-	-- Since new tiers are always higher, we should ideally use stairs or an angled bridge.
-	-- For this refactor, we'll use a simple angled bridge to ensure connectivity.
 	local bridge = Templates.Bridge:Clone()
 	bridge.Name = "Bridge_Tier_"..(#ts.Tiers+1)
 
@@ -172,7 +197,7 @@ local function spawnTierPlot(player, parentTier)
 		GridIndex = 0
 	}
 	table.insert(ts.Tiers, newTier)
-	ts.CurrentTier = newTier.TierIndex -- Update current tier pointer
+	ts.CurrentTier = newTier.TierIndex
 
 	return newTier
 end

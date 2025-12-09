@@ -100,7 +100,10 @@ local function updateButton(name)
 	local price = ShopConfig.CalculatePrice(name, count)
 	
 	btn.Price.Text = fmt(price)
-	btn.Badge.Text = tostring(count)
+	-- btn.Badge is a Frame, its child "Text" is the label
+	if btn:FindFirstChild("Badge") and btn.Badge:FindFirstChild("Text") then
+		btn.Badge.Text.Text = tostring(count)
+	end
 	
 	-- Income
 	local inc = ShopConfig.CalculateEffectiveIncome(name, count)
@@ -138,7 +141,7 @@ local function createButton(name, cfg, order, locked)
 		l.Font = Enum.Font.GothamBold l.TextSize = 14 l.TextXAlignment = Enum.TextXAlignment.Left
 		return l
 	end
-	
+
 	if locked then
 		txt("Name", UDim2.new(0,10,0,10), UDim2.new(1,-20,1,-20), "???", UI_CONFIG.COLORS.DISABLED).TextSize = 24
 	else

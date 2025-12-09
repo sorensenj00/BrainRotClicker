@@ -58,7 +58,9 @@ local CAM_ANGLE = 45
 --------------------------------------------------------------------------------
 
 local function updateStatus(text)
-	if state.gui then state.gui.BottomBar.Status.Text = text end
+	if state.gui and state.gui:FindFirstChild("BottomBar") and state.gui.BottomBar:FindFirstChild("Status") then
+		state.gui.BottomBar.Status.Text = text
+	end
 end
 
 local function getPlotInfo()
@@ -134,7 +136,11 @@ local function renderGrid()
 		local xOff, zOff = GridConfig.GetSlotOffset(slotIndex, size.X, size.Z)
 		local pos = Vector3.new(center.X + xOff, plotTopY, center.Z + zOff)
 		
-		local unitName = gridData.slots[tostring(slotIndex)] or gridData.slots[slotIndex] -- handle string keys from server
+		local unitName = gridData.slots["1"] and gridData.slots["1"][tostring(slotIndex)] -- Support nested tier 1
+		if not unitName then -- Support legacy flat structure
+			unitName = gridData.slots[tostring(slotIndex)] or gridData.slots[slotIndex]
+		end
+
 		local tile = createTile(slotIndex, pos, unitName ~= nil, unitName)
 		tile.Parent = state.gridFolder
 		state.tiles[slotIndex] = tile
@@ -150,7 +156,17 @@ end
 local function createGhost(unitName)
 	if state.ghost then state.ghost:Destroy() end
 	
-	local model = BrainrotsFolder:FindFirstChild(unitName) or ReplicatedStorage.Units:FindFirstChild(unitName)
+	-- Try to find model in Brainrots folder first
+	local model = BrainrotsFolder:FindFirstChild(unitName)
+
+	-- Fallback to Units folder if it exists
+	if not model then
+		local unitsFolder = ReplicatedStorage:FindFirstChild("Units")
+		if unitsFolder then
+			model = unitsFolder:FindFirstChild(unitName)
+		end
+	end
+
 	local ghost = model and model:Clone() or Instance.new("Model")
 	
 	if not model then
@@ -233,12 +249,12 @@ local function endDrag()
 		local occupied = tile:GetAttribute("Occupied")
 		
 		if data.fromSlot then
-			-- Move/Swap
+			-- Move/Swap (Tier 1 fixed for now)
 			if slot ~= data.fromSlot then
 				if occupied then
-					SwapUnits:InvokeServer(data.fromSlot, slot)
+					SwapUnits:InvokeServer(1, data.fromSlot, slot)
 				else
-					MoveUnit:InvokeServer(data.fromSlot, slot)
+					MoveUnit:InvokeServer(1, data.fromSlot, slot)
 				end
 			end
 		else

@@ -286,7 +286,14 @@ local function getSlotCFrame(player, slotIndex)
 	local posX = plotCenter.X + corner.x + (localCol - 0.5) * TILE_SPACING
 	local posZ = plotCenter.Z + corner.z + (localRow - 0.5) * TILE_SPACING
 	
-	return CFrame.new(posX, posY, posZ)
+	-- Calculate rotation to face plot center
+	local unitPos = Vector3.new(posX, posY, posZ)
+	local lookDirection = (plotCenter - unitPos) * Vector3.new(1, 0, 1) -- Flatten Y
+	
+	-- Face center
+	local rotation = CFrame.lookAt(unitPos, unitPos + lookDirection)
+	
+	return rotation
 end
 
 --------------------------------------------------------------------------------
@@ -610,6 +617,27 @@ local function getGridData(player)
 end
 
 --[[
+	Gets grid positions for DataManager persistence.
+	Returns a table mapping slot indices to unit info.
+	@param player Player
+	@return table {[slotIndex]: {unitType, rarity}}
+]]
+local function getGridPositions(player)
+	local gridData = getPlayerGrid(player)
+	local positions = {}
+	
+	for slotIndex, brainrot in pairs(gridData.slots) do
+		positions[tostring(slotIndex)] = {
+			unitType = brainrot:GetAttribute("UnitType"),
+			rarity = brainrot:GetAttribute("Rarity") or "Normal",
+			unitId = brainrot:GetAttribute("UnitId"),
+		}
+	end
+	
+	return positions
+end
+
+--[[
 	Sets grid data from saved data.
 	@param player Player
 	@param data table
@@ -698,6 +726,7 @@ _G.GridManager = {
 	
 	-- Data persistence
 	GetGridData = getGridData,
+	GetGridPositions = getGridPositions,
 	SetGridData = setGridData,
 	SetGridSize = setGridSize,
 	

@@ -49,9 +49,13 @@ local function positionCamera(camera: Camera, model: Model, size: Vector3)
 	local fovRad = math.rad(CONFIG.CAMERA_FOV / 2)
 	local distance = (maxDimension / 2) / math.tan(fovRad) * 1.5
 	
-	-- Position camera at angle looking at model center
-	local cameraOffset = Vector3.new(distance * 0.7, distance * 0.3, distance * 0.7)
-	camera.CFrame = CFrame.new(cf.Position + cameraOffset, cf.Position)
+	-- Position camera higher and looking down at model center
+	local cameraOffset = Vector3.new(distance * 0.6, distance * 0.6, distance * 0.6)
+	
+	-- Look slightly higher than center to frame the head better
+	local targetPos = cf.Position + Vector3.new(0, size.Y * 0.1, 0)
+	
+	camera.CFrame = CFrame.new(cf.Position + cameraOffset, targetPos)
 	camera.FieldOfView = CONFIG.CAMERA_FOV
 end
 

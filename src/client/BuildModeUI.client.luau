@@ -8,10 +8,6 @@
 	- Isometric camera view of plot
 	- Grid visualization with drag-and-drop
 	- Ghost preview when dragging units
-	- Unit bar showing available brainrots
-	- Synergy previews when placing
-	
-	Part of Phase 2B: Build Mode system.
 ]]
 
 -- Services
@@ -20,6 +16,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
 
 -- Player
 local LocalPlayer = Players.LocalPlayer
@@ -102,6 +99,11 @@ local dragConnection = nil  -- Mouse move connection during drag
 -- Modules
 local ViewportPreview = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ViewportPreview"))
 
+-- Model folder for 3D previews
+local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
+
+-- Track inventory previews for cleanup
+local inventoryPreviews = {}
 -- Forward declarations
 local exitBuildModeLocal
 local refreshInventoryPanel
@@ -709,17 +711,22 @@ end
 	Refreshes inventory panel with current data.
 ]]
 refreshInventoryPanel = function()
-	print("BuildModeUI: refreshInventoryPanel called")
 	if not inventoryPanel then 
-		print("BuildModeUI: inventoryPanel is nil!")
 		return 
 	end
 	
 	local scrollFrame = inventoryPanel:FindFirstChild("ItemsList")
 	if not scrollFrame then 
-		print("BuildModeUI: scrollFrame not found!")
 		return 
 	end
+	
+	-- Cleanup old 3D previews
+	for _, preview in ipairs(inventoryPreviews) do
+		if preview.Destroy then
+			preview:Destroy()
+		end
+	end
+	inventoryPreviews = {}
 	
 	-- Clear old items (keep TextLabels for empty message)
 	for _, child in scrollFrame:GetChildren() do
@@ -768,20 +775,52 @@ refreshInventoryPanel = function()
 				stroke.Thickness = 1
 				stroke.Parent = card
 				
-				-- Icon
-				local icon = Instance.new("TextLabel")
-				icon.Name = "Icon"
-				icon.Size = UDim2.new(0, 36, 0, 36)
-				icon.Position = UDim2.new(0, 6, 0.5, -18)
-				icon.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
-				icon.Text = "🧠"
-				icon.TextSize = 18
-				icon.TextColor3 = rarityColor
-				icon.Parent = card
+				-- Icon container (Draggable)
+				local iconFrame = Instance.new("Frame")
+				iconFrame.Name = "IconFrame"
+				iconFrame.Size = UDim2.new(0, 44, 0, 44)
+				iconFrame.Position = UDim2.new(0, 4, 0.5, -22)
+				iconFrame.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
+				iconFrame.Parent = card
 				
 				local iconCorner = Instance.new("UICorner")
-				iconCorner.CornerRadius = UDim.new(0, 4)
-				iconCorner.Parent = icon
+				iconCorner.CornerRadius = UDim.new(0, 6)
+				iconCorner.Parent = iconFrame
+				
+				-- Try to create 3D preview, fallback to emoji
+				local brainrotTemplate = BrainrotsFolder:FindFirstChild(unitName)
+				if brainrotTemplate then
+					local preview = ViewportPreview.Create(brainrotTemplate, iconFrame)
+					-- Store for cleanup
+					if not inventoryPreviews then
+						inventoryPreviews = {}
+					end
+					table.insert(inventoryPreviews, preview)
+				else
+					-- Fallback emoji
+					local emoji = Instance.new("TextLabel")
+					emoji.Size = UDim2.new(1, 0, 1, 0)
+					emoji.BackgroundTransparency = 1
+					emoji.Text = "🧠"
+					emoji.TextSize = 22
+					emoji.TextColor3 = rarityColor
+					emoji.Parent = iconFrame
+				end
+				
+				-- Invisible drag button overlay
+				local dragButton = Instance.new("TextButton")
+				dragButton.Name = "DragButton"
+				dragButton.Size = UDim2.new(1, 0, 1, 0)
+				dragButton.BackgroundTransparency = 1
+				dragButton.Text = ""
+				dragButton.Parent = iconFrame
+				
+				-- Connect drag to button
+				dragButton.MouseButton1Down:Connect(function()
+					if storedCount > 0 then
+						startDrag(unitName, rarity)
+					end
+				end)
 				
 				-- Name
 				local nameLabel = Instance.new("TextLabel")
@@ -857,7 +896,7 @@ refreshInventoryPanel = function()
 				cardCount = cardCount + 1
 				
 				-- Setup place/drag button - starts drag operation
-				placeBtn.MouseButton1Click:Connect(function()
+				placeBtn.MouseButton1Down:Connect(function()
 					print("BuildModeUI: Place button clicked for", unitName, "storedCount:", storedCount)
 					if storedCount <= 0 then 
 						print("BuildModeUI: No stored units, returning")
@@ -909,17 +948,25 @@ local GHOST_INVALID_COLOR = Color3.fromRGB(255, 80, 80)
 	Gets the brainrot model from ReplicatedStorage.
 ]]
 local function getBrainrotModel(unitName: string): Model?
+	-- Check main Brainrots folder first (same as inventory preview)
+	if BrainrotsFolder then
+		local model = BrainrotsFolder:FindFirstChild(unitName)
+		if model then return model end
+	end
+	
+	-- Fallback: Check Units folder
 	local unitsFolder = ReplicatedStorage:FindFirstChild("Units")
 	if unitsFolder then
 		local model = unitsFolder:FindFirstChild(unitName)
 		if model then return model end
 	end
 	
+	-- Fallback: Check Assets/Brainrots
 	local assetsFolder = ReplicatedStorage:FindFirstChild("Assets")
 	if assetsFolder then
-		local brainrotsFolder = assetsFolder:FindFirstChild("Brainrots")
-		if brainrotsFolder then
-			local model = brainrotsFolder:FindFirstChild(unitName)
+		local brainrotsSubfolder = assetsFolder:FindFirstChild("Brainrots")
+		if brainrotsSubfolder then
+			local model = brainrotsSubfolder:FindFirstChild(unitName)
 			if model then return model end
 		end
 	end
@@ -954,9 +1001,24 @@ end
 ]]
 local function createPlacementGhost(unitName: string): Model?
 	local originalModel = getBrainrotModel(unitName)
-	if not originalModel then return nil end
 	
-	local ghost = originalModel:Clone()
+	local ghost
+	if originalModel then
+		ghost = originalModel:Clone()
+	else
+		-- Fallback ghost (model not in Brainrots folder)
+		ghost = Instance.new("Model")
+		local part = Instance.new("Part")
+		part.Name = "GhostPart"
+		part.Size = Vector3.new(3, 5, 3)
+		part.Transparency = 0.4
+		part.Color = CONFIG.OCCUPIED_COLOR or Color3.new(0, 1, 0)
+		part.Anchored = true
+		part.CanCollide = false
+		part.Parent = ghost
+		ghost.PrimaryPart = part
+	end
+	
 	ghost.Name = "PlacementGhost"
 	
 	-- Make ghost semi-transparent and green
@@ -1199,29 +1261,83 @@ end
 	Returns the model and its slot index if found.
 ]]
 local function getBrainrotUnderMouse(): (Model?, number?)
-	local mouse = LocalPlayer:GetMouse()
-	local ray = camera:ScreenPointToRay(mouse.X, mouse.Y)
+	local mousePos = UserInputService:GetMouseLocation()
 	
-	local raycastParams = RaycastParams.new()
-	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
-	raycastParams.FilterDescendantsInstances = {LocalPlayer.Character, gridContainer}
+	-- Get all brainrots and check if we're clicking on any
+	local brainrots = CollectionService:GetTagged("ActiveBrainrot")
 	
-	local result = workspace:Raycast(ray.Origin, ray.Direction * 500, raycastParams)
-	if result and result.Instance then
-		-- Walk up to find the model
-		local current = result.Instance
-		while current and current ~= workspace do
-			if current:IsA("Model") then
-				local slotIndex = current:GetAttribute("GridSlot")
-				if slotIndex then
-					return current, slotIndex
-				end
+	local closestBrainrot = nil
+	local closestSlot = nil
+	local closestDist = math.huge
+	
+	for _, brainrot in brainrots do
+		local ownerId = brainrot:GetAttribute("OwnerId")
+		local slotIndex = brainrot:GetAttribute("GridSlot")
+		
+		-- Only check brainrots owned by this player
+		if ownerId ~= LocalPlayer.UserId then
+			continue
+		end
+		
+		if not slotIndex then 
+			continue 
+		end
+		
+		-- Get brainrot position
+		local brainrotPos
+		if brainrot:IsA("Model") then
+			if brainrot.PrimaryPart then
+				brainrotPos = brainrot.PrimaryPart.Position
+			else
+				brainrotPos = brainrot:GetPivot().Position
 			end
-			current = current.Parent
+		elseif brainrot:IsA("BasePart") then
+			brainrotPos = brainrot.Position
+		end
+		
+		if not brainrotPos then 
+			continue 
+		end
+		
+		-- Project to screen
+		local screenPos, onScreen = camera:WorldToViewportPoint(brainrotPos)
+		
+		if not onScreen then continue end
+		
+		-- Check distance from mouse to brainrot's screen position
+		local screenDist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+		
+		-- Use a generous click radius (80 pixels)
+		if screenDist < 80 and screenDist < closestDist then
+			closestDist = screenDist
+			closestBrainrot = brainrot
+			closestSlot = slotIndex
 		end
 	end
 	
-	return nil, nil
+	return closestBrainrot, closestSlot
+end
+
+--[[
+	Toggles visibility of all visual elements in a model.
+]]
+local function setVisualsEnabled(model: Model, enabled: boolean)
+	for _, descendant in model:GetDescendants() do
+		-- Ignore VfxInstance (should always remain hidden)
+		if descendant.Name == "VfxInstance" then
+			continue
+		end
+		
+		if descendant:IsA("BasePart") then
+			descendant.Transparency = enabled and 0 or 1
+		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
+			descendant.Transparency = enabled and 0 or 1
+		elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Trail") or descendant:IsA("Beam") then
+			descendant.Enabled = enabled
+		elseif descendant:IsA("LayerCollector") then -- SurfaceGui, BillboardGui
+			descendant.Enabled = enabled
+		end
+	end
 end
 
 --[[
@@ -1232,34 +1348,63 @@ local function startDragFromWorld(brainrotModel: Model, slotIndex: number)
 	
 	isDragging = true
 	draggedUnit = {
-		name = brainrotModel:GetAttribute("UnitName") or brainrotModel.Name:match("^(%w+)_"),
+		name = brainrotModel:GetAttribute("UnitType") or brainrotModel.Name,
 		rarity = brainrotModel:GetAttribute("Rarity") or "Normal",
 		fromSlot = slotIndex,
-		isFromWorld = true
+		isFromWorld = true,
+		originalModel = brainrotModel
 	}
 	
-	print("BuildModeUI: Started dragging", draggedUnit.name, "from slot", slotIndex)
 	updateStatus("🎯 Drag to new slot or inventory panel to store")
+	
+	-- Create placement ghost
+	createPlacementGhost(draggedUnit.name)
+	
+	-- Hide the original model while dragging
+	if brainrotModel then
+		setVisualsEnabled(brainrotModel, false)
+	end
 	
 	-- Highlight the source slot
 	if gridTiles[slotIndex] then
 		highlightTile(slotIndex, CONFIG.SELECTED_COLOR)
 	end
 	
-	-- Connect mouse move to track hovered slot
+	-- Connect mouse move to track hovered slot and update ghost
 	dragConnection = RunService.RenderStepped:Connect(function()
 		if not isDragging then return end
 		
 		local slot = getSlotUnderMouse()
 		
-		if slot and slot ~= draggedUnit.fromSlot then
+		-- Update ghost position
+		if placementGhost and slot then
+			moveGhostToSlot(slot)
+			
 			local tile = gridTiles[slot]
 			local isOccupied = tile and tile:GetAttribute("IsOccupied")
 			
-			if isOccupied then
+			-- Don't show as invalid if it's our own source slot
+			if slot == draggedUnit.fromSlot then
+				startGhostPulse()
+			elseif isOccupied then
+				setGhostInvalid()
 				highlightTile(slot, CONFIG.INVALID_COLOR)
 			else
+				startGhostPulse()
 				highlightTile(slot, CONFIG.HOVER_COLOR)
+			end
+		elseif placementGhost then
+			-- Mouse not over grid - check if over inventory
+			local mouse = LocalPlayer:GetMouse()
+			if inventoryPanel then
+				local panelPos = inventoryPanel.AbsolutePosition
+				local panelSize = inventoryPanel.AbsoluteSize
+				if mouse.X >= panelPos.X and mouse.X <= panelPos.X + panelSize.X and
+				   mouse.Y >= panelPos.Y and mouse.Y <= panelPos.Y + panelSize.Y then
+					startGhostPulse() -- Valid to drop on inventory
+				else
+					setGhostInvalid()
+				end
 			end
 		end
 	end)
@@ -1281,6 +1426,8 @@ local function completeDragFromWorld()
 	if inventoryPanel then
 		local panelPos = inventoryPanel.AbsolutePosition
 		local panelSize = inventoryPanel.AbsoluteSize
+
+		
 		if mouse.X >= panelPos.X and mouse.X <= panelPos.X + panelSize.X and
 		   mouse.Y >= panelPos.Y and mouse.Y <= panelPos.Y + panelSize.Y then
 			-- Drop on inventory - remove from grid to storage
@@ -1332,6 +1479,11 @@ local function completeDragFromWorld()
 		updateStatus("Drag cancelled")
 	end
 	
+	-- Restore original model visibility
+	if draggedUnit and draggedUnit.originalModel and draggedUnit.originalModel.Parent then
+		setVisualsEnabled(draggedUnit.originalModel, true)
+	end
+
 	-- Cleanup
 	isDragging = false
 	draggedUnit = nil
@@ -1339,6 +1491,9 @@ local function completeDragFromWorld()
 		dragConnection:Disconnect()
 		dragConnection = nil
 	end
+	
+	-- Destroy ghost
+	destroyPlacementGhost()
 	
 	-- Unhighlight source
 	if gridTiles[sourceSlot] then
@@ -1363,7 +1518,7 @@ getSlotUnderMouse = function()
 	raycastParams.FilterType = Enum.RaycastFilterType.Include
 	raycastParams.FilterDescendantsInstances = {gridContainer}
 	
-	local result = workspace:Raycast(ray.Origin, ray.Direction * 500, raycastParams)
+	local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, raycastParams)
 	if result and result.Instance then
 		return result.Instance:GetAttribute("SlotIndex")
 	end
@@ -1581,11 +1736,11 @@ end
 -- INPUT HANDLING
 --------------------------------------------------------------------------------
 
--- G key to toggle
+-- G or Tab key to toggle
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	
-	if input.KeyCode == Enum.KeyCode.G then
+	if input.KeyCode == Enum.KeyCode.G or input.KeyCode == Enum.KeyCode.Tab then
 		toggleBuildMode()
 	elseif input.KeyCode == Enum.KeyCode.Escape and isInBuildMode then
 		exitBuildModeLocal()

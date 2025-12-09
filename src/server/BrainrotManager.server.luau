@@ -378,9 +378,10 @@ end
 	
 	@param player Player - The player who is spawning the brainrot
 	@param brainrotName string? - Optional specific brainrot name (defaults to "Avocadini Guffo")
+	@param targetSlot number? - Optional specific slot to place in (if nil, finds first empty)
 	@return Model? - The spawned brainrot model, or nil if failed
 ]]
-local function spawnBrainrot(player: Player, brainrotName: string?): Model?
+local function spawnBrainrot(player: Player, brainrotName: string?, targetSlot: number?): Model?
 	local nameToSpawn = brainrotName or "Avocadini Guffo"
 	
 	-- Wait for MapSystem to be available
@@ -503,13 +504,13 @@ local function spawnBrainrot(player: Player, brainrotName: string?): Model?
 	
 	-- PHASE 2: Register with GridManager if available
 	if _G.GridManager then
-		local emptySlot = _G.GridManager.FindEmptySlot(player)
-		if emptySlot then
-			local success = _G.GridManager.PlaceUnit(player, brainrot, emptySlot)
+		local slotToUse = targetSlot or _G.GridManager.FindEmptySlot(player)
+		if slotToUse then
+			local success = _G.GridManager.PlaceUnit(player, brainrot, slotToUse)
 			if success then
-				print(string.format("  📍 Placed on Grid slot %d", emptySlot))
+				print(string.format("  📍 Placed on Grid slot %d", slotToUse))
 				-- Update CFrame to grid position
-				local gridCFrame = _G.GridManager.GetSlotCFrame(player, emptySlot)
+				local gridCFrame = _G.GridManager.GetSlotCFrame(player, slotToUse)
 				if brainrot:IsA("Model") and brainrot.PrimaryPart then
 					brainrot:SetPrimaryPartCFrame(gridCFrame)
 				elseif brainrot:IsA("BasePart") then
@@ -540,6 +541,12 @@ local function spawnBrainrot(player: Player, brainrotName: string?): Model?
 		brainrotsContainer:GetFullName(), 
 		descendantCount,
 		math.floor(position.X), math.floor(position.Y), math.floor(position.Z)))
+	
+	-- Hide VfxInstance blob if present
+	local vfx = brainrot:FindFirstChild("VfxInstance", true)
+	if vfx and vfx:IsA("BasePart") then
+		vfx.Transparency = 1
+	end
 	
 	return brainrot
 end
@@ -878,7 +885,7 @@ end
 	@param rarity string - The rarity to place
 	@return boolean, string? - Success and error message
 ]]
-local function placeBrainrotFromInventory(player: Player, unitName: string, rarity: string): (boolean, string?)
+local function placeBrainrotFromInventory(player: Player, unitName: string, rarity: string, slotIndex: number?): (boolean, string?)
 	local inventory = PlayerInventory[player]
 	if not inventory or not inventory[unitName] or not inventory[unitName][rarity] then
 		return false, "Unit not in inventory"
@@ -891,8 +898,8 @@ local function placeBrainrotFromInventory(player: Player, unitName: string, rari
 		return false, "No inactive brainrots of this rarity to place"
 	end
 	
-	-- Spawn a new brainrot on the plot with the specified rarity
-	local brainrot = spawnBrainrot(player, unitName)
+	-- Spawn a new brainrot on the plot with the specified rarity and slot
+	local brainrot = spawnBrainrot(player, unitName, slotIndex)
 	if not brainrot then
 		return false, "Failed to spawn brainrot"
 	end
@@ -959,6 +966,12 @@ local function removeBrainrotToInventory(player: Player, unitName: string, rarit
 		return false, "Could not find brainrot to remove"
 	end
 	
+	-- Clear the grid slot before destroying
+	local gridSlot = foundBrainrot:GetAttribute("GridSlot")
+	if gridSlot and _G.GridManager and _G.GridManager.StashUnit then
+		_G.GridManager.StashUnit(player, gridSlot)
+	end
+	
 	-- Destroy the brainrot model
 	foundBrainrot:Destroy()
 	
@@ -995,8 +1008,8 @@ GetInventoryRemote.OnServerInvoke = function(player: Player)
 	}
 end
 
-PlaceBrainrotRemote.OnServerInvoke = function(player: Player, unitName: string, rarity: string)
-	return placeBrainrotFromInventory(player, unitName, rarity)
+PlaceBrainrotRemote.OnServerInvoke = function(player: Player, unitName: string, rarity: string, slotIndex: number?)
+	return placeBrainrotFromInventory(player, unitName, rarity, slotIndex)
 end
 
 RemoveBrainrotRemote.OnServerInvoke = function(player: Player, unitName: string, rarity: string)
@@ -1030,7 +1043,7 @@ end
 	@param player Player - The player to get placement data for
 	@return table - Array of placement data objects
 ]]
-local function getPlacementData(player: Player): {{unitType: string, rarity: string, tierIndex: number, incomeAmount: number, incomeInterval: number}}
+local function getPlacementData(player: Player)
 	local placements = {}
 	
 	for _, brainrot in CollectionService:GetTagged(BRAINROT_TAG) do
@@ -1041,6 +1054,7 @@ local function getPlacementData(player: Player): {{unitType: string, rarity: str
 				tierIndex = brainrot:GetAttribute("TierIndex") or 1,
 				incomeAmount = brainrot:GetAttribute("IncomeAmount") or CONFIG.INCOME_AMOUNT,
 				incomeInterval = brainrot:GetAttribute("IncomeInterval") or CONFIG.INCOME_INTERVAL,
+				gridSlot = brainrot:GetAttribute("GridSlot"), -- Persist grid position
 			})
 		end
 	end
@@ -1056,8 +1070,9 @@ end
 	@param placementData table - The saved placement data
 	@return Model? - The spawned brainrot model
 ]]
-local function spawnFromPlacement(player: Player, placementData: {unitType: string, rarity: string, tierIndex: number, incomeAmount: number, incomeInterval: number}): Model?
-	local brainrot = spawnBrainrot(player, placementData.unitType)
+local function spawnFromPlacement(player: Player, placementData): Model?
+	-- Pass saved gridSlot to spawnBrainrot to restore position
+	local brainrot = spawnBrainrot(player, placementData.unitType, placementData.gridSlot)
 	if not brainrot then
 		return nil
 	end

@@ -522,26 +522,50 @@ local function onPlayerAdded(player: Player)
 			end
 		elseif data.ownedUnits then
 			-- Fallback: Spawn from ownedUnits if no placement data (old save format)
+			local inventoryData = {}
+			
 			for unitName, count in data.ownedUnits do
 				if count >= 1 then
-					local unitConfig = ShopConfig.GetConfig(unitName)
-					if unitConfig then
-						local spawnedUnit = BrainrotManager.SpawnBrainrot(player, unitConfig.ModelName)
-						if spawnedUnit then
-							-- Use milestone-aware income/cycle calculations
-							local effectiveIncome = ShopConfig.CalculateEffectiveIncome(unitName, count)
-							local effectiveCycleTime = ShopConfig.CalculateEffectiveCycleTime(unitName, count)
-							
-							spawnedUnit:SetAttribute("IncomeAmount", effectiveIncome)
-							spawnedUnit:SetAttribute("IncomeInterval", effectiveCycleTime)
-							spawnedUnit:SetAttribute("UnitType", unitName)
-							spawnedCount += 1
+					-- Initialize inventory entry
+					if not inventoryData[unitName] then inventoryData[unitName] = {} end
+					if not inventoryData[unitName]["Normal"] then 
+						inventoryData[unitName]["Normal"] = {total = 0, active = 0} 
+					end
+					
+					-- Update totals
+					inventoryData[unitName]["Normal"].total = count
+					
+					-- Spawn units
+					for i = 1, count do
+						local unitConfig = ShopConfig.GetConfig(unitName)
+						if unitConfig then
+							local spawnedUnit = BrainrotManager.SpawnBrainrot(player, unitConfig.ModelName)
+							if spawnedUnit then
+								-- Use milestone-aware income/cycle calculations
+								local effectiveIncome = ShopConfig.CalculateEffectiveIncome(unitName, count)
+								local effectiveCycleTime = ShopConfig.CalculateEffectiveCycleTime(unitName, count)
+								
+								spawnedUnit:SetAttribute("IncomeAmount", effectiveIncome)
+								spawnedUnit:SetAttribute("IncomeInterval", effectiveCycleTime)
+								spawnedUnit:SetAttribute("UnitType", unitName)
+								spawnedUnit:SetAttribute("Rarity", "Normal") -- Default to Normal for legacy
+								spawnedCount += 1
+								
+								-- Update active count
+								inventoryData[unitName]["Normal"].active += 1
+							end
 						end
 					end
 				end
 			end
+			
+			-- Set the inventory data in BrainrotManager
+			if BrainrotManager.SetInventoryData then
+				BrainrotManager.SetInventoryData(player, inventoryData)
+			end
+			
 			if spawnedCount > 0 then
-				print(string.format("✓ Spawned %d owned brainrot models for %s (legacy format)", spawnedCount, player.Name))
+				print(string.format("✓ Spawned %d owned brainrot models for %s (legacy format) and updated inventory", spawnedCount, player.Name))
 			end
 		end
 		

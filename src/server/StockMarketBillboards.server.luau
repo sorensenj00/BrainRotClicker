@@ -14,7 +14,7 @@ local Workspace = game:GetService("Workspace")
 local BILLBOARD_CONFIG = {
 	SIZE = Vector3.new(80, 60, 2),     -- 80 wide, 60 tall, 2 thick
 	HEIGHT_OFFSET = 120,                -- Height above MainIsland
-	DISTANCE_FROM_CENTER = 150,         -- Distance from island center
+	DISTANCE_FROM_CENTER = 100,         -- Distance from island center (further back)
 	
 	-- Colors
 	FRAME_COLOR = Color3.fromRGB(30, 30, 40),

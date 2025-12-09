@@ -41,26 +41,53 @@ end
 local handlers = {}
 
 handlers.ResetPlot = function(player)
+	-- First, reset ALL DataStore data (money, upgrades, inventory, storage, prestige, etc.)
+	local DataManager = waitForSystem("DataManager")
+	if DataManager and DataManager.ResetPlayerData then
+		-- Pass false to NOT keep prestige data - this wipes EVERYTHING
+		DataManager.ResetPlayerData(player, false)
+		print("✓ Admin: Reset all DataStore data for " .. player.Name)
+	end
+	
+	-- Reset the physical plot
 	local MapSystem = waitForSystem("MapSystem")
 	if MapSystem and MapSystem.ResetPlayerPlot then
 		MapSystem.ResetPlayerPlot(player)
 		
-		-- Also clear inventory
+		-- Also clear inventory in memory
 		local BrainrotManager = waitForSystem("BrainrotManager")
 		if BrainrotManager and BrainrotManager.ClearPlayerInventory then
 			BrainrotManager.ClearPlayerInventory(player)
 		end
 		
-		-- Reset Money
+		-- Reset convenience upgrades in memory
+		local ConvenienceUpgrades = waitForSystem("ConvenienceUpgrades")
+		if ConvenienceUpgrades and ConvenienceUpgrades.ResetPlayerUpgrades then
+			ConvenienceUpgrades.ResetPlayerUpgrades(player)
+		end
+		
+		-- Reset shop data in memory
+		local ShopManager = waitForSystem("ShopManager")
+		if ShopManager and ShopManager.ResetPlayerData then
+			ShopManager.ResetPlayerData(player)
+		end
+		
+		-- Reset prestige data in memory
+		local PrestigeManager = waitForSystem("PrestigeManager")
+		if PrestigeManager and PrestigeManager.ResetPlayerData then
+			PrestigeManager.ResetPlayerData(player)
+		end
+		
+		-- Update leaderstats to reflect reset
 		local leaderstats = player:FindFirstChild("leaderstats")
 		if leaderstats then
 			local money = leaderstats:FindFirstChild("Money")
 			if money then
-				money.Value = 0
+				money.Value = 100 -- Default starting money
 			end
 		end
 		
-		return true, "Plot reset successfully"
+		return true, "Full data reset complete!"
 	end
 	return false, "MapSystem not available"
 end

@@ -19,6 +19,7 @@ local Player = Players.LocalPlayer
 
 -- Wait for ShopConfig (located in ReplicatedStorage.Shared per Rojo config)
 local ShopConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ShopConfig"))
+local ItemConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ItemConfig"))
 
 -- Configuration
 local HUD_CONFIG = {
@@ -37,7 +38,10 @@ local HUD_CONFIG = {
 	-- Floating text
 	FLOAT_DISTANCE = 40,
 	FLOAT_DURATION = 1.2,
-	TEXT_COLOR = Color3.fromRGB(100, 255, 100),
+	TEXT_COLOR = Color3.fromRGB(100, 200, 255),  -- Blue for items
+	
+	-- Item tier emojis
+	TIER_EMOJI = {"⚪", "🟡", "🟠", "💎"},
 }
 
 -- Tag
@@ -101,15 +105,15 @@ local function createProgressHUD(brainrot: Instance): BillboardGui
 	fillCorner.CornerRadius = UDim.new(0, HUD_CONFIG.CORNER_RADIUS)
 	fillCorner.Parent = barFill
 	
-	-- Income label (shows +$X)
+	-- Item type label (shows item name)
 	local incomeLabel = Instance.new("TextLabel")
-	incomeLabel.Name = "IncomeLabel"
+	incomeLabel.Name = "ItemLabel"
 	incomeLabel.Size = UDim2.new(1, 0, 0, 16)
 	incomeLabel.Position = UDim2.new(0, 0, 0, 0)
 	incomeLabel.BackgroundTransparency = 1
 	incomeLabel.Text = ""
 	incomeLabel.TextColor3 = HUD_CONFIG.TEXT_COLOR
-	incomeLabel.TextSize = 14
+	incomeLabel.TextSize = 12
 	incomeLabel.Font = Enum.Font.GothamBold
 	incomeLabel.TextStrokeTransparency = 0.5
 	incomeLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
@@ -122,20 +126,25 @@ local function createProgressHUD(brainrot: Instance): BillboardGui
 end
 
 --[[
-	Creates a floating "+$X" text that rises and fades.
+	Creates a floating item text that rises and fades.
 ]]
-local function createFloatingText(billboard: BillboardGui, amount: number)
+local function createFloatingText(billboard: BillboardGui, itemId: string)
 	local container = billboard:FindFirstChild("Container")
 	if not container then return end
+	
+	-- Get item info for display
+	local itemInfo = ItemConfig.Items[itemId]
+	local tier = itemInfo and itemInfo.tier or 1
+	local emoji = HUD_CONFIG.TIER_EMOJI[tier] or "⚪"
 	
 	local floatText = Instance.new("TextLabel")
 	floatText.Name = "FloatText"
 	floatText.Size = UDim2.new(1, 0, 0, 20)
 	floatText.Position = UDim2.new(0, 0, 0.5, -10)
 	floatText.BackgroundTransparency = 1
-	floatText.Text = "+$" .. tostring(amount)
+	floatText.Text = emoji .. " +1"
 	floatText.TextColor3 = HUD_CONFIG.TEXT_COLOR
-	floatText.TextSize = 18
+	floatText.TextSize = 16
 	floatText.Font = Enum.Font.GothamBold
 	floatText.TextStrokeTransparency = 0
 	floatText.TextStrokeColor3 = Color3.new(0, 0, 0)
@@ -200,24 +209,18 @@ local function getCycleTime(brainrot: Instance): number
 end
 
 --[[
-	Gets the income amount for a brainrot.
+	Gets the item produced by a brainrot based on its category.
 ]]
-local function getIncomeAmount(brainrot: Instance): number
-	local incomeAmount = brainrot:GetAttribute("IncomeAmount")
-	if incomeAmount then
-		return incomeAmount
-	end
-	
-	-- Fall back to ShopConfig
+local function getProducedItem(brainrot: Instance): string
 	local unitType = brainrot:GetAttribute("UnitType")
 	if unitType then
-		local config = ShopConfig.GetConfig(unitType)
-		if config then
-			return config.BaseIncome
+		local category = ItemConfig.BrainrotToCategory[unitType]
+		if category and ItemConfig.BrainrotItems[category] then
+			-- Return tier 1 item for display
+			return ItemConfig.BrainrotItems[category].tier1 or "Item"
 		end
 	end
-	
-	return 10
+	return "Item"
 end
 
 --[[
@@ -244,7 +247,7 @@ local function setupBrainrotHUD(brainrot: Instance)
 	
 	local billboard = createProgressHUD(brainrot)
 	local cycleTime = getCycleTime(brainrot)
-	local incomeAmount = getIncomeAmount(brainrot)
+	local producedItem = getProducedItem(brainrot)
 	
 	-- Use server's spawn time if available, otherwise use current time
 	local serverSpawnTime = brainrot:GetAttribute("SpawnTime")
@@ -254,14 +257,17 @@ local function setupBrainrotHUD(brainrot: Instance)
 		billboard = billboard,
 		startTime = startTime,
 		cycleTime = cycleTime,
-		incomeAmount = incomeAmount,
+		producedItem = producedItem,
 		lastCycle = 0,
 	}
 	
-	-- Update income label
-	local incomeLabel = billboard.Container:FindFirstChild("IncomeLabel")
-	if incomeLabel then
-		incomeLabel.Text = string.format("+$%d", incomeAmount)
+	-- Update item label
+	local itemLabel = billboard.Container:FindFirstChild("ItemLabel")
+	if itemLabel then
+		local itemInfo = ItemConfig.Items[producedItem]
+		local tier = itemInfo and itemInfo.tier or 1
+		local emoji = HUD_CONFIG.TIER_EMOJI[tier] or "⚪"
+		itemLabel.Text = emoji .. " " .. producedItem
 	end
 end
 
@@ -320,7 +326,7 @@ local function updateProgressBars()
 			
 			-- Play completion effects
 			pulseComplete(barFill)
-			createFloatingText(billboard, hudData.incomeAmount)
+			createFloatingText(billboard, hudData.producedItem)
 		end
 	end
 end

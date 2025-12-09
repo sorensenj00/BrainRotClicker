@@ -14,7 +14,7 @@ local RunService = game:GetService("RunService")
 
 -- Configuration
 local CONFIG = {
-	UPDATE_INTERVAL = 2, -- Seconds between updates
+	UPDATE_INTERVAL = 20, -- Seconds between updates
 	
 	-- Rate Range
 	MIN_RATE = 0.5,
@@ -122,7 +122,7 @@ local function updateMarket()
 	stockMarketFolder:SetAttribute("LastUpdate", os.time())
 	stockMarketFolder:SetAttribute("UpdateInterval", CONFIG.UPDATE_INTERVAL)
 	
-	print(string.format("📈 Stock Market: %.2fx (%s)", newRate, rateName))
+	--print(string.format("📈 Stock Market: %.2fx (%s)", newRate, rateName))
 end
 
 -- Initialize Attributes

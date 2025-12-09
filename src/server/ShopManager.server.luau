@@ -449,5 +449,41 @@ _G.ShopManager = {
 	GetPlayerOwnership = getPlayerOwnership,
 	GetUnlockProgress = getUnlockProgress,
 	SetPlayerData = setPlayerData,
+	ResetPlayerData = function(player: Player)
+		-- Reset unlock progress
+		PlayerUnlockProgress[player] = ShopConfig.INITIAL_UNLOCKED
+		
+		-- Reset owned units to 0
+		PlayerOwnedUnits[player] = {}
+		for unitName, _ in ShopConfig.Units do
+			PlayerOwnedUnits[player][unitName] = 0
+		end
+		
+		-- Update the IntValue for unlock progress
+		local unlockValue = player:FindFirstChild("UnlockProgress")
+		if unlockValue then
+			unlockValue.Value = ShopConfig.INITIAL_UNLOCKED
+		end
+		
+		-- Update owned unit IntValues
+		local ownedFolder = player:FindFirstChild("OwnedUnits")
+		if ownedFolder then
+			for unitName, _ in ShopConfig.Units do
+				local countValue = ownedFolder:FindFirstChild(unitName)
+				if countValue then
+					countValue.Value = 0
+				end
+			end
+		end
+		
+		-- Notify client
+		UnlockProgressChangedEvent:FireClient(player, ShopConfig.INITIAL_UNLOCKED)
+		for unitName, _ in ShopConfig.Units do
+			local price = ShopConfig.CalculatePrice(unitName, 0)
+			OwnershipChangedEvent:FireClient(player, unitName, 0, price)
+		end
+		
+		print(string.format("✓ Reset shop data for %s", player.Name))
+	end,
 }
 

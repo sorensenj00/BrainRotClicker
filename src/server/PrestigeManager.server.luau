@@ -378,6 +378,17 @@ _G.PrestigeManager = {
 	AddLifetimeEarnings = addLifetimeEarnings,
 	GetTotalIncomeMultiplier = getTotalIncomeMultiplier,
 	GetStartingMoneyBonus = getStartingMoneyBonus,
+	ResetPlayerData = function(player)
+		-- Reset prestige data to defaults
+		PrestigeData[player] = {
+			lifetimeEarnings = 0,
+			totalMeatballs = 0,
+			spentMeatballs = 0,
+			prestigeCount = 0,
+			meatballUpgrades = {},
+		}
+		print(string.format("✓ Reset prestige data for %s", player.Name))
+	end,
 }
 
 -- Handle players already in game (in case script loads late)

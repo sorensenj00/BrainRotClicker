@@ -666,4 +666,28 @@ _G.ConvenienceUpgrades = {
 		local upgrades = PlayerUpgrades[player.UserId] or {}
 		return hasEffect(upgrades, "TeleportHome")
 	end,
+	ResetPlayerUpgrades = function(player: Player)
+		-- Clear owned upgrades
+		PlayerUpgrades[player.UserId] = {}
+		
+		-- Destroy any collector bots
+		local bots = PlayerCollectorBots[player.UserId]
+		if bots then
+			for _, bot in bots do
+				bot:Destroy()
+			end
+		end
+		PlayerCollectorBots[player.UserId] = nil
+		
+		-- Reset character effects to defaults
+		applyCharacterEffects(player)
+		
+		-- Clear modifiers
+		player:SetAttribute("IncomeMultiplier", 1)
+		player:SetAttribute("CycleReduction", 0)
+		player:SetAttribute("LuckyChance", 0)
+		player:SetAttribute("CriticalChance", 0)
+		
+		print(string.format("✓ Reset convenience upgrades for %s", player.Name))
+	end,
 }

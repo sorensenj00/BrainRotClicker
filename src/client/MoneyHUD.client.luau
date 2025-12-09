@@ -27,7 +27,7 @@ local OwnershipChangedEvent = RemoteEvents:WaitForChild("OwnershipChanged")
 local UI_CONFIG = {
 	-- Panel positioning and size
 	PANEL_WIDTH = 220,
-	PANEL_HEIGHT = 225,
+	PANEL_HEIGHT = 290,  -- Increased for new buttons
 	PANEL_MARGIN = 20,
 	CORNER_RADIUS = 16,
 	
@@ -37,9 +37,9 @@ local UI_CONFIG = {
 	MONEY_COLOR = Color3.fromRGB(100, 255, 100),
 	MPS_COLOR = Color3.fromRGB(180, 180, 180),
 	LABEL_COLOR = Color3.fromRGB(120, 120, 140),
-	TANK_BG_COLOR = Color3.fromRGB(40, 40, 50),
-	TANK_FILL_COLOR = Color3.fromRGB(100, 200, 100),
-	TANK_FULL_COLOR = Color3.fromRGB(255, 100, 100),
+	ITEMS_BG_COLOR = Color3.fromRGB(40, 40, 50),
+	ITEMS_FILL_COLOR = Color3.fromRGB(100, 180, 255),  -- Blue for items
+	ITEMS_FULL_COLOR = Color3.fromRGB(255, 100, 100),
 	
 	-- Animation
 	TWEEN_TIME = 0.2,
@@ -152,46 +152,46 @@ local function createMoneyHUD(): ScreenGui
 	mpsLabel.TextXAlignment = Enum.TextXAlignment.Left
 	mpsLabel.Parent = hudPanel
 	
-	-- Storage tank container
-	local tankContainer = Instance.new("Frame")
-	tankContainer.Name = "TankContainer"
-	tankContainer.Size = UDim2.new(1, 0, 0, 24)
-	tankContainer.Position = UDim2.new(0, 0, 0, 60)
-	tankContainer.BackgroundTransparency = 1
-	tankContainer.Parent = hudPanel
+	-- Item storage container
+	local itemsContainer = Instance.new("Frame")
+	itemsContainer.Name = "ItemsContainer"
+	itemsContainer.Size = UDim2.new(1, 0, 0, 24)
+	itemsContainer.Position = UDim2.new(0, 0, 0, 60)
+	itemsContainer.BackgroundTransparency = 1
+	itemsContainer.Parent = hudPanel
 	
-	-- Tank bar background (fills container)
-	local tankBarBg = Instance.new("Frame")
-	tankBarBg.Name = "TankBarBg"
-	tankBarBg.Size = UDim2.new(1, 0, 1, 0)
-	tankBarBg.Position = UDim2.new(0, 0, 0, 0)
-	tankBarBg.BackgroundColor3 = UI_CONFIG.TANK_BG_COLOR
-	tankBarBg.BorderSizePixel = 0
-	tankBarBg.Parent = tankContainer
-	addCorner(tankBarBg, 6)
+	-- Items bar background (fills container)
+	local itemsBarBg = Instance.new("Frame")
+	itemsBarBg.Name = "ItemsBarBg"
+	itemsBarBg.Size = UDim2.new(1, 0, 1, 0)
+	itemsBarBg.Position = UDim2.new(0, 0, 0, 0)
+	itemsBarBg.BackgroundColor3 = UI_CONFIG.ITEMS_BG_COLOR
+	itemsBarBg.BorderSizePixel = 0
+	itemsBarBg.Parent = itemsContainer
+	addCorner(itemsBarBg, 6)
 	
-	-- Tank bar fill
-	local tankBarFill = Instance.new("Frame")
-	tankBarFill.Name = "TankBarFill"
-	tankBarFill.Size = UDim2.new(0, 0, 1, 0) -- Start empty
-	tankBarFill.Position = UDim2.new(0, 0, 0, 0)
-	tankBarFill.BackgroundColor3 = UI_CONFIG.TANK_FILL_COLOR
-	tankBarFill.BorderSizePixel = 0
-	tankBarFill.Parent = tankBarBg
-	addCorner(tankBarFill, 6)
+	-- Items bar fill
+	local itemsBarFill = Instance.new("Frame")
+	itemsBarFill.Name = "ItemsBarFill"
+	itemsBarFill.Size = UDim2.new(0, 0, 1, 0) -- Start empty
+	itemsBarFill.Position = UDim2.new(0, 0, 0, 0)
+	itemsBarFill.BackgroundColor3 = UI_CONFIG.ITEMS_FILL_COLOR
+	itemsBarFill.BorderSizePixel = 0
+	itemsBarFill.Parent = itemsBarBg
+	addCorner(itemsBarFill, 6)
 	
-	-- Tank amount text (overlay on bar)
-	local tankAmountLabel = Instance.new("TextLabel")
-	tankAmountLabel.Name = "TankAmount"
-	tankAmountLabel.Size = UDim2.new(1, 0, 1, 0)
-	tankAmountLabel.Position = UDim2.new(0, 0, 0, 0)
-	tankAmountLabel.BackgroundTransparency = 1
-	tankAmountLabel.Text = "TANK: 0 / 500"
-	tankAmountLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	tankAmountLabel.TextSize = 11
-	tankAmountLabel.Font = Enum.Font.GothamBold
-	tankAmountLabel.ZIndex = 2
-	tankAmountLabel.Parent = tankBarBg
+	-- Items amount text (overlay on bar)
+	local itemsAmountLabel = Instance.new("TextLabel")
+	itemsAmountLabel.Name = "ItemsAmount"
+	itemsAmountLabel.Size = UDim2.new(1, 0, 1, 0)
+	itemsAmountLabel.Position = UDim2.new(0, 0, 0, 0)
+	itemsAmountLabel.BackgroundTransparency = 1
+	itemsAmountLabel.Text = "📦 ITEMS: 0 / 2000"
+	itemsAmountLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	itemsAmountLabel.TextSize = 11
+	itemsAmountLabel.Font = Enum.Font.GothamBold
+	itemsAmountLabel.ZIndex = 2
+	itemsAmountLabel.Parent = itemsBarBg
 	
 	-- Shop button (cart icon) 
 	local shopButton = Instance.new("TextButton")
@@ -235,6 +235,34 @@ local function createMoneyHUD(): ScreenGui
 	synergiesButton.Parent = hudPanel
 	addCorner(synergiesButton, 6)
 	
+	-- Transport button (NEW)
+	local transportButton = Instance.new("TextButton")
+	transportButton.Name = "TransportButton"
+	transportButton.Size = UDim2.new(1, 0, 0, 28)
+	transportButton.Position = UDim2.new(0, 0, 0, 191)
+	transportButton.BackgroundColor3 = Color3.fromRGB(80, 160, 200)
+	transportButton.BorderSizePixel = 0
+	transportButton.Text = "📦 Transport (T)"
+	transportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+	transportButton.TextSize = 12
+	transportButton.Font = Enum.Font.GothamBold
+	transportButton.Parent = hudPanel
+	addCorner(transportButton, 6)
+	
+	-- Market button (NEW)
+	local marketButton = Instance.new("TextButton")
+	marketButton.Name = "MarketButton"
+	marketButton.Size = UDim2.new(1, 0, 0, 28)
+	marketButton.Position = UDim2.new(0, 0, 0, 224)
+	marketButton.BackgroundColor3 = Color3.fromRGB(220, 170, 50)
+	marketButton.BorderSizePixel = 0
+	marketButton.Text = "🏪 Market (M)"
+	marketButton.TextColor3 = Color3.fromRGB(30, 30, 30)
+	marketButton.TextSize = 12
+	marketButton.Font = Enum.Font.GothamBold
+	marketButton.Parent = hudPanel
+	addCorner(marketButton, 6)
+	
 	return screenGui
 end
 
@@ -245,8 +273,8 @@ end
 local MoneyHUDGui: ScreenGui
 local MoneyLabel: TextLabel
 local MPSLabel: TextLabel
-local TankBarFill: Frame
-local TankAmountLabel: TextLabel
+local ItemsBarFill: Frame
+local ItemsAmountLabel: TextLabel
 
 local previousMoney: number = 0
 local cachedPlot: Instance? = nil
@@ -315,33 +343,33 @@ local function updateMoneyDisplay(newMoney: number)
 end
 
 --[[
-	Updates the tank bar fill and text based on current/max storage.
+	Updates the items bar fill and text based on current item storage.
 ]]
-local function updateTankDisplay(currentStorage: number, maxStorage: number)
-	if not TankBarFill or not TankAmountLabel then return end
+local function updateItemsDisplay(currentItems: number, maxItems: number)
+	if not ItemsBarFill or not ItemsAmountLabel then return end
 	
-	local fillPercent = math.clamp(currentStorage / maxStorage, 0, 1)
+	local fillPercent = math.clamp(currentItems / maxItems, 0, 1)
 	
 	-- Animate the fill bar width
-	TweenService:Create(TankBarFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
+	TweenService:Create(ItemsBarFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
 		Size = UDim2.new(fillPercent, 0, 1, 0)
 	}):Play()
 	
 	-- Update text
-	TankAmountLabel.Text = string.format("TANK: %d / %d", currentStorage, maxStorage)
+	ItemsAmountLabel.Text = string.format("📦 ITEMS: %d / %d", currentItems, maxItems)
 	
 	-- Change color based on fill level
 	local targetColor
 	if fillPercent >= 1 then
-		targetColor = UI_CONFIG.TANK_FULL_COLOR
+		targetColor = UI_CONFIG.ITEMS_FULL_COLOR
 	elseif fillPercent >= 0.75 then
 		-- Interpolate between fill and full color
-		targetColor = UI_CONFIG.TANK_FILL_COLOR:Lerp(UI_CONFIG.TANK_FULL_COLOR, (fillPercent - 0.75) / 0.25)
+		targetColor = UI_CONFIG.ITEMS_FILL_COLOR:Lerp(UI_CONFIG.ITEMS_FULL_COLOR, (fillPercent - 0.75) / 0.25)
 	else
-		targetColor = UI_CONFIG.TANK_FILL_COLOR
+		targetColor = UI_CONFIG.ITEMS_FILL_COLOR
 	end
 	
-	TweenService:Create(TankBarFill, TweenInfo.new(0.2), {
+	TweenService:Create(ItemsBarFill, TweenInfo.new(0.2), {
 		BackgroundColor3 = targetColor
 	}):Play()
 end
@@ -366,13 +394,13 @@ local function initialize()
 		end
 		MPSLabel = hudPanel:FindFirstChild("MPSLabel")
 		
-		-- Get tank bar references
-		local tankContainer = hudPanel:FindFirstChild("TankContainer")
-		if tankContainer then
-			local tankBarBg = tankContainer:FindFirstChild("TankBarBg")
-			if tankBarBg then
-				TankBarFill = tankBarBg:FindFirstChild("TankBarFill")
-				TankAmountLabel = tankBarBg:FindFirstChild("TankAmount")
+		-- Get items bar references (was tank bar)
+		local itemsContainer = hudPanel:FindFirstChild("ItemsContainer")
+		if itemsContainer then
+			local itemsBarBg = itemsContainer:FindFirstChild("ItemsBarBg")
+			if itemsBarBg then
+				ItemsBarFill = itemsBarBg:FindFirstChild("ItemsBarFill")
+				ItemsAmountLabel = itemsBarBg:FindFirstChild("ItemsAmount")
 			end
 		end
 	end
@@ -414,29 +442,20 @@ local function initialize()
 		warn("MoneyHUD: Could not find leaderstats")
 	end
 	
-	-- Poll for plot storage changes via RunService
-	local RunService = game:GetService("RunService")
-	local PlotsFolder = workspace:WaitForChild("Plots", 10)
-	
-	if PlotsFolder then
-		-- Find player's plot and poll its storage
-		RunService.Heartbeat:Connect(function()
-			-- Find player's plot (has OwnerId attribute matching our UserId)
-			if not cachedPlot then
-				for _, plot in PlotsFolder:GetChildren() do
-					if plot:GetAttribute("OwnerId") == Player.UserId then
-						cachedPlot = plot
-						break
-					end
-				end
-			end
-			
-			if cachedPlot then
-				local currentStorage = cachedPlot:GetAttribute("CurrentStorage") or 0
-				local maxStorage = cachedPlot:GetAttribute("MaxStorage") or 500
-				updateTankDisplay(currentStorage, maxStorage)
-			end
+	-- Listen for item storage updates (from ItemStorageManager)
+	local StorageUpdatedEvent = RemoteEvents:FindFirstChild("StorageUpdated")
+	if StorageUpdatedEvent then
+		StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
+			updateItemsDisplay(total or 0, capacity or 2000)
 		end)
+		-- Also fetch initial values
+		local GetStorageFunction = RemoteEvents:FindFirstChild("GetStorage")
+		if GetStorageFunction then
+			task.spawn(function()
+				local items, total, capacity = GetStorageFunction:InvokeServer()
+				updateItemsDisplay(total or 0, capacity or 2000)
+			end)
+		end
 	end
 	
 	-- Setup shop button click

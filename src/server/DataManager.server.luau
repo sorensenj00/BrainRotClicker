@@ -62,7 +62,7 @@ local function getDefaultData()
 		money = CONFIG.DEFAULT_MONEY,
 		ownedUnits = {},
 		unlockProgress = 5, -- 5 units unlocked initially (matches ShopConfig.INITIAL_UNLOCKED)
-		maxStorage = 500,   -- Default max storage
+		maxStorage = 500,   -- Default max storage (legacy)
 		purchasedTiers = 1, -- Number of purchased tiers (starts at 1)
 		convenienceUpgrades = {}, -- Purchased convenience upgrades
 		-- Prestige system data (never reset on prestige)
@@ -74,6 +74,14 @@ local function getDefaultData()
 		-- Brainrot persistence data
 		brainrotInventory = {},   -- Full inventory with rarities: {[unitName]: {[rarity]: {total, active}}}
 		brainrotPlacements = {},  -- Array of placed brainrots with positions/attributes
+		-- Item production system data (Sell a Brainrot)
+		itemStorage = {},         -- Items in plot storage: {[itemId]: count}
+		backpack = {},            -- Items in player's backpack: {[itemId]: count}
+		storageCapacity = 2000,   -- Current storage capacity (upgradeable)
+		selectedVehicle = "Sneakers", -- Currently selected transport vehicle
+		vehicleCapacities = {},   -- Vehicle upgrade levels: {[vehicleId]: capacity}
+		gridPositions = {},       -- Brainrot grid positions: {[slotIndex]: brainrotId}
+		discoveredSynergies = {}, -- Discovered synergy recipes: {[synergyId]: true}
 	}
 end
 
@@ -140,6 +148,28 @@ local function loadPlayerData(player: Player): {money: number, ownedUnits: {[str
 		end
 		if not result.brainrotPlacements then
 			result.brainrotPlacements = {}
+		end
+		-- Ensure item system data exists (for older saves)
+		if not result.itemStorage then
+			result.itemStorage = {}
+		end
+		if not result.backpack then
+			result.backpack = {}
+		end
+		if not result.storageCapacity then
+			result.storageCapacity = 2000
+		end
+		if not result.selectedVehicle then
+			result.selectedVehicle = "Sneakers"
+		end
+		if not result.vehicleCapacities then
+			result.vehicleCapacities = {}
+		end
+		if not result.gridPositions then
+			result.gridPositions = {}
+		end
+		if not result.discoveredSynergies then
+			result.discoveredSynergies = {}
 		end
 		print(string.format("✓ Loaded data for %s: $%d, %d units unlocked, %d max storage, %d meatballs, %d tiers", 
 			player.Name, result.money or 0, result.unlockProgress or 5, result.maxStorage, result.totalMeatballs, result.purchasedTiers))
@@ -279,6 +309,48 @@ function gatherPlayerData(player: Player): {money: number, ownedUnits: {[string]
 		brainrotPlacements = BrainrotManager.GetPlacementData(player) or {}
 	end
 	
+	-- Get item storage data
+	local itemStorage = {}
+	local backpack = {}
+	local storageCapacity = 2000
+	local selectedVehicle = "Sneakers"
+	local vehicleCapacities = {}
+	local gridPositions = {}
+	local discoveredSynergies = {}
+	
+	if _G.ItemStorageManager then
+		if _G.ItemStorageManager.GetStorageContents then
+			itemStorage = _G.ItemStorageManager.GetStorageContents(player) or {}
+		end
+		if _G.ItemStorageManager.GetBackpackContents then
+			backpack = _G.ItemStorageManager.GetBackpackContents(player) or {}
+		end
+		if _G.ItemStorageManager.GetStorageCapacity then
+			storageCapacity = _G.ItemStorageManager.GetStorageCapacity(player) or 2000
+		end
+	end
+	
+	if _G.TransportManager then
+		if _G.TransportManager.GetSelectedVehicle then
+			selectedVehicle = _G.TransportManager.GetSelectedVehicle(player) or "Sneakers"
+		end
+		if _G.TransportManager.GetVehicleCapacities then
+			vehicleCapacities = _G.TransportManager.GetVehicleCapacities(player) or {}
+		end
+	end
+	
+	if _G.GridManager then
+		if _G.GridManager.GetGridPositions then
+			gridPositions = _G.GridManager.GetGridPositions(player) or {}
+		end
+	end
+	
+	if _G.AdjacencySynergyManager then
+		if _G.AdjacencySynergyManager.GetDiscoveredSynergies then
+			discoveredSynergies = _G.AdjacencySynergyManager.GetDiscoveredSynergies(player) or {}
+		end
+	end
+	
 	return {
 		money = money,
 		ownedUnits = ownedUnits,
@@ -293,6 +365,14 @@ function gatherPlayerData(player: Player): {money: number, ownedUnits: {[string]
 		meatballUpgrades = meatballUpgrades,
 		brainrotInventory = brainrotInventory,
 		brainrotPlacements = brainrotPlacements,
+		-- Item system data
+		itemStorage = itemStorage,
+		backpack = backpack,
+		storageCapacity = storageCapacity,
+		selectedVehicle = selectedVehicle,
+		vehicleCapacities = vehicleCapacities,
+		gridPositions = gridPositions,
+		discoveredSynergies = discoveredSynergies,
 	}
 end
 

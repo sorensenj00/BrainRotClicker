@@ -512,12 +512,8 @@ local function setupButtonClick(button: Frame, unitName: string)
 	clickArea.MouseButton1Click:Connect(function()
 		if debounce then return end
 		
-		-- Check if player is on main island
-		if not IsOnMainIsland then
-			ErrorSound:Play()
-			warn("Purchase failed: Must be on Main Island to purchase")
-			return
-		end
+		-- REMOVED: Main island check - players can buy from anywhere
+		-- Selling still requires visiting the Market on Main Island
 		
 		debounce = true
 		

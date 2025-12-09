@@ -4,7 +4,8 @@
 	Handles:
 	1. Leaderstats creation for players
 	2. Spawning Brainrot units on player plots
-	3. Income generation loop for active brainrots (stores to Plot storage)
+	3. [LEGACY - DISABLED] Income generation loop for active brainrots (stores to Plot storage)
+	   → Now handled by ItemProductionManager which produces items instead of money
 	4. Storage part creation with visual display
 	
 	The client LocalScript should listen for "ActiveBrainrot" tagged objects
@@ -18,16 +19,21 @@ local CollectionService = game:GetService("CollectionService")
 local RunService = game:GetService("RunService")
 
 -- Wait for shared modules
-local SynergyConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("SynergyConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local SynergyConfig = require(Shared:WaitForChild("SynergyConfig"))
+local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+
+-- SELL A BRAINROT: Disable old income system (now handled by ItemProductionManager)
+local DISABLE_LEGACY_INCOME = true
 
 -- Configuration
 local CONFIG = {
-	INCOME_INTERVAL = 3,        -- Seconds between income ticks
-	INCOME_AMOUNT = 10,         -- Money earned per brainrot per tick
+	INCOME_INTERVAL = 3,        -- Seconds between income ticks (LEGACY)
+	INCOME_AMOUNT = 10,         -- Money earned per brainrot per tick (LEGACY)
 	SPAWN_OFFSET_RANGE = 15,    -- Random spawn offset range
 	SPAWN_HEIGHT = 10,          -- Height above plot surface
 	STARTING_MONEY = 1000,      -- Starting money for new players
-	DEFAULT_MAX_STORAGE = 500,  -- Default max storage capacity
+	DEFAULT_MAX_STORAGE = 500,  -- Default max storage capacity (LEGACY - item system uses ItemStorageManager)
 }
 
 -- Tags
@@ -491,6 +497,30 @@ local function spawnBrainrot(player: Player, brainrotName: string?): Model?
 	-- Tag for income system and client detection
 	CollectionService:AddTag(brainrot, BRAINROT_TAG)
 	
+	-- Generate unique ID for the brainrot
+	local unitId = tostring(player.UserId) .. "_" .. tostring(os.time()) .. "_" .. tostring(math.random(1000, 9999))
+	brainrot:SetAttribute("UnitId", unitId)
+	
+	-- PHASE 2: Register with GridManager if available
+	if _G.GridManager then
+		local emptySlot = _G.GridManager.FindEmptySlot(player)
+		if emptySlot then
+			local success = _G.GridManager.PlaceUnit(player, brainrot, emptySlot)
+			if success then
+				print(string.format("  📍 Placed on Grid slot %d", emptySlot))
+				-- Update CFrame to grid position
+				local gridCFrame = _G.GridManager.GetSlotCFrame(player, emptySlot)
+				if brainrot:IsA("Model") and brainrot.PrimaryPart then
+					brainrot:SetPrimaryPartCFrame(gridCFrame)
+				elseif brainrot:IsA("BasePart") then
+					brainrot.CFrame = gridCFrame
+				end
+			end
+		else
+			print("  ⚠ No empty grid slot available")
+		end
+	end
+	
 	-- Parent to the current tier's plot (or a subfolder)
 	local brainrotsContainer = plot:FindFirstChild("Brainrots")
 	if not brainrotsContainer then
@@ -533,6 +563,12 @@ local lastIncomeTick: {[Instance]: number} = {}
 	- Critical Chance: 5% chance for 5x payout
 ]]
 local function processIncome()
+	-- SELL A BRAINROT: Skip legacy income system when disabled
+	-- ItemProductionManager now handles item production instead
+	if DISABLE_LEGACY_INCOME then
+		return
+	end
+	
 	local currentTime = os.clock()
 	
 	for _, brainrot in CollectionService:GetTagged(BRAINROT_TAG) do

@@ -975,7 +975,7 @@ local function getBrainrotModel(unitName: string): Model?
 end
 
 --[[
-	Sets transparency on all parts in a model.
+	Sets transparency on all parts in a model (for ghost effects).
 ]]
 local function setModelTransparency(model: Model, transparency: number)
 	for _, part in model:GetDescendants() do
@@ -986,7 +986,7 @@ local function setModelTransparency(model: Model, transparency: number)
 end
 
 --[[
-	Sets color on all parts in a model.
+	Sets color on all parts in a model (for ghost effects).
 ]]
 local function setModelColor(model: Model, color: Color3)
 	for _, part in model:GetDescendants() do
@@ -994,47 +994,100 @@ local function setModelColor(model: Model, color: Color3)
 			part.Color = color
 		end
 	end
+	
+	-- Also update highlight if present
+	local highlight = model:FindFirstChildWhichIsA("Highlight")
+	if highlight then
+		highlight.FillColor = color
+		highlight.OutlineColor = color
+	end
 end
 
 --[[
-	Creates a placement ghost for a unit.
+	Creates a ghost preview using the MeshPart-only approach.
+	Only MeshParts get the ghost effect - they contain actual visual geometry.
+	Regular Parts (hitboxes, root parts, etc.) are kept fully invisible.
 ]]
 local function createPlacementGhost(unitName: string): Model?
 	local originalModel = getBrainrotModel(unitName)
-	
 	local ghost
+
+	-- 1. Create the Clone
 	if originalModel then
 		ghost = originalModel:Clone()
 	else
-		-- Fallback ghost (model not in Brainrots folder)
+		-- Fallback if model is missing
 		ghost = Instance.new("Model")
 		local part = Instance.new("Part")
-		part.Name = "GhostPart"
+		part.Name = "FallbackGhost"
 		part.Size = Vector3.new(3, 5, 3)
-		part.Transparency = 0.4
-		part.Color = CONFIG.OCCUPIED_COLOR or Color3.new(0, 1, 0)
+		part.Transparency = 0.5
+		part.Color = GHOST_VALID_COLOR
+		part.Material = Enum.Material.ForceField
 		part.Anchored = true
 		part.CanCollide = false
+		part.CastShadow = false
 		part.Parent = ghost
 		ghost.PrimaryPart = part
+		
+		ghost.Name = "PlacementGhost"
+		ghost.Parent = workspace
+		placementGhost = ghost
+		isGhostValid = true
+		return ghost
 	end
-	
+
 	ghost.Name = "PlacementGhost"
-	
-	-- Make ghost semi-transparent and green
-	for _, part in ghost:GetDescendants() do
-		if part:IsA("BasePart") then
-			part.Transparency = 0.4
-			part.Color = GHOST_VALID_COLOR
-			part.CanCollide = false
-			part.Anchored = true
+
+	-- 2. Clean up non-visual instances (Scripts, Sounds, etc.)
+	for _, item in ghost:GetDescendants() do
+		if item:IsA("Humanoid") 
+			or item:IsA("LuaSourceContainer") -- All script types
+			or item:IsA("Sound") 
+			or item:IsA("Light") -- All light types
+			or item:IsA("ParticleEmitter") 
+			or item:IsA("Trail")
+			or item:IsA("Beam")
+			or item:IsA("Fire")
+			or item:IsA("Smoke")
+			or item:IsA("Sparkles")
+			or item:IsA("BillboardGui")
+			or item:IsA("SurfaceGui")
+		then
+			item:Destroy()
 		end
 	end
-	
+
+	-- 3. Apply Ghost Visuals - ONLY to MeshParts!
+	-- MeshParts contain actual visual geometry (character models, etc.)
+	-- Regular Parts are typically hitboxes, root parts, or other non-visual structure
+	for _, part in ghost:GetDescendants() do
+		if part:IsA("MeshPart") then
+			-- MeshPart = actual visual geometry, apply ghost effect
+			part.CanCollide = false
+			part.CastShadow = false
+			part.Anchored = true
+			part.Transparency = 0.5
+			part.Color = GHOST_VALID_COLOR
+			part.Material = Enum.Material.ForceField
+			
+		elseif part:IsA("Part") or part:IsA("UnionOperation") or part:IsA("BasePart") then
+			-- Regular Parts = hitboxes, root parts, etc. - keep invisible
+			part.CanCollide = false
+			part.CastShadow = false
+			part.Anchored = true
+			part.Transparency = 1
+			
+		elseif part:IsA("Decal") or part:IsA("Texture") then
+			-- Hide decals on ghosts for cleaner look
+			part.Transparency = 1
+		end
+	end
+
 	ghost.Parent = workspace
 	placementGhost = ghost
 	isGhostValid = true
-	
+
 	return ghost
 end
 
@@ -1320,16 +1373,30 @@ end
 
 --[[
 	Toggles visibility of all visual elements in a model.
+	Only shows MeshParts when enabling - regular Parts stay invisible.
 ]]
 local function setVisualsEnabled(model: Model, enabled: boolean)
 	for _, descendant in model:GetDescendants() do
-		-- Ignore VfxInstance (should always remain hidden)
-		if descendant.Name == "VfxInstance" then
+		-- Skip parts that should ALWAYS remain hidden
+		if descendant.Name == "FakeRootPart" 
+			or descendant.Name == "VfxInstance" 
+			or descendant.Name == "RootPart"
+			or descendant.Name == "HumanoidRootPart"
+			or descendant.Name == "Hitbox"
+		then
+			-- Ensure these stay invisible
+			if descendant:IsA("BasePart") then
+				descendant.Transparency = 1
+			end
 			continue
 		end
 		
-		if descendant:IsA("BasePart") then
+		if descendant:IsA("MeshPart") then
+			-- MeshParts = actual visual geometry, toggle visibility
 			descendant.Transparency = enabled and 0 or 1
+		elseif descendant:IsA("Part") or descendant:IsA("UnionOperation") then
+			-- Regular Parts = hitboxes, structure - keep invisible always
+			descendant.Transparency = 1
 		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
 			descendant.Transparency = enabled and 0 or 1
 		elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Trail") or descendant:IsA("Beam") then

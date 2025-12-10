@@ -25,9 +25,9 @@ local CONFIG = {
 }
 
 local RARITY_CONFIG = {
-	Normal = { chance = 0.90, color = Color3.fromRGB(255, 255, 255) },
-	Spicy = { chance = 0.09, color = Color3.fromRGB(255, 80, 80) },
-	Galaxy = { chance = 0.01, color = Color3.fromRGB(180, 100, 255) },
+	Normal = { chance = 0.90, incomeMultiplier = 1, color = Color3.fromRGB(255, 255, 255), displayName = "Normal" },
+	Spicy = { chance = 0.09, incomeMultiplier = 2, color = Color3.fromRGB(255, 80, 80), displayName = "🌶️ Spicy" },
+	Galaxy = { chance = 0.01, incomeMultiplier = 10, color = Color3.fromRGB(180, 100, 255), displayName = "🌌 Galaxy" },
 }
 local RARITY_ORDER = {"Normal", "Spicy", "Galaxy"}
 
@@ -107,8 +107,12 @@ local function spawnBrainrot(player, unitName, targetTier, targetSlot)
 	if not _G.GridManager then warn("No GridManager") return nil end
 	
 	local tier, slot
-	if targetTier and targetSlot then
-		tier, slot = targetTier, targetSlot
+	if targetSlot then
+		-- If slot provided, try to find tier (default 1) or assume it's valid for current viewing context
+		-- Since client sends 1-16, we assume they mean the current tier or tier 1 if unspecified.
+		-- For simpler logic: if targetTier is nil, default to 1.
+		tier = targetTier or 1
+		slot = targetSlot
 	else
 		tier, slot = _G.GridManager.FindEmptySlot(player)
 	end
@@ -168,13 +172,17 @@ local function spawnBrainrot(player, unitName, targetTier, targetSlot)
 end
 
 -- API Functions
-local function addToInventory(player, unitName, rarity)
+local function addToInventory(player, unitName, rarity, isActive)
 	rarity = rarity or rollRarity()
 	local inv = getPlayerInventory(player)
 	if not inv[unitName] then inv[unitName] = {} end
 	if not inv[unitName][rarity] then inv[unitName][rarity] = {total = 0, active = 0} end
 	
 	inv[unitName][rarity].total += 1
+	if isActive then
+		inv[unitName][rarity].active += 1
+	end
+
 	InventoryChangedEvent:FireClient(player, unitName, inv[unitName])
 	updateSynergies(player)
 	
@@ -187,7 +195,7 @@ local function placeBrainrotFromInventory(player, unitName, rarity, slotIndex)
 	local data = inv[unitName][rarity]
 	if data.total - data.active <= 0 then return false, "None stored" end
 	
-	local brainrot = spawnBrainrot(player, unitName, nil, slotIndex) -- nil tier = auto find
+	local brainrot = spawnBrainrot(player, unitName, nil, slotIndex) -- nil tier defaults to 1 inside spawnBrainrot logic
 	if not brainrot then return false, "Spawn failed" end
 	
 	brainrot:SetAttribute("Rarity", rarity)
@@ -230,6 +238,20 @@ local function removeBrainrotToInventory(player, unitName, rarity)
 	return true
 end
 
+-- Update Stats
+local function updateAllUnitStats(player, unitType, newIncome, newCycleTime)
+	for _, b in CollectionService:GetTagged(BRAINROT_TAG) do
+		if b:GetAttribute("OwnerId") == player.UserId and b:GetAttribute("UnitType") == unitType then
+			local rarity = b:GetAttribute("Rarity") or "Normal"
+			local cfg = RARITY_CONFIG[rarity]
+			local mult = cfg and cfg.incomeMultiplier or 1
+
+			b:SetAttribute("IncomeAmount", newIncome * mult)
+			b:SetAttribute("IncomeInterval", newCycleTime)
+		end
+	end
+end
+
 -- Remotes Handlers
 GetInventoryRemote.OnServerInvoke = function(plr)
 	return { units = getPlayerInventory(plr), rarityConfig = RARITY_CONFIG, rarityOrder = RARITY_ORDER }
@@ -262,6 +284,8 @@ _G.BrainrotManager = {
 	RollRarity = rollRarity,
 	PlaceBrainrotFromInventory = placeBrainrotFromInventory,
 	RemoveBrainrotToInventory = removeBrainrotToInventory,
+	UpdateAllUnitStats = updateAllUnitStats,
+	RARITY_CONFIG = RARITY_CONFIG,
 
 	-- Persistence hooks
 	SetInventoryData = function(p, d) PlayerInventory[p] = d end,

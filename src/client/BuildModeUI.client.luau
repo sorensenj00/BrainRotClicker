@@ -192,9 +192,15 @@ local function getSlotUnderMouse()
 	if not state.gridFolder then return nil end
 	local mouse = LocalPlayer:GetMouse()
 	local ray = camera:ScreenPointToRay(mouse.X, mouse.Y)
-	local res = workspace:Raycast(ray.Origin, ray.Direction * 1000, RaycastParams.new())
 	
-	if res and res.Instance and res.Instance:IsDescendantOf(state.gridFolder) then
+	-- Create params with filter to whitelist grid container
+	local params = RaycastParams.new()
+	params.FilterType = Enum.RaycastFilterType.Include
+	params.FilterDescendantsInstances = {state.gridFolder}
+
+	local res = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+
+	if res and res.Instance then
 		return res.Instance:GetAttribute("Slot") or res.Instance.Parent:GetAttribute("Slot")
 	end
 	return nil
@@ -316,7 +322,7 @@ local function createInvCard(parent, unit, rarity, count, active)
 	btn.MouseButton1Down:Connect(function()
 		if count > 0 then startDrag(unit, rarity) end
 	end)
-	
+
 	return frame
 end
 
@@ -420,7 +426,7 @@ end
 
 local function toggleBuildMode(forceState)
 	if forceState == state.active then return end
-	
+
 	if forceState then
 		-- Enter
 		local success = EnterBuildMode:InvokeServer()
@@ -437,7 +443,7 @@ local function toggleBuildMode(forceState)
 			local pos = center + Vector3.new(0, CAM_HEIGHT, dist * math.cos(rad))
 			TweenService:Create(camera, TweenInfo.new(0.5), {CFrame = CFrame.new(pos, center)}):Play()
 		end
-		
+
 		state.gui = createUI()
 		state.gui.Parent = PlayerGui
 
@@ -448,11 +454,11 @@ local function toggleBuildMode(forceState)
 		-- Exit
 		ExitBuildMode:InvokeServer()
 		state.active = false
-		
+
 		if state.gui then state.gui:Destroy() end
 		if state.gridFolder then state.gridFolder:Destroy() end
 		if state.ghost then state.ghost:Destroy() end
-		
+
 		-- Cam
 		if state.savedCamCF then
 			local t = TweenService:Create(camera, TweenInfo.new(0.5), {CFrame = state.savedCamCF})

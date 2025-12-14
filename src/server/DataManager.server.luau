@@ -14,9 +14,7 @@
 ]]
 
 -- Services
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local ServerScriptService = game:GetService("ServerScriptService")
 
 -- Wait for shared modules
 local ShopConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ShopConfig"))
@@ -61,33 +59,33 @@ end
 	Now exported via DataService handler.
 ]]
 local function getDefaultData()
+	--[[
+		LEGACY default data structure.
+		NOTE: Inventory, Prestige, and Artifact data are now managed by their own
+		DataService handlers and stored in separate Profile.Data keys.
+	]]
 	return {
+		-- Core economy
 		money = CONFIG.DEFAULT_MONEY,
-		ownedUnits = {},
-		unlockProgress = 5, -- 5 units unlocked initially (matches ShopConfig.INITIAL_UNLOCKED)
-		maxStorage = 500,   -- Default max storage (legacy)
-		purchasedTiers = 1, -- Number of purchased tiers (starts at 1)
-		convenienceUpgrades = {}, -- Purchased convenience upgrades
-		-- Prestige system data (never reset on prestige)
-		lifetimeEarnings = 0,     -- Total money ever earned
-		totalMeatballs = 0,       -- Lifetime accumulated meatballs
-		spentMeatballs = 0,       -- Meatballs spent in shop
-		prestigeCount = 0,        -- Number of times prestiged
-		meatballUpgrades = {},    -- Purchased permanent upgrades
-		-- Brainrot persistence data
-		brainrotInventory = {},   -- Full inventory with rarities: {[unitName]: {[rarity]: {total, active}}}
-		brainrotPlacements = {},  -- Array of placed brainrots with positions/attributes
-		-- Item production system data (Sell a Brainrot)
-		itemStorage = {},         -- Items in plot storage: {[itemId]: count}
-		backpack = {},            -- Items in player's backpack: {[itemId]: count}
-		storageCapacity = 2000,   -- Current storage capacity (upgradeable)
+		ownedUnits = {},              -- Legacy: kept for ShopManager compatibility
+		unlockProgress = 5,           -- 5 units unlocked initially
+		maxStorage = 500,             -- Default max storage
+		purchasedTiers = 1,           -- Number of purchased tiers
+		convenienceUpgrades = {},     -- Purchased convenience upgrades
+		-- Brainrot placements (position restoration)
+		brainrotPlacements = {},      -- Array of placed brainrots with positions/attributes
+		-- Item production system
+		itemStorage = {},             -- Items in plot storage
+		backpack = {},                -- Items in player's backpack
+		storageCapacity = 2000,       -- Current storage capacity
 		selectedVehicle = "Sneakers", -- Currently selected transport vehicle
-		vehicleCapacities = {},   -- Vehicle upgrade levels: {[vehicleId]: capacity}
-		-- RPG Mechanics: Layered Grid
-		gridPositions = {},       -- Layered grid: {[slotIndex]: {Unit = {...}, Tile = tileId}}
-		discoveredSynergies = {}, -- Discovered synergy recipes: {[synergyId]: true}
-		-- RPG Mechanics: Artifacts
-		playerArtifacts = {},     -- Artifact inventory: {[GUID]: artifactData}
+		vehicleCapacities = {},       -- Vehicle upgrade levels
+		-- RPG Mechanics: Grid
+		gridPositions = {},           -- Layered grid data
+		discoveredSynergies = {},     -- Discovered synergy recipes
+		-- DEPRECATED: These are now in Profile.Data.Inventory, Profile.Data.Prestige, Profile.Data.Artifacts
+		-- brainrotInventory, lifetimeEarnings, totalMeatballs, spentMeatballs, prestigeCount, 
+		-- meatballUpgrades, playerArtifacts are managed by their respective handlers
 	}
 end
 
@@ -152,32 +150,11 @@ local function gatherPlayerData(player: Player): {money: number, ownedUnits: {[s
 		convenienceUpgrades = _G.ConvenienceUpgrades.GetPlayerUpgrades(player)
 	end
 	
-	-- Get prestige data
-	local lifetimeEarnings = 0
-	local totalMeatballs = 0
-	local spentMeatballs = 0
-	local prestigeCount = 0
-	local meatballUpgrades = {}
-	if _G.PrestigeManager and _G.PrestigeManager.GetPlayerData then
-		local prestigeData = _G.PrestigeManager.GetPlayerData(player)
-		if prestigeData then
-			lifetimeEarnings = prestigeData.lifetimeEarnings or 0
-			totalMeatballs = prestigeData.totalMeatballs or 0
-			spentMeatballs = prestigeData.spentMeatballs or 0
-			prestigeCount = prestigeData.prestigeCount or 0
-			meatballUpgrades = prestigeData.meatballUpgrades or {}
-		end
-	end
+	-- NOTE: Prestige data is now managed by PrestigeManager's own DataService handler
+	-- (stored in Profile.Data.Prestige)
 	
-	-- Get brainrot inventory (from InventoryManager)
-	-- We store the flat inventory format directly.
-	local brainrotInventory = {}
-	if _G.InventoryManager then
-		brainrotInventory = _G.InventoryManager.GetInventory(player) or {}
-	elseif BrainrotManager and BrainrotManager.GetInventoryData then
-		-- Fallback to old scraping if InventoryManager not ready (unlikely)
-		brainrotInventory = BrainrotManager.GetInventoryData(player) or {}
-	end
+	-- NOTE: Brainrot inventory is now managed by InventoryManager's own DataService handler
+	-- (stored in Profile.Data.Inventory)
 	
 	-- Get brainrot placements (for position restoration)
 	local brainrotPlacements = {}
@@ -227,19 +204,17 @@ local function gatherPlayerData(player: Player): {money: number, ownedUnits: {[s
 		end
 	end
 	
+	-- NOTE: Artifact data is now managed by ArtifactManager's own DataService handler
+	-- (stored in Profile.Data.Artifacts)
+	
 	return {
+		-- Core data still managed by Legacy handler
 		money = money,
 		ownedUnits = ownedUnits,
 		unlockProgress = unlockProgress,
 		maxStorage = maxStorage,
 		purchasedTiers = purchasedTiers,
 		convenienceUpgrades = convenienceUpgrades,
-		lifetimeEarnings = lifetimeEarnings,
-		totalMeatballs = totalMeatballs,
-		spentMeatballs = spentMeatballs,
-		prestigeCount = prestigeCount,
-		meatballUpgrades = meatballUpgrades,
-		brainrotInventory = brainrotInventory,
 		brainrotPlacements = brainrotPlacements,
 		-- Item system data
 		itemStorage = itemStorage,
@@ -249,6 +224,7 @@ local function gatherPlayerData(player: Player): {money: number, ownedUnits: {[s
 		vehicleCapacities = vehicleCapacities,
 		gridPositions = gridPositions,
 		discoveredSynergies = discoveredSynergies,
+		-- Inventory, Prestige, Artifacts are now in their own Profile.Data keys
 	}
 end
 
@@ -502,40 +478,30 @@ local function applyLegacyData(player: Player, data: any)
 				print(string.format("✓ Restored prestige data for %s: %d meatballs, %d prestiges", player.Name, data.totalMeatballs, data.prestigeCount or 0))
 			end
 		end
+		
+		-- Restore artifact inventory
+		if data.playerArtifacts and next(data.playerArtifacts) ~= nil then
+			if _G.ArtifactManager and _G.ArtifactManager.LoadArtifactData then
+				_G.ArtifactManager.LoadArtifactData(player, data.playerArtifacts)
+			else
+				warn("DataManager: ArtifactManager not found, could not load artifacts")
+			end
+		end
 	end)
 end
 
 --------------------------------------------------------------------------------
--- AUTO-SYNC (LEGACY)
+-- AUTO-SYNC REMOVED
 --------------------------------------------------------------------------------
-
 --[[
-	Because we're using ProfileService in a hybrid "Legacy Adapter" mode,
-	we need to periodically push the current game state into the Profile.Data table.
-	ProfileService auto-saves the *table* every 30 seconds (configurable),
-	but it doesn't know how to fetch new data from the game (e.g., leaderstats)
-	unless we update the table.
-
-	This loop ensures the Profile.Data table is always reasonably up-to-date.
+	PREVIOUSLY: A polling loop ran every 10 seconds to sync game state to Profile.Data.
+	
+	NOW DEPRECATED: With component-based handlers, each manager directly updates
+	Profile.Data.ComponentName in real-time. ProfileService auto-saves every 30s.
+	
+	The gatherPlayerData function is still called on player removal (OnSave handler)
+	to capture any remaining Legacy data fields.
 ]]
-task.spawn(function()
-	while true do
-		task.wait(10) -- Update the profile data object every 10 seconds
-		for _, player in ipairs(Players:GetPlayers()) do
-			local profileData = DataService.GetData(player)
-			if profileData then
-				-- Gather fresh data from game state
-				local freshData = gatherPlayerData(player)
-				if freshData then
-					-- Update the profile data in place
-					for k, v in pairs(freshData) do
-						profileData[k] = v
-					end
-				end
-			end
-		end
-	end
-end)
 
 
 --------------------------------------------------------------------------------
@@ -601,37 +567,43 @@ _G.DataManager = {
 		return DataService.GetData(player)
 	end,
 	ResetPlayerData = function(player, keepPrestigeData)
-		-- This is tricky with ProfileService as it involves wiping data.
-		-- For now, we can manually reset the table in the profile.
+		-- Reset player data for prestige or full wipe.
+		-- With component-based structure, we need to handle multiple Profile.Data keys.
 		local currentData = DataService.GetData(player)
 		if not currentData then return end
 		
 		local newData = getDefaultData()
 		
 		if keepPrestigeData then
-			-- Preserve prestige data
-			newData.lifetimeEarnings = currentData.lifetimeEarnings
-			newData.totalMeatballs = currentData.totalMeatballs
-			newData.spentMeatballs = currentData.spentMeatballs
-			newData.prestigeCount = currentData.prestigeCount
-			newData.meatballUpgrades = currentData.meatballUpgrades
-			
 			-- Apply "Quick Start" bonuses if any
 			local startingMoney = CONFIG.DEFAULT_MONEY
 			if _G.PrestigeManager and _G.PrestigeManager.GetStartingMoneyBonus then
 				startingMoney = startingMoney + _G.PrestigeManager.GetStartingMoneyBonus(player)
 			end
 			newData.money = startingMoney
+			
+			-- Prestige data is preserved in Profile.Data.Prestige (component handler)
+			-- We don't touch it here - PrestigeManager already updated totalMeatballs
+		else
+			-- Full reset - also clear component data
+			DataService.SetComponentData(player, "Prestige", nil)
 		end
 		
-		-- Update the profile data in place (ProfileService will save this)
-		-- We need to clear existing keys first because simple assignment might not remove old keys if we iterate.
-		-- Use table.clear would break strict typing if not recognized, but iterating to nil is safe.
+		-- Reset Inventory component (clear units)
+		DataService.SetComponentData(player, "Inventory", {})
+		
+		-- Reset Artifacts component (clear artifacts)
+		DataService.SetComponentData(player, "Artifacts", {})
+		
+		-- Clear legacy data keys (but preserve component keys)
+		local componentKeys = { Inventory = true, Prestige = true, Artifacts = true }
 		for k, _ in pairs(currentData) do
-			currentData[k] = nil
+			if not componentKeys[k] then
+				currentData[k] = nil
+			end
 		end
 		
-		-- Merge new data
+		-- Merge new legacy data
 		for k, v in pairs(newData) do
 			currentData[k] = v
 		end

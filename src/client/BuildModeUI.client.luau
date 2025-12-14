@@ -1783,7 +1783,7 @@ local function completeDragFromWorld()
 		if mouse.X >= panelPos.X and mouse.X <= panelPos.X + panelSize.X and
 		   mouse.Y >= panelPos.Y and mouse.Y <= panelPos.Y + panelSize.Y then
 			-- Drop on inventory - remove from grid to storage
-			local success, msg = RemoveBrainrotRemote:InvokeServer(draggedUnit.name, draggedUnit.rarity)
+			local success, msg = RemoveBrainrotRemote:InvokeServer(sourceSlot)
 			if success then
 				updateStatus("✓ Stored " .. draggedUnit.name .. " in inventory")
 				task.defer(renderBuildGrid)

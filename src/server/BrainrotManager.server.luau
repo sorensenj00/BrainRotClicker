@@ -12,6 +12,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
+local HttpService = game:GetService("HttpService")
 local _RunService = game:GetService("RunService")
 
 -- Wait for shared modules
@@ -222,6 +223,7 @@ local function spawnOrUpdateUnit(player: Player, unitName: string, data: any): I
 		-- Set Attributes
 		brainrot:SetAttribute("OwnerId", player.UserId)
 		brainrot:SetAttribute("UnitType", unitName)
+		brainrot:SetAttribute("UnitId", HttpService:GenerateGUID(false)) -- Unique ID for artifact equipment
 		
 		-- Handle data key casing (InventoryManager uses lower, Legacy uses Pascal)
 		local level = data.level or data.Level or 1
@@ -290,7 +292,17 @@ end
 	Stash a brainrot (called by GridManager).
 ]]
 local function stashBrainrot(player: Player, brainrot: Instance)
-	-- Just notify client to update inventory UI
+	-- Mark as stored and hide the model
+	brainrot:SetAttribute("IsStored", true)
+	brainrot:SetAttribute("GridSlot", nil)
+	
+	-- Move model underground to hide it
+	if brainrot:IsA("Model") then
+		local currentCF = brainrot:GetPivot()
+		brainrot:PivotTo(CFrame.new(currentCF.Position.X, -100, currentCF.Position.Z))
+	end
+	
+	-- Notify client to update inventory UI
 	InventoryChangedEvent:FireClient(player)
 end
 
@@ -541,5 +553,21 @@ _G.BrainrotManager = {
 	
 	GetInventoryData = function(player)
 		return getInventoryData(player).units -- Return just the units table for DataManager compatibility
+	end,
+	
+	-- Get a unit by its GUID (used by ArtifactManager)
+	GetUnitByGUID = function(player, unitGUID)
+		local plot = getPlayerPlot(player)
+		if not plot then return nil end
+		
+		local brainrotsContainer = plot:FindFirstChild("Brainrots")
+		if not brainrotsContainer then return nil end
+		
+		for _, child in brainrotsContainer:GetChildren() do
+			if child:GetAttribute("UnitId") == unitGUID then
+				return child
+			end
+		end
+		return nil
 	end,
 }

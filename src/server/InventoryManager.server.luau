@@ -2,10 +2,13 @@
 	InventoryManager Server Script
 
 	The Single Source of Truth for player unit inventory state.
+	
+	REFACTORED: Now uses DataService component-based persistence.
+	Inventory data is stored directly in Profile.Data.Inventory.
 
 	Responsibilities:
 	- Store which units a player owns, their levels, and rarities.
-	- Handle data persistence via DataService.
+	- Handle data persistence via DataService (ProfileService).
 	- Notify other systems (BrainrotManager, ShopManager) of changes.
 ]]
 
@@ -15,15 +18,17 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local RarityConfig = require(Shared:WaitForChild("RarityConfig"))
 
+-- DataService for persistence
+local DataService = require(script.Parent.DataService)
+
 -- Events
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local InventoryChangedEvent = RemoteEvents:FindFirstChild("InventoryChanged") or Instance.new("RemoteEvent")
 InventoryChangedEvent.Name = "InventoryChanged"
 InventoryChangedEvent.Parent = RemoteEvents
 
--- Internal State
--- Structure: { [Player]: { [UnitName]: { level: number, rarity: string } } }
-local PlayerInventory = {}
+-- Component key for DataService
+local COMPONENT_KEY = "Inventory"
 
 --------------------------------------------------------------------------------
 -- PUBLIC API
@@ -36,19 +41,40 @@ local UnitChangedSignal = Instance.new("BindableEvent")
 InventoryManager.UnitChanged = UnitChangedSignal.Event
 
 --[[
+	Gets the inventory table reference from Profile.Data.
+	This is the authoritative source of truth.
+]]
+local function getInventoryData(player: Player): {[string]: any}?
+	local data = DataService.GetComponentData(player, COMPONENT_KEY)
+	if data then
+		return data
+	end
+	
+	-- Initialize if not exists and profile is loaded
+	if DataService.IsLoaded(player) then
+		DataService.SetComponentData(player, COMPONENT_KEY, {})
+		return DataService.GetComponentData(player, COMPONENT_KEY)
+	end
+	
+	return nil
+end
+
+--[[
 	Initialize inventory for a player.
+	Called when player joins (before DataService loads).
 ]]
 function InventoryManager.InitPlayer(player: Player)
-	if not PlayerInventory[player] then
-		PlayerInventory[player] = {}
-	end
+	-- No-op: DataService will initialize the data when profile loads
+	-- We keep this for backwards compatibility
 end
 
 --[[
 	Cleans up player data.
+	Called when player leaves (after DataService saves).
 ]]
 function InventoryManager.CleanupPlayer(player: Player)
-	PlayerInventory[player] = nil
+	-- No-op: DataService handles cleanup
+	-- We keep this for backwards compatibility
 end
 
 --[[
@@ -56,7 +82,7 @@ end
 	Expected Data Format: { [UnitName]: { level: number, rarity: string } }
 ]]
 function InventoryManager.SetInventory(player: Player, data: {[string]: any})
-	PlayerInventory[player] = data or {}
+	DataService.SetComponentData(player, COMPONENT_KEY, data or {})
 	-- Notify listeners of full reload (pass nil unitName)
 	UnitChangedSignal:Fire(player, nil, nil)
 end
@@ -64,15 +90,15 @@ end
 --[[
 	Gets the entire inventory for a player.
 ]]
-function InventoryManager.GetInventory(player: Player)
-	return PlayerInventory[player] or {}
+function InventoryManager.GetInventory(player: Player): {[string]: any}
+	return getInventoryData(player) or {}
 end
 
 --[[
 	Gets the data for a specific unit.
 ]]
-function InventoryManager.GetUnit(player: Player, unitName: string)
-	local inventory = PlayerInventory[player]
+function InventoryManager.GetUnit(player: Player, unitName: string): {level: number, rarity: string}?
+	local inventory = getInventoryData(player)
 	return inventory and inventory[unitName]
 end
 
@@ -95,12 +121,13 @@ end
 	@param level number (Optional, default +1)
 	@return {level: number, rarity: string} - The updated unit data
 ]]
-function InventoryManager.AddUnit(player: Player, unitName: string, rarity: string?, level: number?)
-	if not PlayerInventory[player] then
-		PlayerInventory[player] = {}
+function InventoryManager.AddUnit(player: Player, unitName: string, rarity: string?, level: number?): {level: number, rarity: string}?
+	local inventory = getInventoryData(player)
+	if not inventory then
+		warn("InventoryManager: Profile not loaded for " .. player.Name)
+		return nil
 	end
 
-	local inventory = PlayerInventory[player]
 	local currentData = inventory[unitName]
 
 	local newLevel = level
@@ -138,6 +165,7 @@ function InventoryManager.AddUnit(player: Player, unitName: string, rarity: stri
 		rarity = newRarity
 	}
 
+	-- Update directly in Profile.Data.Inventory (auto-saved by ProfileService)
 	inventory[unitName] = newData
 
 	-- Notify Server Listeners (BrainrotManager will spawn/update model)
@@ -150,9 +178,39 @@ function InventoryManager.AddUnit(player: Player, unitName: string, rarity: stri
 end
 
 --------------------------------------------------------------------------------
+-- DATA SERVICE HANDLER
+--------------------------------------------------------------------------------
+
+-- Register with DataService for automatic persistence
+DataService.RegisterHandler(COMPONENT_KEY, {
+	DefaultData = {},
+	
+	OnLoad = function(player: Player, data: any)
+		-- Data is already in Profile.Data.Inventory
+		-- Just fire the change signal to notify BrainrotManager
+		print(string.format("InventoryManager: Loaded %d units for %s", 
+			data and #(function() local c=0; for _ in pairs(data) do c+=1 end; return c end)() or 0,
+			player.Name))
+		
+		-- Fire reload signal so BrainrotManager can spawn units
+		task.defer(function()
+			UnitChangedSignal:Fire(player, nil, nil)
+		end)
+	end,
+	
+	OnSave = function(player: Player, data: any)
+		-- Data is already kept up-to-date in Profile.Data.Inventory
+		-- No additional work needed
+		return data
+	end
+})
+
+--------------------------------------------------------------------------------
 -- INIT & EXPORT
 --------------------------------------------------------------------------------
 
+-- Backwards compatibility: Still connect to player events
+-- (though DataService handles the actual lifecycle)
 Players.PlayerAdded:Connect(InventoryManager.InitPlayer)
 Players.PlayerRemoving:Connect(InventoryManager.CleanupPlayer)
 

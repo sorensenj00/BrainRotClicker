@@ -88,8 +88,17 @@ local function createPromptForUnit(unit)
 		end
 		
 		-- Gather unit data
+		-- Auto-generate UnitId if missing (migration for old units)
+		local unitId = unit:GetAttribute("UnitId")
+		if not unitId then
+			local HttpService = game:GetService("HttpService")
+			unitId = HttpService:GenerateGUID(false)
+			unit:SetAttribute("UnitId", unitId)
+			print(string.format("🔧 Migrated unit %s with new UnitId", unit.Name))
+		end
+		
 		local unitData = {
-			unitGUID = unit:GetAttribute("UnitId"),
+			unitGUID = unitId,
 			unitType = unit:GetAttribute("UnitType") or unit.Name,
 			level = unit:GetAttribute("Level") or 1,
 			rarity = unit:GetAttribute("Rarity") or "Normal",

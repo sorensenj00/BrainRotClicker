@@ -1,6 +1,9 @@
 --[[
 	PrestigeManager Server Script
 	
+	REFACTORED: Now uses DataService component-based persistence.
+	Prestige data is stored directly in Profile.Data.Prestige.
+	
 	Handles:
 	1. Meatball calculation based on lifetime earnings
 	2. Prestige execution (reset + award meatballs)
@@ -10,13 +13,14 @@
 ]]
 
 -- Services
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
-local CollectionService = game:GetService("CollectionService")
 
 -- Wait for shared modules
 local PrestigeConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("PrestigeConfig"))
+
+-- DataService for persistence
+local DataService = require(script.Parent.DataService)
 
 -- Remote Events
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
@@ -24,12 +28,48 @@ local PrestigeEvent = RemoteEvents:FindFirstChild("PrestigeEvent") or Instance.n
 PrestigeEvent.Name = "PrestigeEvent"
 PrestigeEvent.Parent = RemoteEvents
 
--- Player Data Cache (mirrors DataManager but specific to prestige)
-local PrestigeData = {}
+-- Component key for DataService
+local COMPONENT_KEY = "Prestige"
+
+-- Default prestige data
+local DEFAULT_PRESTIGE_DATA = {
+	lifetimeEarnings = 0,
+	totalMeatballs = 0,
+	spentMeatballs = 0,
+	prestigeCount = 0,
+	meatballUpgrades = {},
+}
 
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
 --------------------------------------------------------------------------------
+
+--[[
+	Gets the prestige data directly from Profile.Data.Prestige.
+	This is the authoritative source of truth.
+]]
+local function getPrestigeData(player: Player): {[string]: any}?
+	local data = DataService.GetComponentData(player, COMPONENT_KEY)
+	if data then
+		return data
+	end
+	
+	-- Initialize if not exists and profile is loaded
+	if DataService.IsLoaded(player) then
+		local defaultsCopy = {}
+		for k, v in pairs(DEFAULT_PRESTIGE_DATA) do
+			if type(v) == "table" then
+				defaultsCopy[k] = {}
+			else
+				defaultsCopy[k] = v
+			end
+		end
+		DataService.SetComponentData(player, COMPONENT_KEY, defaultsCopy)
+		return DataService.GetComponentData(player, COMPONENT_KEY)
+	end
+	
+	return nil
+end
 
 --[[
 	Calculates how many meatballs a player should have based on lifetime earnings.
@@ -44,22 +84,6 @@ local function calculateTotalMeatballsFromEarnings(lifetimeEarnings)
 	return math.floor(result)
 end
 
---[[
-	Gets the player's prestige data, initializing if necessary.
-]]
-local function getPlayerData(player)
-	if not PrestigeData[player] then
-		PrestigeData[player] = {
-			lifetimeEarnings = 0,
-			totalMeatballs = 0,
-			spentMeatballs = 0,
-			prestigeCount = 0,
-			meatballUpgrades = {},
-		}
-	end
-	return PrestigeData[player]
-end
-
 --------------------------------------------------------------------------------
 -- PUBLIC API
 --------------------------------------------------------------------------------
@@ -69,7 +93,9 @@ end
 	Returns: pendingAmount, newTotal
 ]]
 local function calculatePendingMeatballs(player)
-	local data = getPlayerData(player)
+	local data = getPrestigeData(player)
+	if not data then return 0, 0 end
+	
 	local currentTotal = data.totalMeatballs
 	
 	-- Calculate what the total SHOULD be based on lifetime earnings
@@ -83,32 +109,22 @@ end
 
 --[[
 	Adds to lifetime earnings. Called by BrainrotManager when income is generated.
+	Data is automatically persisted by ProfileService.
 ]]
 local function addLifetimeEarnings(player, amount)
-	local data = getPlayerData(player)
-	data.lifetimeEarnings = data.lifetimeEarnings + amount
-	
-	-- We don't save every tick, DataManager handles saving on exit/autosave
+	local data = getPrestigeData(player)
+	if data then
+		data.lifetimeEarnings = data.lifetimeEarnings + amount
+	end
 end
 
 --[[
 	Gets the income multiplier from unspent meatballs.
-	Formula: 1 + (TotalMeatballs * 0.02)
+	Formula: 1 + (UnspentMeatballs * 0.02)
 ]]
 local function getMeatballIncomeMultiplier(player)
-	local data = getPlayerData(player)
-	-- Bonus applies to TOTAL meatballs collected, not just unspent ones (Adventure Capitalist style)
-	-- Or usually it's unspent. The user said "Total Golden Meatballs" in "What Gets Reset" -> "Golden Meatballs (total)" kept.
-	-- "Income Boost +2% per meatball". Usually in these games, spending them loses the bonus.
-	-- However, the plan says "Total Meatballs = Lifetime accumulated".
-	-- Let's assume it's based on OWNED (Current) meatballs usually, but the user plan says:
-	-- "Income Boost +2% per meatball (e.g., 100 meatballs = 3x income)"
-	-- And "What Gets Reset: ... Kept: Golden Meatballs (total)"
-	-- If I spend them, do I lose the bonus?
-	-- User plan doesn't explicitly say "Unspent".
-	-- But standard mechanic (AdCap) is you spend angels, you lose the bonus.
-	-- Let's stick to UNSPENT meatballs for the bonus to make the choice meaningful.
-	-- Unspent = Total - Spent
+	local data = getPrestigeData(player)
+	if not data then return 1 end
 	
 	local unspent = data.totalMeatballs - data.spentMeatballs
 	return 1 + (unspent * PrestigeConfig.MEATBALL_BONUS_RATE)
@@ -118,7 +134,9 @@ end
 	Gets the income multiplier from shop upgrades.
 ]]
 local function getShopMultiplier(player)
-	local data = getPlayerData(player)
+	local data = getPrestigeData(player)
+	if not data then return 1 end
+	
 	local multiplier = 1
 	
 	for _, upgradeId in ipairs(data.meatballUpgrades) do
@@ -142,7 +160,9 @@ end
 	Gets starting money bonus from upgrades.
 ]]
 local function getStartingMoneyBonus(player)
-	local data = getPlayerData(player)
+	local data = getPrestigeData(player)
+	if not data then return 0 end
+	
 	local bonus = 0
 	
 	for _, upgradeId in ipairs(data.meatballUpgrades) do
@@ -159,15 +179,16 @@ end
 	Executes the prestige.
 ]]
 local function executePrestige(player)
-	local pending, newTotal = calculatePendingMeatballs(player)
+	local pending, _ = calculatePendingMeatballs(player)
 	
 	if pending < PrestigeConfig.MINIMUM_PRESTIGE_GAIN then
 		return false, "Not enough meatballs to prestige (Min: " .. PrestigeConfig.MINIMUM_PRESTIGE_GAIN .. ")"
 	end
 	
-	local data = getPlayerData(player)
+	local data = getPrestigeData(player)
+	if not data then return false, "Profile not loaded" end
 	
-	-- Update prestige data
+	-- Update prestige data (auto-saved by ProfileService)
 	data.totalMeatballs = data.totalMeatballs + pending
 	data.prestigeCount = data.prestigeCount + 1
 	
@@ -196,7 +217,9 @@ end
 	Purchases a meatball shop upgrade.
 ]]
 local function purchaseUpgrade(player, upgradeId)
-	local data = getPlayerData(player)
+	local data = getPrestigeData(player)
+	if not data then return false, "Profile not loaded" end
+	
 	local item = PrestigeConfig.GetItem(upgradeId)
 	
 	if not item then
@@ -221,27 +244,53 @@ local function purchaseUpgrade(player, upgradeId)
 		return false, "Not enough meatballs"
 	end
 	
-	-- Deduct price
+	-- Deduct price (auto-saved by ProfileService)
 	data.spentMeatballs = data.spentMeatballs + item.Price
 	
 	-- Add upgrade
 	table.insert(data.meatballUpgrades, upgradeId)
-	
-	-- Save data immediately
-	if _G.DataManager and _G.DataManager.SavePlayerData then
-		_G.DataManager.SavePlayerData(player)
-	end
 	
 	print(string.format("✓ %s purchased meatball upgrade: %s", player.Name, item.Name))
 	return true, "Success"
 end
 
 --[[
-	Initializes player data from DataManager load.
+	Gets the player data - compatibility wrapper.
+]]
+local function getPlayerData(player)
+	return getPrestigeData(player) or DEFAULT_PRESTIGE_DATA
+end
+
+--[[
+	Initializes player data from saved data (legacy compatibility).
 ]]
 local function initializePlayerData(player, savedData)
-	PrestigeData[player] = savedData
+	if savedData and DataService.IsLoaded(player) then
+		DataService.SetComponentData(player, COMPONENT_KEY, savedData)
+	end
 end
+
+--------------------------------------------------------------------------------
+-- DATA SERVICE HANDLER
+--------------------------------------------------------------------------------
+
+-- Register with DataService for automatic persistence
+DataService.RegisterHandler(COMPONENT_KEY, {
+	DefaultData = DEFAULT_PRESTIGE_DATA,
+	
+	OnLoad = function(player: Player, data: any)
+		-- Data is already in Profile.Data.Prestige
+		local meatballs = data and data.totalMeatballs or 0
+		local prestiges = data and data.prestigeCount or 0
+		print(string.format("PrestigeManager: Loaded for %s (%d meatballs, %d prestiges)", 
+			player.Name, meatballs, prestiges))
+	end,
+	
+	OnSave = function(player: Player, data: any)
+		-- Data is already kept up-to-date in Profile.Data.Prestige
+		return data
+	end
+})
 
 --------------------------------------------------------------------------------
 -- ALTAR CREATION
@@ -277,7 +326,6 @@ local function createAltar()
 	sphere.Position = Vector3.new(30, 40, 50) -- Positioned at same Y as shops
 	sphere.Parent = altarModel
 	
-	-- Add floating animation script
 	-- Add floating animation
 	task.spawn(function()
 		local RunService = game:GetService("RunService")
@@ -318,15 +366,17 @@ local function createAltar()
 	prompt.Triggered:Connect(function(player)
 		-- Send current data to client
 		local pending, _ = calculatePendingMeatballs(player)
-		local data = getPlayerData(player)
+		local data = getPrestigeData(player)
 		
-		PrestigeEvent:FireClient(player, "OpenMenu", {
-			totalMeatballs = data.totalMeatballs,
-			spentMeatballs = data.spentMeatballs,
-			pendingMeatballs = pending,
-			lifetimeEarnings = data.lifetimeEarnings,
-			upgrades = data.meatballUpgrades
-		})
+		if data then
+			PrestigeEvent:FireClient(player, "OpenMenu", {
+				totalMeatballs = data.totalMeatballs,
+				spentMeatballs = data.spentMeatballs,
+				pendingMeatballs = pending,
+				lifetimeEarnings = data.lifetimeEarnings,
+				upgrades = data.meatballUpgrades
+			})
+		end
 	end)
 	
 	altarModel.Parent = Workspace
@@ -345,24 +395,22 @@ PrestigeEvent.OnServerEvent:Connect(function(player, action, ...)
 		executePrestige(player)
 	elseif action == "PurchaseUpgrade" then
 		local upgradeId = args[1]
-		local success, msg = purchaseUpgrade(player, upgradeId)
+		local success, _ = purchaseUpgrade(player, upgradeId)
 		if success then
 			-- Refresh client UI
 			local pending, _ = calculatePendingMeatballs(player)
-			local data = getPlayerData(player)
-			PrestigeEvent:FireClient(player, "UpdateData", {
-				totalMeatballs = data.totalMeatballs,
-				spentMeatballs = data.spentMeatballs,
-				pendingMeatballs = pending,
-				lifetimeEarnings = data.lifetimeEarnings,
-				upgrades = data.meatballUpgrades
-			})
+			local data = getPrestigeData(player)
+			if data then
+				PrestigeEvent:FireClient(player, "UpdateData", {
+					totalMeatballs = data.totalMeatballs,
+					spentMeatballs = data.spentMeatballs,
+					pendingMeatballs = pending,
+					lifetimeEarnings = data.lifetimeEarnings,
+					upgrades = data.meatballUpgrades
+				})
+			end
 		end
 	end
-end)
-
-Players.PlayerRemoving:Connect(function(player)
-	PrestigeData[player] = nil
 end)
 
 --------------------------------------------------------------------------------
@@ -371,7 +419,7 @@ end)
 
 task.spawn(createAltar)
 
--- Export API
+-- Export API (backwards compatibility)
 _G.PrestigeManager = {
 	GetPlayerData = getPlayerData,
 	InitializePlayerData = initializePlayerData,
@@ -379,40 +427,18 @@ _G.PrestigeManager = {
 	GetTotalIncomeMultiplier = getTotalIncomeMultiplier,
 	GetStartingMoneyBonus = getStartingMoneyBonus,
 	ResetPlayerData = function(player)
-		-- Reset prestige data to defaults
-		PrestigeData[player] = {
-			lifetimeEarnings = 0,
-			totalMeatballs = 0,
-			spentMeatballs = 0,
-			prestigeCount = 0,
-			meatballUpgrades = {},
-		}
+		-- Reset prestige data to defaults (but this is usually NOT called on prestige)
+		local defaultsCopy = {}
+		for k, v in pairs(DEFAULT_PRESTIGE_DATA) do
+			if type(v) == "table" then
+				defaultsCopy[k] = {}
+			else
+				defaultsCopy[k] = v
+			end
+		end
+		DataService.SetComponentData(player, COMPONENT_KEY, defaultsCopy)
 		print(string.format("✓ Reset prestige data for %s", player.Name))
 	end,
 }
 
--- Handle players already in game (in case script loads late)
-task.spawn(function()
-	-- Wait a moment for DataManager to potentially load if we started at same time
-	task.wait(1)
-	
-	for _, player in Players:GetPlayers() do
-		if not PrestigeData[player] then
-			if _G.DataManager and _G.DataManager.GetCachedData then
-				local data = _G.DataManager.GetCachedData(player)
-				if data then
-					print("PrestigeManager: Pulling data for existing player " .. player.Name)
-					initializePlayerData(player, {
-						lifetimeEarnings = data.lifetimeEarnings or 0,
-						totalMeatballs = data.totalMeatballs or 0,
-						spentMeatballs = data.spentMeatballs or 0,
-						prestigeCount = data.prestigeCount or 0,
-						meatballUpgrades = data.meatballUpgrades or {},
-					})
-				end
-			end
-		end
-	end
-end)
-
-print("✓ PrestigeManager initialized")
+print("✓ PrestigeManager initialized (DataService integration)")

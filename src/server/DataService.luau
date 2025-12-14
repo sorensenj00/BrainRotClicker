@@ -70,7 +70,7 @@ function DataService.RegisterHandler(key: string, handler: DataHandler)
 end
 
 --[[
-	Gets the current data for a player.
+	Gets the current data for a player (entire profile).
 ]]
 function DataService.GetData(player: Player)
 	local profile = Profiles[player]
@@ -78,6 +78,77 @@ function DataService.GetData(player: Player)
 		return profile.Data
 	end
 	return nil
+end
+
+--[[
+	Gets a specific component's data slice.
+	@param player Player
+	@param componentKey string - The component key (e.g., "Inventory", "Prestige")
+	@return any? - The component data, or nil if not found
+]]
+function DataService.GetComponentData(player: Player, componentKey: string): any?
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		return profile.Data[componentKey]
+	end
+	return nil
+end
+
+--[[
+	Sets a specific component's data (replaces entirely).
+	Use this when you want to overwrite the component data.
+	@param player Player
+	@param componentKey string - The component key
+	@param data any - The new data to set
+	@return boolean - Whether the operation was successful
+]]
+function DataService.SetComponentData(player: Player, componentKey: string, data: any): boolean
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		profile.Data[componentKey] = data
+		return true
+	end
+	return false
+end
+
+--[[
+	Updates a specific component's data (merges with existing).
+	Use this when you want to update specific fields without replacing all data.
+	@param player Player
+	@param componentKey string - The component key
+	@param updates table - The fields to update/merge
+	@return boolean - Whether the operation was successful
+]]
+function DataService.UpdateComponentData(player: Player, componentKey: string, updates: {[string]: any}): boolean
+	local profile = Profiles[player]
+	if not profile or not profile.Data then
+		return false
+	end
+	
+	-- Initialize component data if it doesn't exist
+	if not profile.Data[componentKey] then
+		profile.Data[componentKey] = {}
+	end
+	
+	-- Merge updates into existing data
+	local componentData = profile.Data[componentKey]
+	if type(componentData) == "table" and type(updates) == "table" then
+		for k, v in pairs(updates) do
+			componentData[k] = v
+		end
+		return true
+	end
+	
+	return false
+end
+
+--[[
+	Checks if a player's profile is loaded and ready.
+	@param player Player
+	@return boolean - Whether the profile is loaded
+]]
+function DataService.IsLoaded(player: Player): boolean
+	return Profiles[player] ~= nil
 end
 
 --------------------------------------------------------------------------------

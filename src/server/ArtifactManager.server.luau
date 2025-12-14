@@ -1,6 +1,9 @@
 --[[
 	ArtifactManager Server Script
 	
+	REFACTORED: Now uses DataService component-based persistence.
+	Artifact data is stored directly in Profile.Data.Artifacts.
+	
 	Handles artifact generation, inventory, and equipment.
 	
 	Features:
@@ -13,13 +16,15 @@
 ]]
 
 -- Services
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 
 -- Shared configs
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+
+-- DataService for persistence
+local DataService = require(script.Parent.DataService)
 
 -- Remote events
 local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
@@ -58,23 +63,32 @@ local GetArtifactsFunction = RemoteFunctions:FindFirstChild("GetArtifacts") or I
 GetArtifactsFunction.Name = "GetArtifacts"
 GetArtifactsFunction.Parent = RemoteFunctions
 
+-- Component key for DataService
+local COMPONENT_KEY = "Artifacts"
+
 --------------------------------------------------------------------------------
 -- PLAYER ARTIFACT DATA
 --------------------------------------------------------------------------------
 
--- { [userId] = { [GUID] = artifactData } }
-local PlayerArtifacts = {}
-
 --[[
-	Gets or creates artifact inventory for a player.
+	Gets artifact inventory directly from Profile.Data.Artifacts.
+	Uses player.UserId as key since artifacts persist across sessions.
 	@param player Player
 	@return table - Artifact inventory
 ]]
-local function getPlayerArtifacts(player)
-	if not PlayerArtifacts[player.UserId] then
-		PlayerArtifacts[player.UserId] = {}
+local function getPlayerArtifacts(player: Player): {[string]: any}
+	local data = DataService.GetComponentData(player, COMPONENT_KEY)
+	if data then
+		return data
 	end
-	return PlayerArtifacts[player.UserId]
+	
+	-- Initialize if not exists and profile is loaded
+	if DataService.IsLoaded(player) then
+		DataService.SetComponentData(player, COMPONENT_KEY, {})
+		return DataService.GetComponentData(player, COMPONENT_KEY) or {}
+	end
+	
+	return {}
 end
 
 --------------------------------------------------------------------------------
@@ -285,7 +299,7 @@ local function equipArtifact(player, unitGUID, artifactGUID, slot)
 		return false, "Slot is already occupied"
 	end
 	
-	-- Equip the artifact
+	-- Equip the artifact (auto-saved by ProfileService)
 	artifact.EquippedTo = unitGUID
 	
 	-- Update unit's attribute for client replication
@@ -323,10 +337,36 @@ local function unequipArtifact(player, unitGUID, slot)
 	local artifact = equipped[slot]
 	
 	if not artifact then
+		-- Check if it's a "ghost" artifact (exists on unit attribute but not in inventory)
+		-- This happens if data saving failed but grid persistence succeeded
+		local BrainrotManager = _G.BrainrotManager
+		if BrainrotManager and BrainrotManager.GetUnitByGUID then
+			local unit = BrainrotManager.GetUnitByGUID(player, unitGUID)
+			if unit then
+				local equippedData = unit:GetAttribute("EquippedArtifacts") or {}
+				if type(equippedData) == "string" then
+					equippedData = HttpService:JSONDecode(equippedData)
+				end
+				
+				if equippedData[slot] then
+					-- Found a ghost artifact! Force remove it.
+					equippedData[slot] = nil
+					unit:SetAttribute("EquippedArtifacts", HttpService:JSONEncode(equippedData))
+					
+					-- Notify client to clear the slot
+					ArtifactEquippedEvent:FireClient(player, "ghost_remove", unitGUID, slot, false)
+					
+					print(string.format("👻 %s force-removed ghost artifact from %s (%s slot)", 
+						player.Name, unitGUID:sub(1, 8), slot))
+					return true
+				end
+			end
+		end
+		
 		return false, "No artifact in that slot"
 	end
 	
-	-- Unequip
+	-- Unequip (auto-saved by ProfileService)
 	artifact.EquippedTo = nil
 	
 	-- Update unit's attribute
@@ -389,11 +429,11 @@ local function calculateUnitArtifactStats(player, unitGUID)
 end
 
 --------------------------------------------------------------------------------
--- DATA PERSISTENCE
+-- DATA PERSISTENCE (Legacy compatibility)
 --------------------------------------------------------------------------------
 
 --[[
-	Gets all artifacts for saving.
+	Gets all artifacts for saving (legacy compatibility).
 	@param player Player
 	@return table - Artifact inventory
 ]]
@@ -402,16 +442,42 @@ local function getArtifactData(player)
 end
 
 --[[
-	Loads artifact data from save.
+	Loads artifact data from save (legacy compatibility).
 	@param player Player
 	@param data table - Saved artifact data
 ]]
 local function loadArtifactData(player, data)
 	if not data then return end
-	PlayerArtifacts[player.UserId] = data
-	print(string.format("📿 Loaded %d artifacts for %s", 
-		#data and #data or 0, player.Name))
+	if DataService.IsLoaded(player) then
+		DataService.SetComponentData(player, COMPONENT_KEY, data)
+		local count = 0
+		for _ in pairs(data) do count += 1 end
+		print(string.format("📿 Loaded %d artifacts for %s", count, player.Name))
+	end
 end
+
+--------------------------------------------------------------------------------
+-- DATA SERVICE HANDLER
+--------------------------------------------------------------------------------
+
+-- Register with DataService for automatic persistence
+DataService.RegisterHandler(COMPONENT_KEY, {
+	DefaultData = {},
+	
+	OnLoad = function(player: Player, data: any)
+		-- Data is already in Profile.Data.Artifacts
+		local count = 0
+		if data then
+			for _ in pairs(data) do count += 1 end
+		end
+		print(string.format("ArtifactManager: Loaded %d artifacts for %s", count, player.Name))
+	end,
+	
+	OnSave = function(player: Player, data: any)
+		-- Data is already kept up-to-date in Profile.Data.Artifacts
+		return data
+	end
+})
 
 --------------------------------------------------------------------------------
 -- REMOTE FUNCTION HANDLERS
@@ -433,19 +499,11 @@ GetArtifactsFunction.OnServerInvoke = function(player)
 end
 
 --------------------------------------------------------------------------------
--- CLEANUP
---------------------------------------------------------------------------------
-
-Players.PlayerRemoving:Connect(function(player)
-	PlayerArtifacts[player.UserId] = nil
-end)
-
---------------------------------------------------------------------------------
 -- INITIALIZATION
 --------------------------------------------------------------------------------
 
 print("═══════════════════════════════════════════")
-print("   ArtifactManager - Initializing")
+print("   ArtifactManager - Initializing (DataService)")
 print("═══════════════════════════════════════════")
 print("✓ ArtifactManager initialized")
 print("  • Rarity weights loaded: " .. tostring(ArtifactConfig.RarityWeights.Common) .. "% Common")
@@ -470,7 +528,7 @@ _G.ArtifactManager = {
 	-- Stats
 	CalculateUnitArtifactStats = calculateUnitArtifactStats,
 	
-	-- Persistence
+	-- Persistence (legacy compatibility)
 	GetArtifactData = getArtifactData,
 	LoadArtifactData = loadArtifactData,
 }

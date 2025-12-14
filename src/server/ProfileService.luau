@@ -375,8 +375,8 @@ end
 ----- Service Table -----
 
 local ProfileService = {
+ServiceLocked = false :: boolean, -- Set to true once the server is shutting down
 
-	ServiceLocked = false, -- Set to true once the server is shutting down
 
 	IssueSignal = Madwork.NewScriptSignal(), -- (error_message, profile_store_name, profile_key) -- Fired when a DataStore API call throws an error
 	CorruptionSignal = Madwork.NewScriptSignal(), -- (profile_store_name, profile_key) -- Fired when DataStore key returns a value that has
@@ -1916,9 +1916,9 @@ function ProfileStore:LoadProfileAsync(profile_key, not_released_handler, _use_m
 					-- Adding profile to AutoSaveList;
 					AddProfileToAutoSave(profile)
 					-- Special case - finished loading profile, but session is shutting down:
-					if ProfileService.ServiceLocked == true then
+					if (ProfileService.ServiceLocked :: boolean) == true then
 						SaveProfileAsync(profile, true) -- Release profile and yield until the DataStore call is finished
-						profile = nil -- nil will be returned by this call
+						profile = nil :: any -- nil will be returned by this call
 					end
 					-- Return Profile object:
 					ActiveProfileLoadJobs = ActiveProfileLoadJobs - 1
@@ -1948,7 +1948,7 @@ function ProfileStore:LoadProfileAsync(profile_key, not_released_handler, _use_m
 					elseif aggressive_steal == true then
 						task.wait() -- Overload prevention
 					else
-						local handler_result = not_released_handler(active_session[1], active_session[2])
+						local handler_result = (not_released_handler :: (number, string) -> string)(active_session[1], active_session[2])
 						if handler_result == "Repeat" then
 							task.wait() -- Overload prevention
 						elseif handler_result == "Cancel" then

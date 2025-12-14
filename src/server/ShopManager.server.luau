@@ -14,9 +14,11 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Wait for shared modules
-local ShopConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ShopConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
+local RarityConfig = require(Shared:WaitForChild("RarityConfig"))
 
--- Wait for BrainrotManager API (loaded via _G)
+-- Wait for Managers API (loaded via _G)
 local function waitForBrainrotManager()
 	local attempts = 0
 	while not _G.BrainrotManager and attempts < 50 do
@@ -24,6 +26,15 @@ local function waitForBrainrotManager()
 		task.wait(0.1)
 	end
 	return _G.BrainrotManager
+end
+
+local function waitForInventoryManager()
+	local attempts = 0
+	while not _G.InventoryManager and attempts < 50 do
+		attempts += 1
+		task.wait(0.1)
+	end
+	return _G.InventoryManager
 end
 
 -- Remote setup
@@ -49,12 +60,6 @@ UnlockProgressChangedEvent.Parent = RemoteEvents
 --------------------------------------------------------------------------------
 
 --[[
-	Stores how many of each unit a player owns.
-	Structure: PlayerOwnedUnits[Player] = { ["Hand Gesture"] = 3, ... }
-]]
-local PlayerOwnedUnits: {[Player]: {[string]: number}} = {}
-
---[[
 	Stores how many units are unlocked for each player.
 	Starts at INITIAL_UNLOCKED (5).
 ]]
@@ -64,13 +69,7 @@ local PlayerUnlockProgress: {[Player]: number} = {}
 	Initializes ownership tracking for a player.
 ]]
 local function initializePlayerData(player: Player)
-	PlayerOwnedUnits[player] = {}
 	PlayerUnlockProgress[player] = ShopConfig.INITIAL_UNLOCKED
-	
-	-- Initialize all units to 0
-	for unitName, _ in ShopConfig.Units do
-		PlayerOwnedUnits[player][unitName] = 0
-	end
 	
 	-- Create leaderstats folder with Money (CRITICAL for economy system)
 	local leaderstats = player:FindFirstChild("leaderstats")
@@ -87,7 +86,7 @@ local function initializePlayerData(player: Player)
 		print(string.format("✓ Created leaderstats for %s with $%d", player.Name, money.Value))
 	end
 	
-	-- Create an "OwnedUnits" folder under player for easy inspection
+	-- Create an "OwnedUnits" folder under player for easy inspection (Legacy/Visual)
 	local ownedFolder = Instance.new("Folder")
 	ownedFolder.Name = "OwnedUnits"
 	ownedFolder.Parent = player
@@ -113,10 +112,10 @@ end
 	Gets how many of a specific unit a player owns.
 ]]
 local function getOwnedCount(player: Player, unitName: string): number
-	if not PlayerOwnedUnits[player] then
-		return 0
+	if _G.InventoryManager then
+		return _G.InventoryManager.GetUnitLevel(player, unitName)
 	end
-	return PlayerOwnedUnits[player][unitName] or 0
+	return 0
 end
 
 --[[
@@ -152,21 +151,15 @@ local function incrementUnlockProgress(player: Player)
 end
 
 --[[
-	Increments the owned count for a unit and updates the IntValue.
+	Updates the IntValue for legacy replication.
+	Does NOT manage state (that's InventoryManager now).
 ]]
-local function incrementOwnedCount(player: Player, unitName: string)
-	if not PlayerOwnedUnits[player] then
-		PlayerOwnedUnits[player] = {}
-	end
-	
-	PlayerOwnedUnits[player][unitName] = (PlayerOwnedUnits[player][unitName] or 0) + 1
-	
-	-- Update the IntValue for replication
+local function updateLegacyOwnedCount(player: Player, unitName: string, count: number)
 	local ownedFolder = player:FindFirstChild("OwnedUnits")
 	if ownedFolder then
 		local countValue = ownedFolder:FindFirstChild(unitName)
 		if countValue then
-			countValue.Value = PlayerOwnedUnits[player][unitName]
+			countValue.Value = count
 		end
 	end
 end
@@ -175,7 +168,6 @@ end
 	Cleans up player data when they leave.
 ]]
 local function cleanupPlayerData(player: Player)
-	PlayerOwnedUnits[player] = nil
 	PlayerUnlockProgress[player] = nil
 end
 
@@ -269,44 +261,22 @@ local function handleBuyUnit(player: Player, unitName: string): (boolean, string
 		return false, "Failed to deduct money"
 	end
 	
-	-- Spawn or Upgrade the brainrot unit
-	local BrainrotManager = waitForBrainrotManager()
-	if BrainrotManager then
-		-- AddUnit handles both spawning new and upgrading existing
-		local unit = BrainrotManager.AddUnit(player, unitConfig.ModelName)
+	-- Spawn or Upgrade the unit via InventoryManager
+	local InventoryManager = waitForInventoryManager()
+
+	if InventoryManager then
+		-- 1. Roll Rarity
+		local rarity = RarityConfig.RollRarity()
 		
-		if not unit then
-			-- Refund if failed
-			local leaderstats = player:FindFirstChild("leaderstats")
-			if leaderstats and leaderstats:FindFirstChild("Money") then
-				leaderstats.Money.Value = leaderstats.Money.Value + currentPrice
-			end
-			return false, "Failed to process unit transaction"
-		end
+		-- 2. Update Inventory (Authoritative State)
+		-- This returns the new data {level, rarity}
+		local newData = InventoryManager.AddUnit(player, unitName, rarity)
+		local newLevel = newData.level
 		
-		-- Increment owned count (which is now Level)
-		incrementOwnedCount(player, unitName)
-		local newLevel = getOwnedCount(player, unitName)
+		-- 3. Update Legacy Visuals (IntValues)
+		updateLegacyOwnedCount(player, unitName, newLevel)
 		
-		-- Get current rarity from the unit
-		local rarity = unit:GetAttribute("Rarity") or "Normal"
-		local rarityMultiplier = 1
-		if BrainrotManager.RARITY_CONFIG and BrainrotManager.RARITY_CONFIG[rarity] then
-			rarityMultiplier = BrainrotManager.RARITY_CONFIG[rarity].multiplier or 1
-		end
-		
-		-- Calculate income based on new level
-		local effectiveIncome = ShopConfig.CalculateEffectiveIncome(unitName, newLevel)
-		local effectiveCycleTime = ShopConfig.CalculateEffectiveCycleTime(unitName, newLevel)
-		
-		-- Apply rarity multiplier to income
-		local finalIncome = effectiveIncome * rarityMultiplier
-		
-		-- Update unit attributes
-		unit:SetAttribute("IncomeAmount", finalIncome)
-		-- Note: BrainrotManager handles IncomeInterval (speed) updates internally based on level
-		
-		-- Check if we crossed a milestone
+		-- 4. Check Milestones
 		local oldMilestones = ShopConfig.GetMilestonesReached(newLevel - 1)
 		local newMilestones = ShopConfig.GetMilestonesReached(newLevel)
 		
@@ -315,21 +285,27 @@ local function handleBuyUnit(player: Player, unitName: string): (boolean, string
 				player.Name, unitName, #oldMilestones, #newMilestones))
 		end
 		
+		-- 5. Notify client of ownership change (for UI update)
+		local newPrice = ShopConfig.CalculatePrice(unitName, newLevel)
+		OwnershipChangedEvent:FireClient(player, unitName, newLevel, newPrice)
+
+		print(string.format("✓ %s upgraded %s to Level %d for $%d", player.Name, unitName, newLevel, currentPrice))
+		return true, "Purchase successful!"
+
 	else
-		warn("BrainrotManager not available!")
-		return false, "Server error: spawn system unavailable"
+		warn("InventoryManager not available!")
+		-- Refund
+		local leaderstats = player:FindFirstChild("leaderstats")
+		if leaderstats and leaderstats:FindFirstChild("Money") then
+			leaderstats.Money.Value = leaderstats.Money.Value + currentPrice
+		end
+		return false, "Server error: inventory system unavailable"
 	end
 	
 	-- Increment unlock progress (unlock next unit)
 	incrementUnlockProgress(player)
 	
-	-- Notify client of ownership change (for UI update)
-	local newLevel = getOwnedCount(player, unitName)
-	local newPrice = ShopConfig.CalculatePrice(unitName, newLevel)
-	OwnershipChangedEvent:FireClient(player, unitName, newLevel, newPrice)
-	
-	print(string.format("✓ %s upgraded %s to Level %d for $%d", player.Name, unitName, newLevel, currentPrice))
-	
+	-- Success return is now handled inside the InventoryManager block
 	return true, "Purchase successful!"
 end
 
@@ -416,16 +392,13 @@ local function setPlayerData(player: Player, ownedUnits: {[string]: number}, unl
 		unlockValue.Value = unlockProgress
 	end
 	
-	-- Set owned units
-	if not PlayerOwnedUnits[player] then
-		PlayerOwnedUnits[player] = {}
-	end
+	-- Set legacy owned units visuals (Actual data is in InventoryManager now)
+	-- ownedUnits here comes from DataManager, which might still pass the simple count map
+	-- if it constructed it from InventoryManager.
 	
 	local ownedFolder = player:FindFirstChild("OwnedUnits")
 	
-	for unitName, count in ownedUnits do
-		PlayerOwnedUnits[player][unitName] = count
-		
+	for unitName, count in pairs(ownedUnits) do
 		if ownedFolder then
 			local countValue = ownedFolder:FindFirstChild(unitName)
 			if countValue then
@@ -438,7 +411,7 @@ local function setPlayerData(player: Player, ownedUnits: {[string]: number}, unl
 	UnlockProgressChangedEvent:FireClient(player, unlockProgress)
 	
 	-- Notify client of all owned unit counts
-	for unitName, count in ownedUnits do
+	for unitName, count in pairs(ownedUnits) do
 		local price = ShopConfig.CalculatePrice(unitName, count)
 		OwnershipChangedEvent:FireClient(player, unitName, count, price)
 	end
@@ -455,12 +428,6 @@ _G.ShopManager = {
 	ResetPlayerData = function(player: Player)
 		-- Reset unlock progress
 		PlayerUnlockProgress[player] = ShopConfig.INITIAL_UNLOCKED
-		
-		-- Reset owned units to 0
-		PlayerOwnedUnits[player] = {}
-		for unitName, _ in ShopConfig.Units do
-			PlayerOwnedUnits[player][unitName] = 0
-		end
 		
 		-- Update the IntValue for unlock progress
 		local unlockValue = player:FindFirstChild("UnlockProgress")

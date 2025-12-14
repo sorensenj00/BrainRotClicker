@@ -5,6 +5,7 @@
 	1. Spawning ONE unique unit per type per player.
 	2. Stacking purchases to upgrade Level/Speed.
 	3. Calculating item tiers based on level milestones.
+	4. Calculating effective income/stats based on ShopConfig + RarityConfig.
 ]]
 
 -- Services
@@ -16,15 +17,13 @@ local _RunService = game:GetService("RunService")
 -- Wait for shared modules
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local _SynergyConfig = require(Shared:WaitForChild("SynergyConfig"))
--- local ItemConfig = require(Shared:WaitForChild("ItemConfig")) -- Uncomment if needed
+local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
+local RarityConfig = require(Shared:WaitForChild("RarityConfig"))
 
 -- Configuration
 local CONFIG = {
-	BASE_INTERVAL = 5,          -- Base seconds to produce an item
-	SPEED_DECAY = 0.95,         -- Each level multiplies speed by 0.95 (5% faster per level)
-	MIN_INTERVAL = 0.5,         -- Cap on how fast it can go
-	
-	-- Level Milestones for Item Tiers
+	-- Tier milestones are handled in recalculateStats via logic,
+	-- but we keep the mapping here for reference or if used elsewhere.
 	TIER_MILESTONES = {
 		[10] = 2, -- At Level 10, produce Tier 2 items
 		[25] = 3, -- At Level 25, produce Tier 3 items
@@ -45,33 +44,6 @@ local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local InventoryChangedEvent = RemoteEvents:FindFirstChild("InventoryChanged") or Instance.new("RemoteEvent")
 InventoryChangedEvent.Name = "InventoryChanged"
 InventoryChangedEvent.Parent = RemoteEvents
-
---------------------------------------------------------------------------------
--- RARITY SYSTEM
---------------------------------------------------------------------------------
-local RARITY_CONFIG = {
-	Normal = { chance = 0.90, multiplier = 1, color = Color3.fromRGB(255, 255, 255) },
-	Spicy = { chance = 0.09, multiplier = 1.5, color = Color3.fromRGB(255, 80, 80) },
-	Galaxy = { chance = 0.01, multiplier = 3.0, color = Color3.fromRGB(180, 100, 255) },
-}
-local RARITY_ORDER = {"Normal", "Spicy", "Galaxy"}
-
-local function rollRarity(): string
-	local roll = math.random()
-	local cumulative = 0
-	for _, rarityName in RARITY_ORDER do
-		cumulative = cumulative + RARITY_CONFIG[rarityName].chance
-		if roll <= cumulative then return rarityName end
-	end
-	return "Normal"
-end
-
-local function getRarityValue(rarityName)
-	for i, name in ipairs(RARITY_ORDER) do
-		if name == rarityName then return i end
-	end
-	return 1
-end
 
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
@@ -127,7 +99,7 @@ local function updateVisuals(brainrot: Model)
 		
 		local label = gui:FindFirstChild("TextLabel")
 		if label then
-			local rarityColor = RARITY_CONFIG[rarity].color
+			local rarityColor = RarityConfig.GetColor(rarity)
 			label.TextColor3 = rarityColor
 			label.Text = string.format("Lvl %d | Tier %d\n%s", level, tier, rarity)
 		end
@@ -169,16 +141,47 @@ local function getBrainrotTemplate(unitName: string): Model?
 end
 
 --[[
-	Adds a brainrot to the player.
-	If they already have this unit type -> Stacks (Level Up).
-	If they don't -> Spawns new.
-	
-	Optional arguments forceRarity and forceLevel are used for data restoration.
+	Recalculates stats (Income, Interval, Tier) and applies them to the unit.
 ]]
-local function addBrainrotToPlayer(player: Player, unitName: string, forceRarity: string?, forceLevel: number?): Instance?
+local function recalculateStats(unit: Instance)
+	local unitName = unit:GetAttribute("UnitType")
+	local level = unit:GetAttribute("Level") or 1
+	local rarity = unit:GetAttribute("Rarity") or "Normal"
+
+	if not unitName then return end
+
+	-- 1. Base Stats from ShopConfig (Milestones included)
+	local effectiveIncome = ShopConfig.CalculateEffectiveIncome(unitName, level)
+	local effectiveCycleTime = ShopConfig.CalculateEffectiveCycleTime(unitName, level)
+
+	-- 2. Rarity Multipliers
+	local rarityMult = RarityConfig.GetMultiplier(rarity)
+
+	-- 3. Final Calculation
+	-- Income is multiplied by rarity
+	local finalIncome = math.floor(effectiveIncome * rarityMult)
+	
+	-- Interval (Speed) is DIVIDED by rarity multiplier (higher rarity = faster)
+	-- Note: CalculateEffectiveCycleTime already includes speed milestones
+	local finalInterval = math.max(0.1, effectiveCycleTime / rarityMult)
+
+	-- 4. Apply Attributes
+	unit:SetAttribute("IncomeAmount", finalIncome)
+	unit:SetAttribute("IncomeInterval", finalInterval)
+	unit:SetAttribute("ItemTier", _calculateItemTier(level))
+
+	-- Update Visuals
+	updateVisuals(unit)
+end
+
+--[[
+	Internal: Spawns or updates the physical model based on authoritative data.
+]]
+local function spawnOrUpdateUnit(player: Player, unitName: string, data: {Level: number, Rarity: string}): Instance?
 	local plot = getPlayerPlot(player)
 	if not plot then
-		warn("No plot found for", player.Name)
+		-- Plot might not be ready on join, retry loop handled elsewhere?
+		-- For now just warn.
 		return nil
 	end
 
@@ -194,36 +197,16 @@ local function addBrainrotToPlayer(player: Player, unitName: string, forceRarity
 		end
 	end
 
-	-- 2. Determine Rarity (Roll or Force)
-	local newRarity = forceRarity or rollRarity()
-
 	if existingUnit then
-		-------------------------------------------------------
-		-- UPGRADE EXISTING UNIT
-		-------------------------------------------------------
-		local currentLevel = existingUnit:GetAttribute("Level") or 1
-		local currentRarity = existingUnit:GetAttribute("Rarity") or "Normal"
+		-- Update attributes from data
+		existingUnit:SetAttribute("Level", data.Level)
+		existingUnit:SetAttribute("Rarity", data.Rarity)
 		
-		-- Update Level
-		local newLevel = forceLevel or (currentLevel + 1)
-		existingUnit:SetAttribute("Level", newLevel)
-		
-		-- Update Rarity
-		if forceRarity then
-			existingUnit:SetAttribute("Rarity", forceRarity)
-		elseif getRarityValue(newRarity) > getRarityValue(currentRarity) then
-			existingUnit:SetAttribute("Rarity", newRarity)
-			print(player.Name .. " upgraded " .. unitName .. " rarity to " .. newRarity .. "!")
-			-- Optional: Add visual effect for rarity upgrade here
-		end
-
 		-- Recalculate Stats
-		local _rarityMult = RARITY_CONFIG[existingUnit:GetAttribute("Rarity")].multiplier
-		
+		recalculateStats(existingUnit)
+		return existingUnit
 	else
-		-------------------------------------------------------
-		-- SPAWN NEW UNIT
-		-------------------------------------------------------
+		-- Spawn new
 		local template = getBrainrotTemplate(unitName)
 		if not template then
 			warn("Template not found:", unitName)
@@ -231,32 +214,23 @@ local function addBrainrotToPlayer(player: Player, unitName: string, forceRarity
 		end
 		
 		local brainrot = template:Clone()
-		brainrot.Name = unitName -- Keep name simple or unique
+		brainrot.Name = unitName
 		
-		-- Set Initial Attributes
+		-- Set Attributes
 		brainrot:SetAttribute("OwnerId", player.UserId)
 		brainrot:SetAttribute("UnitType", unitName)
-		brainrot:SetAttribute("Level", forceLevel or 1)
-		brainrot:SetAttribute("Rarity", newRarity)
-		brainrot:SetAttribute("ItemTier", 1) -- Starts at Tier 1
-		
-		-- Calculate Initial Speed
-		local rarityMult = RARITY_CONFIG[newRarity].multiplier
-		local initialInterval = CONFIG.BASE_INTERVAL / rarityMult
-		brainrot:SetAttribute("IncomeInterval", initialInterval)
+		brainrot:SetAttribute("Level", data.Level)
+		brainrot:SetAttribute("Rarity", data.Rarity)
 		
 		-- Store unit hidden (Option B: player places via BuildMode)
 		brainrot:SetAttribute("GridSlot", nil)
 		brainrot:SetAttribute("IsStored", true)
 		
-		
-		
-		
 		local plotCF = plot:GetPivot() -- Assuming Plot is a Model
 		if plot.PrimaryPart then plotCF = plot.PrimaryPart.CFrame end
 		
 		-- Offset: Start left, move right
-		local offset = Vector3.new(0, -100, 0) -- Hidden below plot until placed via BuildMode
+		local offset = Vector3.new(0, -100, 0)
 		local spawnCF = plotCF * CFrame.new(offset)
 		
 		brainrot:PivotTo(spawnCF)
@@ -264,26 +238,44 @@ local function addBrainrotToPlayer(player: Player, unitName: string, forceRarity
 		-- Finalize
 		brainrot.Parent = brainrotsContainer
 		CollectionService:AddTag(brainrot, BRAINROT_TAG)
-		updateVisuals(brainrot)
 		
-		-- Ensure anchored so it doesn't fall (especially when stored at -100 Y)
+		-- Recalculate Stats (Initial Setup)
+		recalculateStats(brainrot)
+
+		-- Ensure anchored
 		for _, part in brainrot:GetDescendants() do
 			if part:IsA("BasePart") then
 				part.Anchored = true
 			end
 		end
 		
-		print("Spawned new unit:", unitName)
-		
-		-- Notify Client (for UI updates)
-		InventoryChangedEvent:FireClient(player)
-		
+		print("Spawned new unit (View):", unitName)
 		return brainrot
 	end
+end
+
+--[[
+	Public API: Adds a brainrot to the player.
+	NOW DELEGATES TO INVENTORY MANAGER.
 	
-	-- Notify Client (for UI updates)
-	InventoryChangedEvent:FireClient(player)
-	return existingUnit
+	@return Instance? - Returns the unit if immediate spawn, but mostly relies on event.
+]]
+local function addBrainrotToPlayer(player: Player, unitName: string, forceRarity: string?, forceLevel: number?): Instance?
+	-- Legacy/Shop compatibility:
+	-- If called, we update the Data Model.
+	-- The Data Model will fire an event, which calls spawnOrUpdateUnit.
+
+	if _G.InventoryManager then
+		local newData = _G.InventoryManager.AddUnit(player, unitName, forceRarity, forceLevel)
+		-- We can return the unit if we find it, but it might take a frame to spawn via event?
+		-- For now, we can manually call spawnOrUpdateUnit to ensure immediate return for ShopManager logic
+		-- (ShopManager expects a return value to verify success, though we removed stat logic from it).
+
+		return spawnOrUpdateUnit(player, unitName, newData)
+	else
+		warn("BrainrotManager: InventoryManager not found!")
+		return nil
+	end
 end
 
 --[[
@@ -367,6 +359,21 @@ local function setInventoryData(player: Player, inventoryData: any)
 				-- Use 'total' as the level for the new system
 				addBrainrotToPlayer(player, unitName, rarity, counts.total)
 			end
+		end
+	end
+end
+
+--[[
+	Force update all unit stats (call this if ShopConfig changes or for migration).
+]]
+local function updateAllUnitStats(player: Player)
+	local plot = getPlayerPlot(player)
+	if not plot then return end
+
+	local brainrotsContainer = plot:FindFirstChild("Brainrots")
+	if brainrotsContainer then
+		for _, child in brainrotsContainer:GetChildren() do
+			recalculateStats(child)
 		end
 	end
 end
@@ -465,6 +472,36 @@ end
 
 Players.PlayerRemoving:Connect(onPlayerRemoving)
 
+-- Wait for InventoryManager and connect listener
+task.spawn(function()
+	local attempts = 0
+	while not _G.InventoryManager and attempts < 100 do
+		attempts += 1
+		task.wait(0.1)
+	end
+
+	if _G.InventoryManager then
+		_G.InventoryManager.UnitChanged:Connect(function(player, unitName, newData)
+			if not unitName then
+				-- Full reload (e.g. from DataManager)
+				updateAllUnitStats(player)
+				-- Also need to spawn missing units?
+				-- For data restore, we iterate inventory.
+				local inventory = _G.InventoryManager.GetInventory(player)
+				for name, data in pairs(inventory) do
+					spawnOrUpdateUnit(player, name, data)
+				end
+			else
+				-- Single unit update
+				spawnOrUpdateUnit(player, unitName, newData)
+			end
+		end)
+		print("✓ BrainrotManager connected to InventoryManager")
+	else
+		warn("BrainrotManager: Could not connect to InventoryManager!")
+	end
+end)
+
 print("✓ BrainrotManager (Stacking) Initialized")
 
 -- Export API
@@ -476,6 +513,8 @@ _G.BrainrotManager = {
 	SpawnFromPlacement = spawnFromPlacement,
 	SetInventoryData = setInventoryData,
 	GetPlayerPlot = getPlayerPlot, -- Exposed for DataManager
+	UpdateAllUnitStats = updateAllUnitStats,
+	RARITY_CONFIG = RarityConfig.CONFIG, -- Export config for compatibility
 	
 	GetUnitLevel = function(player, unitName)
 		local plot = getPlayerPlot(player)

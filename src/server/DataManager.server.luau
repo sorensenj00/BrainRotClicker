@@ -42,6 +42,16 @@ local function waitForBrainrotManager()
 	return _G.BrainrotManager
 end
 
+-- Wait for InventoryManager API (loaded via _G)
+local function waitForInventoryManager()
+	local attempts = 0
+	while not _G.InventoryManager and attempts < 50 do
+		attempts += 1
+		task.wait(0.1)
+	end
+	return _G.InventoryManager
+end
+
 --------------------------------------------------------------------------------
 -- DATA GATHERING (LEGACY)
 --------------------------------------------------------------------------------
@@ -159,9 +169,13 @@ local function gatherPlayerData(player: Player): {money: number, ownedUnits: {[s
 		end
 	end
 	
-	-- Get brainrot inventory (with rarities)
+	-- Get brainrot inventory (from InventoryManager)
+	-- We store the flat inventory format directly.
 	local brainrotInventory = {}
-	if BrainrotManager and BrainrotManager.GetInventoryData then
+	if _G.InventoryManager then
+		brainrotInventory = _G.InventoryManager.GetInventory(player) or {}
+	elseif BrainrotManager and BrainrotManager.GetInventoryData then
+		-- Fallback to old scraping if InventoryManager not ready (unlikely)
 		brainrotInventory = BrainrotManager.GetInventoryData(player) or {}
 	end
 	
@@ -354,40 +368,41 @@ local function applyLegacyData(player: Player, data: any)
 		-- Small delay to ensure tiers are spawned
 		task.wait(0.5)
 		
-		-- Restore brainrot inventory (with rarities)
-		-- Ensure BrainrotManager is defined in this scope to prevent runtime errors
-		-- (It is defined at the top of the closure, but we double-check)
-		if not BrainrotManager then
-			BrainrotManager = _G.BrainrotManager
-		end
+		-- Restore brainrot inventory
+		-- We push data to InventoryManager, which notifies BrainrotManager to spawn units.
+		if not BrainrotManager then BrainrotManager = _G.BrainrotManager end
+		local InventoryManager = _G.InventoryManager or waitForInventoryManager()
 
-		if BrainrotManager and data.brainrotInventory and next(data.brainrotInventory) ~= nil then
-			-- Check if it's the new format (has 'level' field in entries)
+		if InventoryManager and data.brainrotInventory and next(data.brainrotInventory) ~= nil then
+			-- Check if it's the new flat format (has 'level' field in entries)
 			local firstKey, firstVal = next(data.brainrotInventory)
-			local isNewFormat = (type(firstVal) == "table" and firstVal.level ~= nil)
+			local isFlatFormat = (type(firstVal) == "table" and firstVal.level ~= nil)
 			
-			if isNewFormat then
-				-- New Format: {[unitName]: {level, rarity, status}}
-				for unitName, unitData in pairs(data.brainrotInventory) do
-					if BrainrotManager.AddUnit then
-						BrainrotManager.AddUnit(player, unitName, unitData.rarity, unitData.level)
-					end
-				end
-			elseif BrainrotManager.SetInventoryData then
-				-- Old Format: {[unitName]: {[rarity]: {total, active}}}
-				-- Reset active counts to 0 since we'll spawn them from placements
-				local inventoryWithZeroActive = {}
+			local finalInventory = {}
+
+			if isFlatFormat then
+				-- Already compatible with InventoryManager
+				finalInventory = data.brainrotInventory
+			else
+				-- Convert Old Format: {[unitName]: {[rarity]: {total, active}}}
+				-- To Flat Format: {[unitName]: {level, rarity}}
 				for unitName, rarityData in pairs(data.brainrotInventory) do
-					inventoryWithZeroActive[unitName] = {}
 					for rarity, counts in pairs(rarityData) do
-						inventoryWithZeroActive[unitName][rarity] = {
-							total = counts.total,
-							active = 0  -- Will be updated as we spawn
-						}
+						if counts.total > 0 then
+							-- We only keep one entry per unit type (highest/first found in loop)
+							-- This mimics the "Stacking" logic refactor.
+							finalInventory[unitName] = {
+								level = counts.total,
+								rarity = rarity
+							}
+						end
 					end
 				end
-				BrainrotManager.SetInventoryData(player, inventoryWithZeroActive)
+				print(string.format("  [Migration] Converted %s inventory items to flat format", player.Name))
 			end
+
+			-- Set the authoritative state
+			InventoryManager.SetInventory(player, finalInventory)
 		end
 		
 		-- Spawn brainrots from saved placements (preserves rarities and attributes)
@@ -535,14 +550,21 @@ local function initialize()
 	-- Wait for dependencies
 	-- We explicitly wait here to ensure dependencies are ready before DataService
 	-- starts loading players. This prevents race conditions in OnLoad handlers.
-	print("DataManager: Waiting for BrainrotManager...")
+	print("DataManager: Waiting for Managers...")
 	local brainrotManager = waitForBrainrotManager()
+	local inventoryManager = waitForInventoryManager()
+
 	if not brainrotManager then
-		warn("DataManager: Failed to load BrainrotManager! Data loading may be incomplete.")
-	else
-		print("DataManager: BrainrotManager ready.")
+		warn("DataManager: Failed to load BrainrotManager!")
+	end
+	if not inventoryManager then
+		warn("DataManager: Failed to load InventoryManager!")
 	end
 	
+	if brainrotManager and inventoryManager then
+		print("DataManager: Managers ready.")
+	end
+
 	-- Register with the new DataService
 	-- We register as "Legacy" (or Root) to handle the entire data table
 	DataService.RegisterHandler("Legacy", {

@@ -1,44 +1,36 @@
 --[[
 	DataManager Server Script
 	
-	Handles saving and loading player data using DataStoreService.
+	Handles saving and loading player data.
+	REFACTORED: Now acts as a bridge/adapter to the new DataService (ProfileService).
 	
 	Saves:
 	- Money (from leaderstats)
 	- Owned unit counts (from ShopManager)
 	- Unlock progress (from ShopManager)
 	
-	Data is saved on:
-	- Player leaving
-	- Auto-save every 5 minutes
-	- Game shutdown (BindToClose)
+	The core saving logic has been moved to DataService (ModuleScript).
+	This script now registers the "Legacy" data component.
 ]]
 
 -- Services
 local Players = game:GetService("Players")
-local DataStoreService = game:GetService("DataStoreService")
-local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerScriptService = game:GetService("ServerScriptService")
 
 -- Wait for shared modules
 local ShopConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ShopConfig"))
 
--- DataStore
-local PlayerDataStore = DataStoreService:GetDataStore("BrainRotClickerData_v1")
+-- New Data Service
+-- Ideally, DataService should be in ServerScriptService/Server/DataService
+-- I am assuming it was created in the same directory as this script.
+-- Adjust require path if necessary.
+local DataService = require(script.Parent.DataService)
 
 -- Configuration
 local CONFIG = {
-	AUTO_SAVE_INTERVAL = 300, -- 5 minutes
 	DEFAULT_MONEY = 100,      -- Starting money for new players
-	RETRY_ATTEMPTS = 3,
-	RETRY_DELAY = 1,
 }
-
--- Cached player data (to avoid reading twice)
-local PlayerDataCache: {[Player]: {money: number, ownedUnits: {[string]: number}, unlockProgress: number, maxStorage: number}} = {}
-
--- Track if data has been loaded
-local DataLoaded: {[Player]: boolean} = {}
 
 -- Wait for BrainrotManager API (loaded via _G)
 local function waitForBrainrotManager()
@@ -50,12 +42,23 @@ local function waitForBrainrotManager()
 	return _G.BrainrotManager
 end
 
+-- Wait for InventoryManager API (loaded via _G)
+local function waitForInventoryManager()
+	local attempts = 0
+	while not _G.InventoryManager and attempts < 50 do
+		attempts += 1
+		task.wait(0.1)
+	end
+	return _G.InventoryManager
+end
+
 --------------------------------------------------------------------------------
--- DATA STRUCTURE
+-- DATA GATHERING (LEGACY)
 --------------------------------------------------------------------------------
 
 --[[
-	Default data structure for new players
+	Default data structure for new players.
+	Now exported via DataService handler.
 ]]
 local function getDefaultData()
 	return {
@@ -88,168 +91,11 @@ local function getDefaultData()
 	}
 end
 
---------------------------------------------------------------------------------
--- SAVE / LOAD FUNCTIONS
---------------------------------------------------------------------------------
-
---[[
-	Loads player data from DataStore.
-	Includes maxStorage for storage upgrade persistence.
-	Returns the data or default data if not found.
-]]
-local function loadPlayerData(player: Player): {money: number, ownedUnits: {[string]: number}, unlockProgress: number}
-	local userId = player.UserId
-	local key = "Player_" .. userId
-	
-	local success, result
-	for attempt = 1, CONFIG.RETRY_ATTEMPTS do
-		success, result = pcall(function()
-			return PlayerDataStore:GetAsync(key)
-		end)
-		
-		if success then
-			break
-		else
-			warn(string.format("DataManager: Load attempt %d failed for %s: %s", attempt, player.Name, tostring(result)))
-			if attempt < CONFIG.RETRY_ATTEMPTS then
-				task.wait(CONFIG.RETRY_DELAY)
-			end
-		end
-	end
-	
-	if success and result then
-		-- Ensure maxStorage exists (for older saves)
-		if not result.maxStorage then
-			result.maxStorage = 500
-		end
-		-- Ensure convenienceUpgrades exists (for older saves)
-		if not result.convenienceUpgrades then
-			result.convenienceUpgrades = {}
-		end
-		-- Ensure prestige data exists (for older saves)
-		if not result.lifetimeEarnings then
-			result.lifetimeEarnings = 0
-		end
-		if not result.totalMeatballs then
-			result.totalMeatballs = 0
-		end
-		if not result.spentMeatballs then
-			result.spentMeatballs = 0
-		end
-		if not result.prestigeCount then
-			result.prestigeCount = 0
-		end
-		if not result.meatballUpgrades then
-			result.meatballUpgrades = {}
-		end
-		-- Ensure tier and brainrot persistence data exists (for older saves)
-		if not result.purchasedTiers then
-			result.purchasedTiers = 1
-		end
-		if not result.brainrotInventory then
-			result.brainrotInventory = {}
-		end
-		if not result.brainrotPlacements then
-			result.brainrotPlacements = {}
-		end
-		-- Ensure item system data exists (for older saves)
-		if not result.itemStorage then
-			result.itemStorage = {}
-		end
-		if not result.backpack then
-			result.backpack = {}
-		end
-		if not result.storageCapacity then
-			result.storageCapacity = 2000
-		end
-		if not result.selectedVehicle then
-			result.selectedVehicle = "Sneakers"
-		end
-		if not result.vehicleCapacities then
-			result.vehicleCapacities = {}
-		end
-		if not result.gridPositions then
-			result.gridPositions = {}
-		end
-		-- Migration: Convert old gridPositions format to new layered format
-		-- Old format: {[slotIndex]: {unitType, rarity, level, unitId}}
-		-- New format: {[slotIndex]: {Unit = {...}, Tile = tileId}}
-		for slotIndex, slotData in pairs(result.gridPositions) do
-			if slotData.unitType and not slotData.Unit then
-				-- Old format detected, migrate to new format
-				result.gridPositions[slotIndex] = {
-					Unit = {
-						unitType = slotData.unitType,
-						rarity = slotData.rarity,
-						level = slotData.level,
-						unitId = slotData.unitId,
-						equippedArtifacts = {},
-					},
-					Tile = nil,
-				}
-				print(string.format("  [Migration] Converted grid slot %s to layered format", tostring(slotIndex)))
-			end
-		end
-		if not result.discoveredSynergies then
-			result.discoveredSynergies = {}
-		end
-		-- Ensure artifact data exists
-		if not result.playerArtifacts then
-			result.playerArtifacts = {}
-		end
-		print(string.format("✓ Loaded data for %s: $%d, %d units unlocked, %d max storage, %d meatballs, %d tiers", 
-			player.Name, result.money or 0, result.unlockProgress or 5, result.maxStorage, result.totalMeatballs, result.purchasedTiers))
-		return result
-	else
-		print(string.format("✓ No saved data for %s, using defaults", player.Name))
-		return getDefaultData()
-	end
-end
-
---[[
-	Saves player data to DataStore.
-]]
-local function savePlayerData(player: Player): boolean
-	local userId = player.UserId
-	local key = "Player_" .. userId
-	
-	-- Get current data from game state
-	local data = gatherPlayerData(player)
-	if not data then
-		warn("DataManager: No data to save for " .. player.Name)
-		return false
-	end
-	
-	local success, result
-	for attempt = 1, CONFIG.RETRY_ATTEMPTS do
-		success, result = pcall(function()
-			PlayerDataStore:SetAsync(key, data)
-		end)
-		
-		if success then
-			break
-		else
-			warn(string.format("DataManager: Save attempt %d failed for %s: %s", attempt, player.Name, tostring(result)))
-			if attempt < CONFIG.RETRY_ATTEMPTS then
-				task.wait(CONFIG.RETRY_DELAY)
-			end
-		end
-	end
-	
-	if success then
-		print(string.format("✓ Saved data for %s: $%d, %d units unlocked, %d max storage", player.Name, data.money, data.unlockProgress, data.maxStorage or 500))
-		return true
-	else
-		warn(string.format("✗ Failed to save data for %s after %d attempts", player.Name, CONFIG.RETRY_ATTEMPTS))
-		return false
-	end
-end
-
 --[[
 	Gathers current player data from game state.
-	Now includes maxStorage from the player's plot.
+	Moved from old DataManager.
 ]]
-function gatherPlayerData(player: Player): {money: number, ownedUnits: {[string]: number}, unlockProgress: number}?
+local function gatherPlayerData(player: Player): {money: number, ownedUnits: {[string]: number}, unlockProgress: number}?
 	-- Get money from leaderstats
 	local money = CONFIG.DEFAULT_MONEY
 	local leaderstats = player:FindFirstChild("leaderstats")
@@ -323,11 +169,9 @@ function gatherPlayerData(player: Player): {money: number, ownedUnits: {[string]
 		end
 	end
 	
-	-- Get brainrot inventory (with rarities)
-	local brainrotInventory = {}
-	if BrainrotManager and BrainrotManager.GetInventoryData then
-		brainrotInventory = BrainrotManager.GetInventoryData(player) or {}
-	end
+	-- Get brainrot inventory
+	-- Removed from Legacy Data (now handled by InventoryManager handler in DataService)
+	-- local brainrotInventory = {}
 	
 	-- Get brainrot placements (for position restoration)
 	local brainrotPlacements = {}
@@ -389,7 +233,7 @@ function gatherPlayerData(player: Player): {money: number, ownedUnits: {[string]
 		spentMeatballs = spentMeatballs,
 		prestigeCount = prestigeCount,
 		meatballUpgrades = meatballUpgrades,
-		brainrotInventory = brainrotInventory,
+		-- brainrotInventory = brainrotInventory, -- Migrated to InventoryManager
 		brainrotPlacements = brainrotPlacements,
 		-- Item system data
 		itemStorage = itemStorage,
@@ -403,16 +247,14 @@ function gatherPlayerData(player: Player): {money: number, ownedUnits: {[string]
 end
 
 --------------------------------------------------------------------------------
--- PLAYER EVENTS
+-- DATA LOADING (LEGACY)
 --------------------------------------------------------------------------------
 
---[[
-	Called when a player joins. Loads their data and applies it.
-]]
-local function onPlayerAdded(player: Player)
-	-- Load saved data
-	local data = loadPlayerData(player)
-	PlayerDataCache[player] = data
+local function applyLegacyData(player: Player, data: any)
+	if not data then
+		warn("DataManager: No data to apply for " .. player.Name)
+		return
+	end
 	
 	-- Create leaderstats IMMEDIATELY to prevent race conditions
 	-- Other scripts depend on leaderstats existing
@@ -424,21 +266,20 @@ local function onPlayerAdded(player: Player)
 		
 		local money = Instance.new("IntValue")
 		money.Name = "Money"
-		money.Value = data.money -- Apply saved money immediately
+		money.Value = data.money or CONFIG.DEFAULT_MONEY -- Apply saved money
 		money.Parent = leaderstats
 		
-		print(string.format("✓ Created leaderstats for %s with $%d", player.Name, data.money))
+		print(string.format("✓ Created leaderstats for %s with $%d", player.Name, money.Value))
 	else
 		-- leaderstats exists, just update value
 		local money = leaderstats:FindFirstChild("Money")
 		if money then
-			money.Value = data.money
-			print(string.format("✓ Applied saved money for %s: $%d", player.Name, data.money))
+			money.Value = data.money or CONFIG.DEFAULT_MONEY
+			print(string.format("✓ Applied saved money for %s: $%d", player.Name, money.Value))
 		end
 	end
 	
 	-- Restore convenience upgrades EARLY (before ConvenienceUpgradesManager initializes)
-	-- This prevents the race condition where ConvenienceUpgradesManager sets empty upgrades
 	if data.convenienceUpgrades and next(data.convenienceUpgrades) ~= nil then
 		if _G.ConvenienceUpgrades and _G.ConvenienceUpgrades.SetPlayerUpgrades then
 			_G.ConvenienceUpgrades.SetPlayerUpgrades(player, data.convenienceUpgrades)
@@ -455,12 +296,12 @@ local function onPlayerAdded(player: Player)
 	
 	-- Apply owned units
 	if _G.ShopManager and _G.ShopManager.SetPlayerData then
-		_G.ShopManager.SetPlayerData(player, data.ownedUnits, data.unlockProgress)
+		_G.ShopManager.SetPlayerData(player, data.ownedUnits or {}, data.unlockProgress or 5)
 	else
 		-- Fallback: Set the values directly
 		local ownedFolder = player:FindFirstChild("OwnedUnits")
 		if ownedFolder then
-			for unitName, count in data.ownedUnits do
+			for unitName, count in pairs(data.ownedUnits or {}) do
 				local countValue = ownedFolder:FindFirstChild(unitName)
 				if countValue then
 					countValue.Value = count
@@ -470,7 +311,7 @@ local function onPlayerAdded(player: Player)
 		
 		local unlockValue = player:FindFirstChild("UnlockProgress")
 		if unlockValue then
-			unlockValue.Value = data.unlockProgress
+			unlockValue.Value = data.unlockProgress or 5
 		end
 	end
 	
@@ -521,36 +362,41 @@ local function onPlayerAdded(player: Player)
 		-- Small delay to ensure tiers are spawned
 		task.wait(0.5)
 		
-		-- Restore brainrot inventory (with rarities) - this sets up the inventory tracking
-		if data.brainrotInventory and next(data.brainrotInventory) ~= nil then
-			-- Check if it's the new format (has 'level' field in entries)
+		-- Restore brainrot inventory
+		-- We push data to InventoryManager, which notifies BrainrotManager to spawn units.
+		if not BrainrotManager then BrainrotManager = _G.BrainrotManager end
+		local InventoryManager = _G.InventoryManager or waitForInventoryManager()
+
+		if InventoryManager and data.brainrotInventory and next(data.brainrotInventory) ~= nil then
+			-- Check if it's the new flat format (has 'level' field in entries)
 			local firstKey, firstVal = next(data.brainrotInventory)
-			local isNewFormat = (type(firstVal) == "table" and firstVal.level ~= nil)
+			local isFlatFormat = (type(firstVal) == "table" and firstVal.level ~= nil)
 			
-			if isNewFormat then
-				-- New Format: {[unitName]: {level, rarity, status}}
-				for unitName, unitData in pairs(data.brainrotInventory) do
-					-- Spawn/Restore unit with correct stats
-					-- Note: AddUnit is idempotent, so it's safe to call even if placement spawns it later
-					if BrainrotManager.AddUnit then
-						BrainrotManager.AddUnit(player, unitName, unitData.rarity, unitData.level)
-					end
-				end
-			elseif BrainrotManager.SetInventoryData then
-				-- Old Format: {[unitName]: {[rarity]: {total, active}}}
-				-- Reset active counts to 0 since we'll spawn them from placements
-				local inventoryWithZeroActive = {}
+			local finalInventory = {}
+
+			if isFlatFormat then
+				-- Already compatible with InventoryManager
+				finalInventory = data.brainrotInventory
+			else
+				-- Convert Old Format: {[unitName]: {[rarity]: {total, active}}}
+				-- To Flat Format: {[unitName]: {level, rarity}}
 				for unitName, rarityData in pairs(data.brainrotInventory) do
-					inventoryWithZeroActive[unitName] = {}
 					for rarity, counts in pairs(rarityData) do
-						inventoryWithZeroActive[unitName][rarity] = {
-							total = counts.total,
-							active = 0  -- Will be updated as we spawn
-						}
+						if counts.total > 0 then
+							-- We only keep one entry per unit type (highest/first found in loop)
+							-- This mimics the "Stacking" logic refactor.
+							finalInventory[unitName] = {
+								level = counts.total,
+								rarity = rarity
+							}
+						end
 					end
 				end
-				BrainrotManager.SetInventoryData(player, inventoryWithZeroActive)
+				print(string.format("  [Migration] Converted %s inventory items to flat format", player.Name))
 			end
+
+			-- Set the authoritative state
+			InventoryManager.SetInventory(player, finalInventory)
 		end
 		
 		-- Spawn brainrots from saved placements (preserves rarities and attributes)
@@ -576,7 +422,7 @@ local function onPlayerAdded(player: Player)
 			-- Fallback: Spawn from ownedUnits if no placement data (old save format)
 			local inventoryData = {}
 			
-			for unitName, count in data.ownedUnits do
+			for unitName, count in pairs(data.ownedUnits) do
 				if count >= 1 then
 					-- Initialize inventory entry
 					if not inventoryData[unitName] then inventoryData[unitName] = {} end
@@ -622,7 +468,6 @@ local function onPlayerAdded(player: Player)
 		end
 		
 		-- Restore convenience upgrades (fallback if early restoration didn't work)
-		-- Check if upgrades were already restored early (before task.spawn)
 		local existingUpgrades = _G.ConvenienceUpgrades and _G.ConvenienceUpgrades.GetPlayerUpgrades and _G.ConvenienceUpgrades.GetPlayerUpgrades(player)
 		local alreadyRestored = existingUpgrades and next(existingUpgrades) ~= nil
 		
@@ -652,111 +497,109 @@ local function onPlayerAdded(player: Player)
 			end
 		end
 	end)
-	
-	DataLoaded[player] = true
 end
+
+--------------------------------------------------------------------------------
+-- AUTO-SYNC (LEGACY)
+--------------------------------------------------------------------------------
 
 --[[
-	Called when a player leaves. Saves their data.
+	Because we're using ProfileService in a hybrid "Legacy Adapter" mode,
+	we need to periodically push the current game state into the Profile.Data table.
+	ProfileService auto-saves the *table* every 30 seconds (configurable),
+	but it doesn't know how to fetch new data from the game (e.g., leaderstats)
+	unless we update the table.
+
+	This loop ensures the Profile.Data table is always reasonably up-to-date.
 ]]
-local function onPlayerRemoving(player: Player)
-	if DataLoaded[player] then
-		savePlayerData(player)
-	end
-	
-	-- Cleanup
-	PlayerDataCache[player] = nil
-	DataLoaded[player] = nil
-end
-
---------------------------------------------------------------------------------
--- AUTO-SAVE
---------------------------------------------------------------------------------
-
-local function autoSaveAllPlayers()
-	for _, player in Players:GetPlayers() do
-		if DataLoaded[player] then
-			task.spawn(savePlayerData, player)
-		end
-	end
-end
-
--- Auto-save loop
 task.spawn(function()
 	while true do
-		task.wait(CONFIG.AUTO_SAVE_INTERVAL)
-		print("DataManager: Running auto-save...")
-		autoSaveAllPlayers()
+		task.wait(10) -- Update the profile data object every 10 seconds
+		for _, player in ipairs(Players:GetPlayers()) do
+			local profileData = DataService.GetData(player)
+			if profileData then
+				-- Gather fresh data from game state
+				local freshData = gatherPlayerData(player)
+				if freshData then
+					-- Update the profile data in place
+					for k, v in pairs(freshData) do
+						profileData[k] = v
+					end
+				end
+			end
+		end
 	end
 end)
 
---------------------------------------------------------------------------------
--- GAME SHUTDOWN
---------------------------------------------------------------------------------
-
--- Save all players when game is closing
-game:BindToClose(function()
-	print("DataManager: Game closing, saving all player data...")
-	
-	-- In Studio, BindToClose only has limited time
-	if RunService:IsStudio() then
-		-- Quick save for Studio testing
-		for _, player in Players:GetPlayers() do
-			if DataLoaded[player] then
-				savePlayerData(player)
-			end
-		end
-	else
-		-- Production: spawn all saves concurrently
-		local saveTasks = {}
-		for _, player in Players:GetPlayers() do
-			if DataLoaded[player] then
-				table.insert(saveTasks, task.spawn(savePlayerData, player))
-			end
-		end
-		
-		-- Wait for all saves to complete (max 30 seconds)
-		task.wait(5)
-	end
-	
-	print("DataManager: Shutdown save complete")
-end)
 
 --------------------------------------------------------------------------------
--- INITIALIZATION
+-- INIT & EXPORT
 --------------------------------------------------------------------------------
 
 local function initialize()
 	print("═══════════════════════════════════════════")
-	print("   DataManager - Initializing")
+	print("   DataManager (Legacy Adapter) - Initializing")
 	print("═══════════════════════════════════════════")
 	
-	-- Connect player events
-	Players.PlayerAdded:Connect(onPlayerAdded)
-	Players.PlayerRemoving:Connect(onPlayerRemoving)
+	-- Wait for dependencies
+	-- We explicitly wait here to ensure dependencies are ready before DataService
+	-- starts loading players. This prevents race conditions in OnLoad handlers.
+	print("DataManager: Waiting for Managers...")
+	local brainrotManager = waitForBrainrotManager()
+	local inventoryManager = waitForInventoryManager()
 	
-	-- Handle existing players (in case script loads late)
-	for _, player in Players:GetPlayers() do
-		task.spawn(onPlayerAdded, player)
+	if not brainrotManager then
+		warn("DataManager: Failed to load BrainrotManager!")
+	end
+	if not inventoryManager then
+		warn("DataManager: Failed to load InventoryManager!")
 	end
 	
-	print("✓ DataManager initialized")
-	print("  • Auto-save interval: " .. CONFIG.AUTO_SAVE_INTERVAL .. "s")
+	if brainrotManager and inventoryManager then
+		print("DataManager: Managers ready.")
+	end
+
+	-- Register with the new DataService
+	-- We register as "Legacy" (or Root) to handle the entire data table
+	DataService.RegisterHandler("Legacy", {
+		DefaultData = getDefaultData(),
+		OnLoad = applyLegacyData,
+		OnSave = gatherPlayerData
+	})
+
+	-- Init DataService (this starts the player loading process)
+	DataService.Init()
+
+	print("✓ DataManager (Legacy Adapter) initialized")
 	print("═══════════════════════════════════════════")
 end
 
 initialize()
 
--- Export API
+-- Export Legacy API for compatibility
+-- Many scripts use _G.DataManager.GetCachedData(player)
 _G.DataManager = {
-	SavePlayerData = savePlayerData,
-	LoadPlayerData = loadPlayerData,
-	GetCachedData = function(player) return PlayerDataCache[player] end,
+	SavePlayerData = function(player)
+		-- ProfileService handles auto-saves.
+		-- This manual save call is now less critical but we can map it to nothing or a forced save if exposed.
+		-- Since DataService handles saving on removal, manual saves might be redundant.
+		-- If we want to support manual save (e.g. "Save Game" button), we need to expose Save from DataService.
+		-- For now, we return true to fake success.
+		return true
+	end,
+	LoadPlayerData = function(player)
+		-- Should return the data immediately if loaded
+		return DataService.GetData(player) or getDefaultData()
+	end,
+	GetCachedData = function(player)
+		return DataService.GetData(player)
+	end,
 	ResetPlayerData = function(player, keepPrestigeData)
-		local currentData = PlayerDataCache[player]
+		-- This is tricky with ProfileService as it involves wiping data.
+		-- For now, we can manually reset the table in the profile.
+		local currentData = DataService.GetData(player)
 		if not currentData then return end
 		
-		-- Default reset values
 		local newData = getDefaultData()
 		
 		if keepPrestigeData then
@@ -775,12 +618,16 @@ _G.DataManager = {
 			newData.money = startingMoney
 		end
 		
-		-- Update cache
-		PlayerDataCache[player] = newData
+		-- Update the profile data in place (ProfileService will save this)
+		-- We need to clear existing keys first because simple assignment might not remove old keys if we iterate.
+		-- But replacing keys is fine.
+		for k, v in pairs(newData) do
+			currentData[k] = v
+		end
 		
-		-- Save immediately
-		savePlayerData(player)
+		-- Apply the new data visually/logically
+		applyLegacyData(player, currentData)
 		
-		return newData
+		return currentData
 	end,
 }

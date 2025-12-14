@@ -626,7 +626,12 @@ _G.DataManager = {
 		
 		-- Update the profile data in place (ProfileService will save this)
 		-- We need to clear existing keys first because simple assignment might not remove old keys if we iterate.
-		-- But replacing keys is fine.
+		-- Use table.clear would break strict typing if not recognized, but iterating to nil is safe.
+		for k, _ in pairs(currentData) do
+			currentData[k] = nil
+		end
+		
+		-- Merge new data
 		for k, v in pairs(newData) do
 			currentData[k] = v
 		end

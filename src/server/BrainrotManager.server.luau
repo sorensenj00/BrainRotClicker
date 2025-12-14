@@ -171,13 +171,13 @@ local function recalculateStats(unit: Instance)
 	unit:SetAttribute("ItemTier", _calculateItemTier(level))
 
 	-- Update Visuals
-	updateVisuals(unit)
+	updateVisuals(unit :: Model)
 end
 
 --[[
 	Internal: Spawns or updates the physical model based on authoritative data.
 ]]
-local function spawnOrUpdateUnit(player: Player, unitName: string, data: {Level: number, Rarity: string}): Instance?
+local function spawnOrUpdateUnit(player: Player, unitName: string, data: any): Instance?
 	local plot = getPlayerPlot(player)
 	if not plot then
 		-- Plot might not be ready on join, retry loop handled elsewhere?
@@ -199,8 +199,11 @@ local function spawnOrUpdateUnit(player: Player, unitName: string, data: {Level:
 
 	if existingUnit then
 		-- Update attributes from data
-		existingUnit:SetAttribute("Level", data.Level)
-		existingUnit:SetAttribute("Rarity", data.Rarity)
+		local level = data.level or data.Level or 1
+		local rarity = data.rarity or data.Rarity or "Normal"
+		
+		existingUnit:SetAttribute("Level", level)
+		existingUnit:SetAttribute("Rarity", rarity)
 		
 		-- Recalculate Stats
 		recalculateStats(existingUnit)
@@ -219,8 +222,13 @@ local function spawnOrUpdateUnit(player: Player, unitName: string, data: {Level:
 		-- Set Attributes
 		brainrot:SetAttribute("OwnerId", player.UserId)
 		brainrot:SetAttribute("UnitType", unitName)
-		brainrot:SetAttribute("Level", data.Level)
-		brainrot:SetAttribute("Rarity", data.Rarity)
+		
+		-- Handle data key casing (InventoryManager uses lower, Legacy uses Pascal)
+		local level = data.level or data.Level or 1
+		local rarity = data.rarity or data.Rarity or "Normal"
+		
+		brainrot:SetAttribute("Level", level)
+		brainrot:SetAttribute("Rarity", rarity)
 		
 		-- Store unit hidden (Option B: player places via BuildMode)
 		brainrot:SetAttribute("GridSlot", nil)

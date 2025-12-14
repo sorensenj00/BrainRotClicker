@@ -864,32 +864,30 @@ refreshInventoryPanel = function()
 			hpLabel.TextXAlignment = Enum.TextXAlignment.Left
 			hpLabel.Parent = infoGroup
 			
-			-- Place Button
-			local placeButton = Instance.new("TextButton")
-			placeButton.Name = "PlaceButton"
-			placeButton.Size = UDim2.new(0, 50, 0, 26)
-			placeButton.Position = UDim2.new(1, -60, 0, 10)
-			placeButton.BackgroundColor3 = CONFIG.THEME_ACCENT_GREEN
-			placeButton.Text = "PLACE"
-			placeButton.TextColor3 = Color3.fromRGB(20, 20, 20)
-			placeButton.TextSize = 10
-			placeButton.Font = Enum.Font.GothamBold
-			placeButton.Parent = itemFrame
+			-- Full-card drag overlay (click anywhere to drag)
+			local dragOverlay = Instance.new("TextButton")
+			dragOverlay.Name = "DragOverlay"
+			dragOverlay.Size = UDim2.new(1, 0, 1, 0)
+			dragOverlay.Position = UDim2.new(0, 0, 0, 0)
+			dragOverlay.BackgroundTransparency = 1
+			dragOverlay.Text = ""
+			dragOverlay.ZIndex = 10 -- Ensure it's on top
+			dragOverlay.Parent = itemFrame
 			
-			local btnCorner = Instance.new("UICorner")
-			btnCorner.CornerRadius = UDim.new(0, 4)
-			btnCorner.Parent = placeButton
-			
-			-- Hover effect for place button
-			placeButton.MouseEnter:Connect(function()
-				placeButton.BackgroundColor3 = CONFIG.THEME_ACCENT_GREEN:Lerp(Color3.new(1,1,1), 0.1)
+			-- Hover effect for entire card
+			dragOverlay.MouseEnter:Connect(function()
+				TweenService:Create(itemFrame, TweenInfo.new(0.1), {
+					BackgroundColor3 = Color3.fromRGB(55, 55, 70)
+				}):Play()
 			end)
-			placeButton.MouseLeave:Connect(function()
-				placeButton.BackgroundColor3 = CONFIG.THEME_ACCENT_GREEN
+			dragOverlay.MouseLeave:Connect(function()
+				TweenService:Create(itemFrame, TweenInfo.new(0.1), {
+					BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+				}):Play()
 			end)
 			
-			-- Drag trigger
-			placeButton.MouseButton1Down:Connect(function()
+			-- Drag trigger on mouse down anywhere on the card
+			dragOverlay.MouseButton1Down:Connect(function()
 				startDrag(unitName, unitData.rarity or "Normal")
 			end)
 			
@@ -1381,8 +1379,23 @@ startDrag = function(unitName: string, rarity: string)
 				isGhostValid = true
 			end
 		else
-			if placementGhost then setGhostInvalid() end
-			isGhostValid = false
+			-- Check if hovering over inventory panel (valid cancel target)
+			local mouse = LocalPlayer:GetMouse()
+			if inventoryPanel then
+				local panelPos = inventoryPanel.AbsolutePosition
+				local panelSize = inventoryPanel.AbsoluteSize
+				if mouse.X >= panelPos.X and mouse.X <= panelPos.X + panelSize.X and
+				   mouse.Y >= panelPos.Y and mouse.Y <= panelPos.Y + panelSize.Y then
+					if placementGhost and not isGhostValid then startGhostPulse() end
+					isGhostValid = true
+				else
+					if placementGhost then setGhostInvalid() end
+					isGhostValid = false
+				end
+			else
+				if placementGhost then setGhostInvalid() end
+				isGhostValid = false
+			end
 		end
 	end)
 end
@@ -1512,7 +1525,20 @@ completeDrop = function()
 			end
 		end
 	else
-		updateStatus("✗ Invalid drop location")
+		-- Check if dropped on inventory panel (cancel gracefully - unit stays in storage)
+		local mouse = LocalPlayer:GetMouse()
+		if inventoryPanel then
+			local panelPos = inventoryPanel.AbsolutePosition
+			local panelSize = inventoryPanel.AbsoluteSize
+			if mouse.X >= panelPos.X and mouse.X <= panelPos.X + panelSize.X and
+			   mouse.Y >= panelPos.Y and mouse.Y <= panelPos.Y + panelSize.Y then
+				updateStatus("✓ Drag cancelled - unit stays in inventory")
+			else
+				updateStatus("✗ Invalid drop location")
+			end
+		else
+			updateStatus("✗ Invalid drop location")
+		end
 	end
 	
 	-- Cleanup

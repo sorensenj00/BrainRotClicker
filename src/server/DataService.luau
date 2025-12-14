@@ -120,6 +120,21 @@ local function migrateLegacyData(player: Player, profile: Profile)
 end
 
 --------------------------------------------------------------------------------
+-- HELPERS
+--------------------------------------------------------------------------------
+
+local function deepCopy(original)
+	local copy = {}
+	for k, v in pairs(original) do
+		if type(v) == "table" then
+			v = deepCopy(v)
+		end
+		copy[k] = v
+	end
+	return copy
+end
+
+--------------------------------------------------------------------------------
 -- PLAYER LIFECYCLE
 --------------------------------------------------------------------------------
 
@@ -162,7 +177,8 @@ local function onPlayerAdded(player: Player)
 						-- We check specifically for a critical key like 'money' to decide if it's empty
 						if not next(profile.Data) and handler.DefaultData then
 							print("DataService: Applying default data for new player...")
-							for k, v in pairs(handler.DefaultData) do
+							local defaults = deepCopy(handler.DefaultData)
+							for k, v in pairs(defaults) do
 								profile.Data[k] = v
 							end
 						end
@@ -170,7 +186,7 @@ local function onPlayerAdded(player: Player)
 					else
 						-- For specific keys
 						if not profile.Data[key] and handler.DefaultData then
-							profile.Data[key] = handler.DefaultData
+							profile.Data[key] = deepCopy(handler.DefaultData)
 						end
 						dataToPass = profile.Data[key]
 					end

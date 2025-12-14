@@ -14,6 +14,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 
 -- Player
 local LocalPlayer = Players.LocalPlayer
@@ -60,6 +61,12 @@ local CONFIG = {
 local unitEquipmentGui = nil
 local currentUnitData = nil  -- Current unit being inspected
 
+-- Drag-and-drop state
+local isDragging = false
+local draggedArtifact = nil  -- {GUID, Name, Slot, Rarity, source = "inventory" | "slot"}
+local dragGhost = nil  -- The floating visual
+local dragStartPos = nil
+
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
 --------------------------------------------------------------------------------
@@ -88,6 +95,150 @@ end
 ]]
 local function getRarityColor(rarity)
 	return ArtifactConfig.RarityColors[rarity] or CONFIG.THEME_TEXT_SECONDARY
+end
+
+--------------------------------------------------------------------------------
+-- DRAG-AND-DROP FUNCTIONS
+--------------------------------------------------------------------------------
+
+--[[
+	Creates the floating ghost visual for dragging.
+	@param artifact table - The artifact being dragged
+	@return Frame - The ghost element
+]]
+local function createDragGhost(artifact)
+	local ghost = Instance.new("Frame")
+	ghost.Name = "DragGhost"
+	ghost.Size = UDim2.new(0, 120, 0, 50)
+	ghost.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+	ghost.BackgroundTransparency = 0.2
+	ghost.BorderSizePixel = 0
+	ghost.ZIndex = 100
+	
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, 8)
+	corner.Parent = ghost
+	
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = getRarityColor(artifact.Rarity)
+	stroke.Thickness = 2
+	stroke.Parent = ghost
+	
+	-- Icon
+	local icon = Instance.new("TextLabel")
+	icon.Size = UDim2.new(0, 30, 0, 30)
+	icon.Position = UDim2.new(0, 5, 0.5, -15)
+	icon.BackgroundTransparency = 1
+	icon.Text = artifact.BaseIcon or "📿"
+	icon.TextSize = 20
+	icon.ZIndex = 101
+	icon.Parent = ghost
+	
+	-- Name
+	local name = Instance.new("TextLabel")
+	name.Size = UDim2.new(1, -40, 0, 20)
+	name.Position = UDim2.new(0, 38, 0, 5)
+	name.BackgroundTransparency = 1
+	name.Text = artifact.Name or "Artifact"
+	name.TextColor3 = getRarityColor(artifact.Rarity)
+	name.TextSize = 11
+	name.Font = Enum.Font.GothamBold
+	name.TextXAlignment = Enum.TextXAlignment.Left
+	name.TextTruncate = Enum.TextTruncate.AtEnd
+	name.ZIndex = 101
+	name.Parent = ghost
+	
+	-- Slot type
+	local slotLabel = Instance.new("TextLabel")
+	slotLabel.Size = UDim2.new(1, -40, 0, 14)
+	slotLabel.Position = UDim2.new(0, 38, 0, 26)
+	slotLabel.BackgroundTransparency = 1
+	slotLabel.Text = (ArtifactConfig.SlotIcons[artifact.Slot] or "") .. " " .. (artifact.Slot or "?")
+	slotLabel.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+	slotLabel.TextSize = 10
+	slotLabel.Font = Enum.Font.Gotham
+	slotLabel.TextXAlignment = Enum.TextXAlignment.Left
+	slotLabel.ZIndex = 101
+	slotLabel.Parent = ghost
+	
+	return ghost
+end
+
+--[[
+	Starts dragging an artifact.
+	@param artifact table - The artifact data
+	@param source string - "inventory" or slot name (e.g., "Head")
+]]
+local function startDrag(artifact, source)
+	if isDragging then return end
+	
+	isDragging = true
+	draggedArtifact = artifact
+	draggedArtifact.source = source
+	dragStartPos = UserInputService:GetMouseLocation()
+	
+	-- Create ghost
+	dragGhost = createDragGhost(artifact)
+	dragGhost.Parent = unitEquipmentGui
+	
+	-- Position at mouse
+	local mouse = UserInputService:GetMouseLocation()
+	dragGhost.Position = UDim2.new(0, mouse.X - 60, 0, mouse.Y - 25)
+end
+
+--[[
+	Updates the drag ghost position.
+]]
+local function updateDragPosition()
+	if not isDragging or not dragGhost then return end
+	
+	local mouse = UserInputService:GetMouseLocation()
+	dragGhost.Position = UDim2.new(0, mouse.X - 60, 0, mouse.Y - 25)
+end
+
+--[[
+	Ends dragging and performs action based on drop target.
+	@param dropTarget string? - "inventory", slot name, or nil (cancel)
+]]
+local function endDrag(dropTarget)
+	if not isDragging then return end
+	
+	local artifact = draggedArtifact
+	local source = artifact and artifact.source
+	
+	-- Perform action based on drop
+	if artifact and dropTarget and currentUnitData then
+		if source == "inventory" and dropTarget ~= "inventory" then
+			-- Equipping: from inventory to slot
+			if artifact.Slot == dropTarget then
+				local success, err = EquipArtifact:InvokeServer(
+					currentUnitData.unitGUID,
+					artifact.GUID,
+					artifact.Slot
+				)
+				if not success then
+					warn("Failed to equip artifact: " .. tostring(err))
+				end
+			end
+		elseif source ~= "inventory" and dropTarget == "inventory" then
+			-- Unequipping: from slot to inventory
+			local success, err = UnequipArtifact:InvokeServer(currentUnitData.unitGUID, source)
+			if not success then
+				warn("Failed to unequip artifact: " .. tostring(err))
+			end
+		end
+		-- Note: slot-to-slot swap would require unequip+equip, handled by slot logic
+	end
+	
+	-- Cleanup
+	if dragGhost then
+		dragGhost:Destroy()
+		dragGhost = nil
+	end
+	
+	isDragging = false
+	draggedArtifact = nil
+	dragStartPos = nil
 end
 
 --------------------------------------------------------------------------------
@@ -176,10 +327,10 @@ local function createEquipmentUI()
 	unitName.TextXAlignment = Enum.TextXAlignment.Left
 	unitName.Parent = leftSection
 	
-	-- Stats panel
+	-- Stats panel (expanded for artifact bonuses)
 	local statsPanel = Instance.new("Frame")
 	statsPanel.Name = "StatsPanel"
-	statsPanel.Size = UDim2.new(1, -20, 0, 80)
+	statsPanel.Size = UDim2.new(1, -20, 0, 120)
 	statsPanel.Position = UDim2.new(0, 10, 0, 45)
 	statsPanel.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
 	statsPanel.BorderSizePixel = 0
@@ -200,22 +351,49 @@ local function createEquipmentUI()
 	
 	local statsText = Instance.new("TextLabel")
 	statsText.Name = "StatsText"
-	statsText.Size = UDim2.new(1, -10, 1, -25)
+	statsText.Size = UDim2.new(0.5, -5, 0, 50)
 	statsText.Position = UDim2.new(0, 5, 0, 22)
 	statsText.BackgroundTransparency = 1
-	statsText.Text = "Level: 1\nRarity: Normal"
+	statsText.Text = "Level: 1\nRarity: Normal\nGrid Slot: N/A"
 	statsText.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
-	statsText.TextSize = 12
+	statsText.TextSize = 11
 	statsText.Font = Enum.Font.Gotham
 	statsText.TextXAlignment = Enum.TextXAlignment.Left
 	statsText.TextYAlignment = Enum.TextYAlignment.Top
 	statsText.Parent = statsPanel
 	
+	-- Artifact bonuses label
+	local bonusText = Instance.new("TextLabel")
+	bonusText.Name = "BonusText"
+	bonusText.Size = UDim2.new(0.5, -5, 0, 70)
+	bonusText.Position = UDim2.new(0.5, 0, 0, 22)
+	bonusText.BackgroundTransparency = 1
+	bonusText.Text = ""
+	bonusText.TextColor3 = CONFIG.THEME_ACCENT_BLUE
+	bonusText.TextSize = 10
+	bonusText.Font = Enum.Font.Gotham
+	bonusText.TextXAlignment = Enum.TextXAlignment.Left
+	bonusText.TextYAlignment = Enum.TextYAlignment.Top
+	bonusText.Parent = statsPanel
+	
+	-- Rarity bonus label (below main stats)
+	local rarityBonusText = Instance.new("TextLabel")
+	rarityBonusText.Name = "RarityBonusText"
+	rarityBonusText.Size = UDim2.new(1, -10, 0, 16)
+	rarityBonusText.Position = UDim2.new(0, 5, 0, 95)
+	rarityBonusText.BackgroundTransparency = 1
+	rarityBonusText.Text = ""
+	rarityBonusText.TextColor3 = CONFIG.THEME_ACCENT_PINK
+	rarityBonusText.TextSize = 10
+	rarityBonusText.Font = Enum.Font.GothamBold
+	rarityBonusText.TextXAlignment = Enum.TextXAlignment.Left
+	rarityBonusText.Parent = statsPanel
+	
 	-- Equipment slots section
 	local equipTitle = Instance.new("TextLabel")
 	equipTitle.Name = "EquipTitle"
 	equipTitle.Size = UDim2.new(1, -20, 0, 25)
-	equipTitle.Position = UDim2.new(0, 10, 0, 135)
+	equipTitle.Position = UDim2.new(0, 10, 0, 175)
 	equipTitle.BackgroundTransparency = 1
 	equipTitle.Text = "⚙️ EQUIPMENT SLOTS"
 	equipTitle.TextColor3 = CONFIG.THEME_ACCENT_PURPLE
@@ -228,7 +406,7 @@ local function createEquipmentUI()
 	local slotsContainer = Instance.new("Frame")
 	slotsContainer.Name = "SlotsContainer"
 	slotsContainer.Size = UDim2.new(1, -20, 0, 180)
-	slotsContainer.Position = UDim2.new(0, 10, 0, 160)
+	slotsContainer.Position = UDim2.new(0, 10, 0, 200)
 	slotsContainer.BackgroundTransparency = 1
 	slotsContainer.Parent = leftSection
 	
@@ -428,6 +606,69 @@ local function refreshEquipmentSlots()
 			end
 		end
 	end
+	
+	-- Calculate and display artifact bonuses
+	local statsPanel = leftSection.StatsPanel
+	local bonusText = statsPanel:FindFirstChild("BonusText")
+	local rarityBonusText = statsPanel:FindFirstChild("RarityBonusText")
+	
+	-- Calculate combined bonuses from equipped artifacts
+	local totalCycleTimeMult = 1
+	local totalLuckBonus = 0
+	local totalTierBonus = 0
+	local totalSynergyBonus = 0
+	local hasAnyArtifact = false
+	
+	for slot, artifact in pairs(equippedToUnit) do
+		hasAnyArtifact = true
+		local stats = ArtifactConfig.CalculateArtifactStats(artifact)
+		totalCycleTimeMult = totalCycleTimeMult * stats.CycleTimeMult
+		totalLuckBonus = totalLuckBonus + stats.LuckBonus
+		totalTierBonus = totalTierBonus + stats.ItemTierBonus
+		totalSynergyBonus = totalSynergyBonus + stats.SynergyRangeBonus
+	end
+	
+	if bonusText then
+		if hasAnyArtifact then
+			local bonusLines = {}
+			
+			if totalCycleTimeMult < 1 then
+				local speedBonus = math.floor((1 - totalCycleTimeMult) * 100)
+				table.insert(bonusLines, "⚡ Speed: +" .. speedBonus .. "%")
+			end
+			if totalLuckBonus > 0 then
+				table.insert(bonusLines, "🍀 Luck: +" .. math.floor(totalLuckBonus * 100) .. "%")
+			end
+			if totalTierBonus > 0 then
+				table.insert(bonusLines, "📈 Tier: +" .. totalTierBonus)
+			end
+			if totalSynergyBonus > 0 then
+				table.insert(bonusLines, "🔗 Synergy: +" .. totalSynergyBonus)
+			end
+			
+			bonusText.Text = #bonusLines > 0 and table.concat(bonusLines, "\n") or "No bonuses"
+		else
+			bonusText.Text = ""
+		end
+	end
+	
+	-- Display rarity bonus
+	if rarityBonusText and currentUnitData then
+		local rarity = currentUnitData.rarity or "Normal"
+		local Shared = ReplicatedStorage:FindFirstChild("Shared")
+		if Shared then
+			local RarityConfig = Shared:FindFirstChild("RarityConfig")
+			if RarityConfig then
+				local config = require(RarityConfig)
+				local mult = config.GetMultiplier(rarity)
+				if mult > 1 then
+					rarityBonusText.Text = "✨ Rarity Bonus: x" .. string.format("%.1f", mult) .. " income"
+				else
+					rarityBonusText.Text = ""
+				end
+			end
+		end
+	end
 end
 
 --[[
@@ -571,6 +812,45 @@ local function refreshArtifactInventory()
 				BackgroundColor3 = CONFIG.THEME_ACCENT_BLUE
 			}):Play()
 		end)
+		
+		-- Drag-and-drop: start drag on mouse down (on the item frame, not button)
+		itemFrame.InputBegan:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 then
+				-- Small delay to distinguish from button click
+				task.delay(0.1, function()
+					if input.UserInputState ~= Enum.UserInputState.End then
+						startDrag(artifact, "inventory")
+					end
+				end)
+			end
+		end)
+		
+		itemFrame.InputEnded:Connect(function(input)
+			if input.UserInputType == Enum.UserInputType.MouseButton1 and isDragging then
+				-- Check if we're over a slot
+				local mouse = UserInputService:GetMouseLocation()
+				local dropTarget = nil
+				
+				-- Check slots
+				local slotsContainer = unitEquipmentGui.MainPanel.LeftSection.SlotsContainer
+				for _, slotFrame in slotsContainer:GetChildren() do
+					if slotFrame:IsA("Frame") and slotFrame.Name:sub(1, 5) == "Slot_" then
+						local slotName = slotFrame.Name:sub(6)
+						local absPos = slotFrame.AbsolutePosition
+						local absSize = slotFrame.AbsoluteSize
+						if mouse.X >= absPos.X and mouse.X <= absPos.X + absSize.X and
+						   mouse.Y >= absPos.Y and mouse.Y <= absPos.Y + absSize.Y then
+							dropTarget = slotName
+							break
+						end
+					end
+				end
+				
+				endDrag(dropTarget)
+				refreshEquipmentSlots()
+				refreshArtifactInventory()
+			end
+		end)
 	end
 end
 
@@ -636,3 +916,50 @@ end)
 print("═══════════════════════════════════════════")
 print("   UnitEquipmentUI - Client Initialized")
 print("═══════════════════════════════════════════")
+
+-- Global mouse movement tracking for drag ghost
+UserInputService.InputChanged:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseMovement then
+		updateDragPosition()
+	end
+end)
+
+-- Cancel drag on mouse button release anywhere
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 and isDragging then
+		-- Check if over right section (inventory area) for unequip
+		if unitEquipmentGui and unitEquipmentGui.Enabled then
+			local mouse = UserInputService:GetMouseLocation()
+			local rightSection = unitEquipmentGui.MainPanel.RightSection
+			local absPos = rightSection.AbsolutePosition
+			local absSize = rightSection.AbsoluteSize
+			
+			if mouse.X >= absPos.X and mouse.X <= absPos.X + absSize.X and
+			   mouse.Y >= absPos.Y and mouse.Y <= absPos.Y + absSize.Y then
+				endDrag("inventory")
+			else
+				-- Check slots for equip
+				local dropTarget = nil
+				local slotsContainer = unitEquipmentGui.MainPanel.LeftSection.SlotsContainer
+				for _, slotFrame in slotsContainer:GetChildren() do
+					if slotFrame:IsA("Frame") and slotFrame.Name:sub(1, 5) == "Slot_" then
+						local slotName = slotFrame.Name:sub(6)
+						local slotPos = slotFrame.AbsolutePosition
+						local slotSize = slotFrame.AbsoluteSize
+						if mouse.X >= slotPos.X and mouse.X <= slotPos.X + slotSize.X and
+						   mouse.Y >= slotPos.Y and mouse.Y <= slotPos.Y + slotSize.Y then
+							dropTarget = slotName
+							break
+						end
+					end
+				end
+				endDrag(dropTarget)
+			end
+			
+			refreshEquipmentSlots()
+			refreshArtifactInventory()
+		else
+			endDrag(nil)
+		end
+	end
+end)

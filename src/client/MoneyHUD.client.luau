@@ -259,6 +259,23 @@ local function createMoneyHUD(): ScreenGui
 	viewport.BackgroundTransparency = 1
 	viewport.Parent = brainrotsBtn
 	
+	-- Count badge (shows total brainrot count)
+	local countBadge = Instance.new("TextLabel")
+	countBadge.Name = "CountBadge"
+	countBadge.Size = UDim2.new(0, 20, 0, 16)
+	countBadge.Position = UDim2.new(1, -18, 1, -14)
+	countBadge.BackgroundColor3 = Color3.fromRGB(60, 180, 100)
+	countBadge.Text = "0"
+	countBadge.TextColor3 = Color3.new(1, 1, 1)
+	countBadge.TextSize = 11
+	countBadge.Font = Enum.Font.GothamBold
+	countBadge.ZIndex = 10
+	countBadge.Parent = brainrotsBtn
+	
+	local badgeCorner = Instance.new("UICorner")
+	badgeCorner.CornerRadius = UDim.new(0, 8)
+	badgeCorner.Parent = countBadge
+	
 	-- Pick random model for preview
 	task.spawn(function()
 		local allModels = {}
@@ -340,6 +357,38 @@ local function updateMPSDisplay()
 		MPSLabel.Text = string.format("+$%.1fK/s", mps / 1000)
 	else
 		MPSLabel.Text = string.format("+$%.1f/s", mps)
+	end
+end
+
+--[[
+	Updates the brainrot count badge on the brainrots button.
+]]
+local function updateBrainrotCount()
+	if not MoneyHUDGui then return end
+	
+	local hudPanel = MoneyHUDGui:FindFirstChild("HUDPanel")
+	local actionsFrame = hudPanel and hudPanel:FindFirstChild("ActionsFrame")
+	if not actionsFrame then return end
+	
+	local brainrotsBtn = actionsFrame:FindFirstChild("BrainrotsButton")
+	if not brainrotsBtn then return end
+	
+	local countBadge = brainrotsBtn:FindFirstChild("CountBadge")
+	if not countBadge then return end
+	
+	-- Count total owned brainrots
+	local totalCount = 0
+	for _, count in OwnedCounts do
+		totalCount = totalCount + count
+	end
+	
+	countBadge.Text = tostring(totalCount)
+	
+	-- Color based on count
+	if totalCount > 0 then
+		countBadge.BackgroundColor3 = Color3.fromRGB(60, 180, 100)  -- Green
+	else
+		countBadge.BackgroundColor3 = Color3.fromRGB(100, 100, 100)  -- Gray
 	end
 end
 
@@ -570,12 +619,14 @@ local function initialize()
 			OwnedCounts[unitName] = data.count
 		end
 		updateMPSDisplay()
+		updateBrainrotCount()
 	end
 	
-	-- Listen for ownership changes to update MPS
+	-- Listen for ownership changes to update MPS and brainrot count
 	OwnershipChangedEvent.OnClientEvent:Connect(function(unitName: string, newCount: number)
 		OwnedCounts[unitName] = newCount
 		updateMPSDisplay()
+		updateBrainrotCount()
 	end)
 	
 	-- Wait for leaderstats and connect to money changes

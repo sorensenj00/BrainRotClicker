@@ -290,6 +290,10 @@ local function handleBuyUnit(player: Player, unitName: string): (boolean, string
 		OwnershipChangedEvent:FireClient(player, unitName, newLevel, newPrice)
 
 		print(string.format("✓ %s upgraded %s to Level %d for $%d", player.Name, unitName, newLevel, currentPrice))
+		
+		-- Increment unlock progress (unlock next unit)
+		incrementUnlockProgress(player)
+		
 		return true, "Purchase successful!"
 
 	else
@@ -302,11 +306,6 @@ local function handleBuyUnit(player: Player, unitName: string): (boolean, string
 		return false, "Server error: inventory system unavailable"
 	end
 	
-	-- Increment unlock progress (unlock next unit)
-	incrementUnlockProgress(player)
-	
-	-- Success return is now handled inside the InventoryManager block
-	return true, "Purchase successful!"
 end
 
 --------------------------------------------------------------------------------

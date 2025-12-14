@@ -72,6 +72,21 @@ local function initializePlayerData(player: Player)
 		PlayerOwnedUnits[player][unitName] = 0
 	end
 	
+	-- Create leaderstats folder with Money (CRITICAL for economy system)
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		leaderstats = Instance.new("Folder")
+		leaderstats.Name = "leaderstats"
+		leaderstats.Parent = player
+		
+		local money = Instance.new("IntValue")
+		money.Name = "Money"
+		money.Value = 100 -- Default starting money
+		money.Parent = leaderstats
+		
+		print(string.format("✓ Created leaderstats for %s with $%d", player.Name, money.Value))
+	end
+	
 	-- Create an "OwnedUnits" folder under player for easy inspection
 	local ownedFolder = Instance.new("Folder")
 	ownedFolder.Name = "OwnedUnits"
@@ -254,78 +269,66 @@ local function handleBuyUnit(player: Player, unitName: string): (boolean, string
 		return false, "Failed to deduct money"
 	end
 	
-	-- Spawn the brainrot unit
+	-- Spawn or Upgrade the brainrot unit
 	local BrainrotManager = waitForBrainrotManager()
 	if BrainrotManager then
-		local spawnedUnit = BrainrotManager.SpawnBrainrot(player, unitConfig.ModelName)
-		if not spawnedUnit then
-			-- Refund if spawn failed
+		-- AddUnit handles both spawning new and upgrading existing
+		local unit = BrainrotManager.AddUnit(player, unitConfig.ModelName)
+		
+		if not unit then
+			-- Refund if failed
 			local leaderstats = player:FindFirstChild("leaderstats")
 			if leaderstats and leaderstats:FindFirstChild("Money") then
 				leaderstats.Money.Value = leaderstats.Money.Value + currentPrice
 			end
-			return false, "Failed to spawn unit on plot"
+			return false, "Failed to process unit transaction"
 		end
 		
-		-- Roll for rarity (RNG Traits system)
-		local rolledRarity = BrainrotManager.RollRarity and BrainrotManager.RollRarity() or "Normal"
-		local rarityConfig = BrainrotManager.RARITY_CONFIG and BrainrotManager.RARITY_CONFIG[rolledRarity]
-		local rarityMultiplier = rarityConfig and rarityConfig.incomeMultiplier or 1
+		-- Increment owned count (which is now Level)
+		incrementOwnedCount(player, unitName)
+		local newLevel = getOwnedCount(player, unitName)
 		
-		-- Calculate new count BEFORE updating (for correct milestone calc)
-		local newCount = ownedCount + 1
+		-- Get current rarity from the unit
+		local rarity = unit:GetAttribute("Rarity") or "Normal"
+		local rarityMultiplier = 1
+		if BrainrotManager.RARITY_CONFIG and BrainrotManager.RARITY_CONFIG[rarity] then
+			rarityMultiplier = BrainrotManager.RARITY_CONFIG[rarity].multiplier or 1
+		end
 		
-		-- Set income values using milestone-aware calculations, with rarity multiplier
-		local effectiveIncome = ShopConfig.CalculateEffectiveIncome(unitName, newCount)
-		local effectiveCycleTime = ShopConfig.CalculateEffectiveCycleTime(unitName, newCount)
+		-- Calculate income based on new level
+		local effectiveIncome = ShopConfig.CalculateEffectiveIncome(unitName, newLevel)
+		local effectiveCycleTime = ShopConfig.CalculateEffectiveCycleTime(unitName, newLevel)
 		
 		-- Apply rarity multiplier to income
 		local finalIncome = effectiveIncome * rarityMultiplier
 		
-		spawnedUnit:SetAttribute("IncomeAmount", finalIncome)
-		spawnedUnit:SetAttribute("IncomeInterval", effectiveCycleTime)
-		spawnedUnit:SetAttribute("UnitType", unitName)
-		spawnedUnit:SetAttribute("Rarity", rolledRarity)
+		-- Update unit attributes
+		unit:SetAttribute("IncomeAmount", finalIncome)
+		-- Note: BrainrotManager handles IncomeInterval (speed) updates internally based on level
 		
-		-- Check if we crossed a milestone - if so, update ALL units of this type
-		local oldMilestones = ShopConfig.GetMilestonesReached(ownedCount)
-		local newMilestones = ShopConfig.GetMilestonesReached(newCount)
+		-- Check if we crossed a milestone
+		local oldMilestones = ShopConfig.GetMilestonesReached(newLevel - 1)
+		local newMilestones = ShopConfig.GetMilestonesReached(newLevel)
 		
 		if #newMilestones > #oldMilestones then
-			-- Milestone was crossed! Update all existing units of this type
-			BrainrotManager.UpdateAllUnitStats(player, unitName, effectiveIncome, effectiveCycleTime)
 			print(string.format("⭐ %s reached milestone for %s! (%d→%d milestones)", 
 				player.Name, unitName, #oldMilestones, #newMilestones))
 		end
 		
-		-- Add to inventory tracking WITH rarity
-		if BrainrotManager.AddToInventory then
-			BrainrotManager.AddToInventory(player, unitName, rolledRarity)
-		end
-		
-		-- Log special rarity rolls
-		if rolledRarity ~= "Normal" then
-			local rarityDisplay = rarityConfig and rarityConfig.displayName or rolledRarity
-			print(string.format("🎲 %s rolled %s %s! (%dx income)", 
-				player.Name, rarityDisplay, unitName, rarityMultiplier))
-		end
 	else
 		warn("BrainrotManager not available!")
 		return false, "Server error: spawn system unavailable"
 	end
 	
-	-- Increment owned count
-	incrementOwnedCount(player, unitName)
-	
 	-- Increment unlock progress (unlock next unit)
 	incrementUnlockProgress(player)
 	
 	-- Notify client of ownership change (for UI update)
-	local newCount = getOwnedCount(player, unitName)
-	local newPrice = ShopConfig.CalculatePrice(unitName, newCount)
-	OwnershipChangedEvent:FireClient(player, unitName, newCount, newPrice)
+	local newLevel = getOwnedCount(player, unitName)
+	local newPrice = ShopConfig.CalculatePrice(unitName, newLevel)
+	OwnershipChangedEvent:FireClient(player, unitName, newLevel, newPrice)
 	
-	print(string.format("✓ %s bought %s (#%d) for $%d", player.Name, unitName, newCount, currentPrice))
+	print(string.format("✓ %s upgraded %s to Level %d for $%d", player.Name, unitName, newLevel, currentPrice))
 	
 	return true, "Purchase successful!"
 end

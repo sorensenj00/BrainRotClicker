@@ -1,0 +1,638 @@
+--[[
+	UnitEquipmentUI Client Script
+	
+	Equipment management interface for brainrot units.
+	
+	Features:
+	- Opens when player interacts with a unit (ProximityPrompt)
+	- Shows unit stats and equipment slots
+	- Displays artifact inventory for equipping
+	- Glassmorphism theme matching existing UI
+]]
+
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+
+-- Player
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Wait for remotes
+local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
+local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
+
+-- Artifact remotes
+local GetArtifacts = RemoteFunctions:WaitForChild("GetArtifacts")
+local EquipArtifact = RemoteFunctions:WaitForChild("EquipArtifact")
+local UnequipArtifact = RemoteFunctions:WaitForChild("UnequipArtifact")
+
+-- Events
+local OpenUnitUIEvent = RemoteEvents:WaitForChild("OpenUnitUI")
+local ArtifactDroppedEvent = RemoteEvents:WaitForChild("ArtifactDropped")
+local ArtifactEquippedEvent = RemoteEvents:WaitForChild("ArtifactEquipped")
+
+-- Shared configs
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+
+-- Configuration
+local CONFIG = {
+	-- Theme (matching MoneyHUD / BuildModeUI style)
+	THEME_BG = Color3.fromRGB(20, 20, 30),
+	THEME_STROKE = Color3.fromRGB(50, 50, 70),
+	THEME_ACCENT_PURPLE = Color3.fromRGB(80, 60, 140),
+	THEME_ACCENT_PINK = Color3.fromRGB(140, 80, 160),
+	THEME_ACCENT_GOLD = Color3.fromRGB(200, 150, 60),
+	THEME_ACCENT_BLUE = Color3.fromRGB(80, 160, 200),
+	THEME_TEXT_PRIMARY = Color3.fromRGB(255, 255, 255),
+	THEME_TEXT_SECONDARY = Color3.fromRGB(180, 180, 180),
+	THEME_PANEL_RADIUS = 16,
+	THEME_BUTTON_RADIUS = 6,
+	
+	-- Panel dimensions
+	PANEL_WIDTH = 500,
+	PANEL_HEIGHT = 450,
+}
+
+-- State
+local unitEquipmentGui = nil
+local currentUnitData = nil  -- Current unit being inspected
+
+--------------------------------------------------------------------------------
+-- HELPER FUNCTIONS
+--------------------------------------------------------------------------------
+
+--[[
+	Styles a panel with the glassmorphism theme.
+]]
+local function stylePanel(frame, radius)
+	frame.BackgroundColor3 = CONFIG.THEME_BG
+	frame.BackgroundTransparency = 0.1
+	frame.BorderSizePixel = 0
+	
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, radius or CONFIG.THEME_PANEL_RADIUS)
+	corner.Parent = frame
+	
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = CONFIG.THEME_STROKE
+	stroke.Thickness = 2
+	stroke.Parent = frame
+	return frame
+end
+
+--[[
+	Gets rarity color from ArtifactConfig.
+]]
+local function getRarityColor(rarity)
+	return ArtifactConfig.RarityColors[rarity] or CONFIG.THEME_TEXT_SECONDARY
+end
+
+--------------------------------------------------------------------------------
+-- UI CREATION
+--------------------------------------------------------------------------------
+
+--[[
+	Creates the main equipment UI panel.
+]]
+local function createEquipmentUI()
+	-- Main ScreenGui
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "UnitEquipmentUI"
+	screenGui.ResetOnSpawn = false
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.DisplayOrder = 110
+	screenGui.Enabled = false
+	
+	-- Main panel (centered)
+	local mainPanel = Instance.new("Frame")
+	mainPanel.Name = "MainPanel"
+	mainPanel.Size = UDim2.new(0, CONFIG.PANEL_WIDTH, 0, CONFIG.PANEL_HEIGHT)
+	mainPanel.Position = UDim2.new(0.5, -CONFIG.PANEL_WIDTH/2, 0.5, -CONFIG.PANEL_HEIGHT/2)
+	stylePanel(mainPanel)
+	mainPanel.Parent = screenGui
+	
+	-- Title bar
+	local titleBar = Instance.new("Frame")
+	titleBar.Name = "TitleBar"
+	titleBar.Size = UDim2.new(1, 0, 0, 40)
+	titleBar.BackgroundTransparency = 1
+	titleBar.Parent = mainPanel
+	
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, -100, 1, 0)
+	title.Position = UDim2.new(0, 15, 0, 0)
+	title.BackgroundTransparency = 1
+	title.Text = "⚔️ UNIT EQUIPMENT"
+	title.TextColor3 = CONFIG.THEME_ACCENT_PURPLE
+	title.TextSize = 18
+	title.Font = Enum.Font.GothamBold
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Parent = titleBar
+	
+	-- Close button
+	local closeBtn = Instance.new("TextButton")
+	closeBtn.Name = "CloseButton"
+	closeBtn.Size = UDim2.new(0, 30, 0, 30)
+	closeBtn.Position = UDim2.new(1, -40, 0, 5)
+	closeBtn.BackgroundColor3 = CONFIG.THEME_ACCENT_PURPLE
+	closeBtn.Text = "✕"
+	closeBtn.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+	closeBtn.TextSize = 16
+	closeBtn.Font = Enum.Font.GothamBold
+	closeBtn.Parent = titleBar
+	
+	local closeBtnCorner = Instance.new("UICorner")
+	closeBtnCorner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
+	closeBtnCorner.Parent = closeBtn
+	
+	-- Left section: Unit Info
+	local leftSection = Instance.new("Frame")
+	leftSection.Name = "LeftSection"
+	leftSection.Size = UDim2.new(0.5, -10, 1, -50)
+	leftSection.Position = UDim2.new(0, 10, 0, 45)
+	leftSection.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+	leftSection.BackgroundTransparency = 0.5
+	leftSection.BorderSizePixel = 0
+	leftSection.Parent = mainPanel
+	
+	local leftCorner = Instance.new("UICorner")
+	leftCorner.CornerRadius = UDim.new(0, 10)
+	leftCorner.Parent = leftSection
+	
+	-- Unit name label
+	local unitName = Instance.new("TextLabel")
+	unitName.Name = "UnitName"
+	unitName.Size = UDim2.new(1, -20, 0, 30)
+	unitName.Position = UDim2.new(0, 10, 0, 10)
+	unitName.BackgroundTransparency = 1
+	unitName.Text = "Unit Name"
+	unitName.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+	unitName.TextSize = 16
+	unitName.Font = Enum.Font.GothamBold
+	unitName.TextXAlignment = Enum.TextXAlignment.Left
+	unitName.Parent = leftSection
+	
+	-- Stats panel
+	local statsPanel = Instance.new("Frame")
+	statsPanel.Name = "StatsPanel"
+	statsPanel.Size = UDim2.new(1, -20, 0, 80)
+	statsPanel.Position = UDim2.new(0, 10, 0, 45)
+	statsPanel.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+	statsPanel.BorderSizePixel = 0
+	statsPanel.Parent = leftSection
+	
+	local statsCorner = Instance.new("UICorner")
+	statsCorner.CornerRadius = UDim.new(0, 8)
+	statsCorner.Parent = statsPanel
+	
+	local statsTitle = Instance.new("TextLabel")
+	statsTitle.Size = UDim2.new(1, 0, 0, 20)
+	statsTitle.BackgroundTransparency = 1
+	statsTitle.Text = "📊 STATS"
+	statsTitle.TextColor3 = CONFIG.THEME_ACCENT_GOLD
+	statsTitle.TextSize = 11
+	statsTitle.Font = Enum.Font.GothamBold
+	statsTitle.Parent = statsPanel
+	
+	local statsText = Instance.new("TextLabel")
+	statsText.Name = "StatsText"
+	statsText.Size = UDim2.new(1, -10, 1, -25)
+	statsText.Position = UDim2.new(0, 5, 0, 22)
+	statsText.BackgroundTransparency = 1
+	statsText.Text = "Level: 1\nRarity: Normal"
+	statsText.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+	statsText.TextSize = 12
+	statsText.Font = Enum.Font.Gotham
+	statsText.TextXAlignment = Enum.TextXAlignment.Left
+	statsText.TextYAlignment = Enum.TextYAlignment.Top
+	statsText.Parent = statsPanel
+	
+	-- Equipment slots section
+	local equipTitle = Instance.new("TextLabel")
+	equipTitle.Name = "EquipTitle"
+	equipTitle.Size = UDim2.new(1, -20, 0, 25)
+	equipTitle.Position = UDim2.new(0, 10, 0, 135)
+	equipTitle.BackgroundTransparency = 1
+	equipTitle.Text = "⚙️ EQUIPMENT SLOTS"
+	equipTitle.TextColor3 = CONFIG.THEME_ACCENT_PURPLE
+	equipTitle.TextSize = 12
+	equipTitle.Font = Enum.Font.GothamBold
+	equipTitle.TextXAlignment = Enum.TextXAlignment.Left
+	equipTitle.Parent = leftSection
+	
+	-- Equipment slots container
+	local slotsContainer = Instance.new("Frame")
+	slotsContainer.Name = "SlotsContainer"
+	slotsContainer.Size = UDim2.new(1, -20, 0, 180)
+	slotsContainer.Position = UDim2.new(0, 10, 0, 160)
+	slotsContainer.BackgroundTransparency = 1
+	slotsContainer.Parent = leftSection
+	
+	-- Create 3 equipment slots
+	local slots = {"Head", "Body", "Accessory"}
+	local slotIcons = ArtifactConfig.SlotIcons
+	
+	for i, slotName in ipairs(slots) do
+		local slotFrame = Instance.new("Frame")
+		slotFrame.Name = "Slot_" .. slotName
+		slotFrame.Size = UDim2.new(1, 0, 0, 50)
+		slotFrame.Position = UDim2.new(0, 0, 0, (i-1) * 58)
+		slotFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+		slotFrame.BorderSizePixel = 0
+		slotFrame.Parent = slotsContainer
+		
+		local slotCorner = Instance.new("UICorner")
+		slotCorner.CornerRadius = UDim.new(0, 8)
+		slotCorner.Parent = slotFrame
+		
+		-- Slot icon
+		local icon = Instance.new("TextLabel")
+		icon.Name = "Icon"
+		icon.Size = UDim2.new(0, 40, 1, 0)
+		icon.BackgroundTransparency = 1
+		icon.Text = slotIcons[slotName] or "?"
+		icon.TextSize = 24
+		icon.Parent = slotFrame
+		
+		-- Slot name
+		local name = Instance.new("TextLabel")
+		name.Name = "SlotName"
+		name.Size = UDim2.new(0, 70, 0, 20)
+		name.Position = UDim2.new(0, 42, 0, 5)
+		name.BackgroundTransparency = 1
+		name.Text = slotName:upper()
+		name.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+		name.TextSize = 10
+		name.Font = Enum.Font.GothamBold
+		name.TextXAlignment = Enum.TextXAlignment.Left
+		name.Parent = slotFrame
+		
+		-- Equipped artifact name (or "Empty")
+		local artifactLabel = Instance.new("TextLabel")
+		artifactLabel.Name = "ArtifactLabel"
+		artifactLabel.Size = UDim2.new(1, -120, 0, 18)
+		artifactLabel.Position = UDim2.new(0, 42, 0, 25)
+		artifactLabel.BackgroundTransparency = 1
+		artifactLabel.Text = "Empty"
+		artifactLabel.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+		artifactLabel.TextSize = 11
+		artifactLabel.Font = Enum.Font.Gotham
+		artifactLabel.TextXAlignment = Enum.TextXAlignment.Left
+		artifactLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		artifactLabel.Parent = slotFrame
+		
+		-- Unequip button (hidden when empty)
+		local unequipBtn = Instance.new("TextButton")
+		unequipBtn.Name = "UnequipButton"
+		unequipBtn.Size = UDim2.new(0, 60, 0, 30)
+		unequipBtn.Position = UDim2.new(1, -70, 0.5, -15)
+		unequipBtn.BackgroundColor3 = CONFIG.THEME_ACCENT_PURPLE
+		unequipBtn.Text = "Remove"
+		unequipBtn.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+		unequipBtn.TextSize = 10
+		unequipBtn.Font = Enum.Font.GothamBold
+		unequipBtn.Visible = false
+		unequipBtn.Parent = slotFrame
+		
+		local unequipCorner = Instance.new("UICorner")
+		unequipCorner.CornerRadius = UDim.new(0, 4)
+		unequipCorner.Parent = unequipBtn
+		
+		-- Unequip handler
+		unequipBtn.MouseButton1Click:Connect(function()
+			if currentUnitData and currentUnitData.unitGUID then
+				UnequipArtifact:InvokeServer(currentUnitData.unitGUID, slotName)
+			end
+		end)
+	end
+	
+	-- Right section: Artifact Inventory
+	local rightSection = Instance.new("Frame")
+	rightSection.Name = "RightSection"
+	rightSection.Size = UDim2.new(0.5, -10, 1, -50)
+	rightSection.Position = UDim2.new(0.5, 5, 0, 45)
+	rightSection.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+	rightSection.BackgroundTransparency = 0.5
+	rightSection.BorderSizePixel = 0
+	rightSection.Parent = mainPanel
+	
+	local rightCorner = Instance.new("UICorner")
+	rightCorner.CornerRadius = UDim.new(0, 10)
+	rightCorner.Parent = rightSection
+	
+	-- Inventory title
+	local invTitle = Instance.new("TextLabel")
+	invTitle.Name = "InventoryTitle"
+	invTitle.Size = UDim2.new(1, -20, 0, 30)
+	invTitle.Position = UDim2.new(0, 10, 0, 10)
+	invTitle.BackgroundTransparency = 1
+	invTitle.Text = "📿 ARTIFACTS"
+	invTitle.TextColor3 = CONFIG.THEME_ACCENT_PINK
+	invTitle.TextSize = 14
+	invTitle.Font = Enum.Font.GothamBold
+	invTitle.TextXAlignment = Enum.TextXAlignment.Left
+	invTitle.Parent = rightSection
+	
+	-- Scrolling inventory list
+	local inventoryScroll = Instance.new("ScrollingFrame")
+	inventoryScroll.Name = "InventoryList"
+	inventoryScroll.Size = UDim2.new(1, -20, 1, -50)
+	inventoryScroll.Position = UDim2.new(0, 10, 0, 45)
+	inventoryScroll.BackgroundTransparency = 1
+	inventoryScroll.BorderSizePixel = 0
+	inventoryScroll.ScrollBarThickness = 4
+	inventoryScroll.ScrollBarImageColor3 = CONFIG.THEME_ACCENT_PINK
+	inventoryScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	inventoryScroll.Parent = rightSection
+	
+	local invLayout = Instance.new("UIListLayout")
+	invLayout.SortOrder = Enum.SortOrder.Name
+	invLayout.Padding = UDim.new(0, 6)
+	invLayout.Parent = inventoryScroll
+	
+	invLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+		inventoryScroll.CanvasSize = UDim2.new(0, 0, 0, invLayout.AbsoluteContentSize.Y + 10)
+	end)
+	
+	-- Close button handler
+	closeBtn.MouseButton1Click:Connect(function()
+		screenGui.Enabled = false
+		currentUnitData = nil
+	end)
+	
+	-- Hover effects for close button
+	closeBtn.MouseEnter:Connect(function()
+		TweenService:Create(closeBtn, TweenInfo.new(0.1), {
+			BackgroundColor3 = CONFIG.THEME_ACCENT_PURPLE:Lerp(Color3.new(1,1,1), 0.15)
+		}):Play()
+	end)
+	
+	closeBtn.MouseLeave:Connect(function()
+		TweenService:Create(closeBtn, TweenInfo.new(0.1), {
+			BackgroundColor3 = CONFIG.THEME_ACCENT_PURPLE
+		}):Play()
+	end)
+	
+	screenGui.Parent = PlayerGui
+	return screenGui
+end
+
+--------------------------------------------------------------------------------
+-- UI UPDATES
+--------------------------------------------------------------------------------
+
+--[[
+	Refreshes the equipment slots display.
+]]
+local function refreshEquipmentSlots()
+	if not unitEquipmentGui or not currentUnitData then return end
+	
+	local leftSection = unitEquipmentGui.MainPanel.LeftSection
+	local slotsContainer = leftSection.SlotsContainer
+	
+	-- Get equipped artifacts from server
+	local success, data = pcall(function()
+		return GetArtifacts:InvokeServer()
+	end)
+	
+	if not success or not data then return end
+	
+	-- Get artifacts equipped to this unit
+	local equippedToUnit = {}
+	for guid, artifact in pairs(data.all or {}) do
+		if artifact.EquippedTo == currentUnitData.unitGUID then
+			equippedToUnit[artifact.Slot] = artifact
+		end
+	end
+	
+	-- Update each slot
+	for _, slotName in ipairs({"Head", "Body", "Accessory"}) do
+		local slotFrame = slotsContainer:FindFirstChild("Slot_" .. slotName)
+		if slotFrame then
+			local artifactLabel = slotFrame:FindFirstChild("ArtifactLabel")
+			local unequipBtn = slotFrame:FindFirstChild("UnequipButton")
+			
+			local artifact = equippedToUnit[slotName]
+			if artifact then
+				artifactLabel.Text = artifact.Name
+				artifactLabel.TextColor3 = getRarityColor(artifact.Rarity)
+				unequipBtn.Visible = true
+			else
+				artifactLabel.Text = "Empty"
+				artifactLabel.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+				unequipBtn.Visible = false
+			end
+		end
+	end
+end
+
+--[[
+	Refreshes the artifact inventory list.
+]]
+local function refreshArtifactInventory()
+	if not unitEquipmentGui or not currentUnitData then return end
+	
+	local inventoryList = unitEquipmentGui.MainPanel.RightSection.InventoryList
+	
+	-- Clear existing items
+	for _, child in inventoryList:GetChildren() do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+	
+	-- Get artifacts from server
+	local success, data = pcall(function()
+		return GetArtifacts:InvokeServer()
+	end)
+	
+	if not success or not data then return end
+	
+	-- Display unequipped artifacts
+	local unequipped = data.unequipped or {}
+	
+	if #unequipped == 0 then
+		local emptyLabel = Instance.new("TextLabel")
+		emptyLabel.Name = "EmptyLabel"
+		emptyLabel.Size = UDim2.new(1, 0, 0, 40)
+		emptyLabel.BackgroundTransparency = 1
+		emptyLabel.Text = "No artifacts yet..."
+		emptyLabel.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+		emptyLabel.TextSize = 12
+		emptyLabel.Font = Enum.Font.GothamBold
+		emptyLabel.Parent = inventoryList
+		return
+	end
+	
+	for _, artifact in ipairs(unequipped) do
+		local itemFrame = Instance.new("Frame")
+		itemFrame.Name = "Artifact_" .. artifact.GUID:sub(1, 8)
+		itemFrame.Size = UDim2.new(1, 0, 0, 55)
+		itemFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+		itemFrame.BorderSizePixel = 0
+		itemFrame.Parent = inventoryList
+		
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, 6)
+		corner.Parent = itemFrame
+		
+		-- Rarity colored side bar
+		local rarityBar = Instance.new("Frame")
+		rarityBar.Size = UDim2.new(0, 4, 1, -6)
+		rarityBar.Position = UDim2.new(0, 3, 0, 3)
+		rarityBar.BackgroundColor3 = getRarityColor(artifact.Rarity)
+		rarityBar.BorderSizePixel = 0
+		rarityBar.Parent = itemFrame
+		
+		local barCorner = Instance.new("UICorner")
+		barCorner.CornerRadius = UDim.new(0, 2)
+		barCorner.Parent = rarityBar
+		
+		-- Icon
+		local icon = Instance.new("TextLabel")
+		icon.Size = UDim2.new(0, 30, 0, 30)
+		icon.Position = UDim2.new(0, 12, 0, 5)
+		icon.BackgroundTransparency = 1
+		icon.Text = artifact.BaseIcon or "📿"
+		icon.TextSize = 20
+		icon.Parent = itemFrame
+		
+		-- Name
+		local name = Instance.new("TextLabel")
+		name.Size = UDim2.new(1, -100, 0, 18)
+		name.Position = UDim2.new(0, 45, 0, 5)
+		name.BackgroundTransparency = 1
+		name.Text = artifact.Name
+		name.TextColor3 = getRarityColor(artifact.Rarity)
+		name.TextSize = 11
+		name.Font = Enum.Font.GothamBold
+		name.TextXAlignment = Enum.TextXAlignment.Left
+		name.TextTruncate = Enum.TextTruncate.AtEnd
+		name.Parent = itemFrame
+		
+		-- Slot type
+		local slotLabel = Instance.new("TextLabel")
+		slotLabel.Size = UDim2.new(1, -50, 0, 14)
+		slotLabel.Position = UDim2.new(0, 45, 0, 24)
+		slotLabel.BackgroundTransparency = 1
+		slotLabel.Text = (ArtifactConfig.SlotIcons[artifact.Slot] or "") .. " " .. artifact.Slot
+		slotLabel.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+		slotLabel.TextSize = 10
+		slotLabel.Font = Enum.Font.Gotham
+		slotLabel.TextXAlignment = Enum.TextXAlignment.Left
+		slotLabel.Parent = itemFrame
+		
+		-- Equip button
+		local equipBtn = Instance.new("TextButton")
+		equipBtn.Name = "EquipButton"
+		equipBtn.Size = UDim2.new(0, 50, 0, 26)
+		equipBtn.Position = UDim2.new(1, -58, 0.5, -13)
+		equipBtn.BackgroundColor3 = CONFIG.THEME_ACCENT_BLUE
+		equipBtn.Text = "Equip"
+		equipBtn.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+		equipBtn.TextSize = 10
+		equipBtn.Font = Enum.Font.GothamBold
+		equipBtn.Parent = itemFrame
+		
+		local btnCorner = Instance.new("UICorner")
+		btnCorner.CornerRadius = UDim.new(0, 4)
+		btnCorner.Parent = equipBtn
+		
+		-- Equip handler
+		equipBtn.MouseButton1Click:Connect(function()
+			if currentUnitData and currentUnitData.unitGUID then
+				local success, err = EquipArtifact:InvokeServer(
+					currentUnitData.unitGUID, 
+					artifact.GUID, 
+					artifact.Slot
+				)
+				if success then
+					refreshEquipmentSlots()
+					refreshArtifactInventory()
+				else
+					warn("Failed to equip artifact: " .. tostring(err))
+				end
+			end
+		end)
+		
+		-- Hover effects
+		equipBtn.MouseEnter:Connect(function()
+			TweenService:Create(equipBtn, TweenInfo.new(0.1), {
+				BackgroundColor3 = CONFIG.THEME_ACCENT_BLUE:Lerp(Color3.new(1,1,1), 0.1)
+			}):Play()
+		end)
+		
+		equipBtn.MouseLeave:Connect(function()
+			TweenService:Create(equipBtn, TweenInfo.new(0.1), {
+				BackgroundColor3 = CONFIG.THEME_ACCENT_BLUE
+			}):Play()
+		end)
+	end
+end
+
+--[[
+	Opens the equipment UI for a unit.
+	@param unitData table - Unit information from server
+]]
+local function openEquipmentUI(unitData)
+	if not unitEquipmentGui then
+		unitEquipmentGui = createEquipmentUI()
+	end
+	
+	currentUnitData = unitData
+	
+	-- Update unit info
+	local leftSection = unitEquipmentGui.MainPanel.LeftSection
+	leftSection.UnitName.Text = unitData.unitType or "Unknown Unit"
+	leftSection.StatsPanel.StatsText.Text = string.format(
+		"Level: %d\nRarity: %s\nGrid Slot: %s",
+		unitData.level or 1,
+		unitData.rarity or "Normal",
+		unitData.gridSlot and tostring(unitData.gridSlot) or "Not placed"
+	)
+	
+	-- Refresh displays
+	refreshEquipmentSlots()
+	refreshArtifactInventory()
+	
+	-- Show UI
+	unitEquipmentGui.Enabled = true
+end
+
+--------------------------------------------------------------------------------
+-- EVENT HANDLERS
+--------------------------------------------------------------------------------
+
+-- Handle unit inspection
+OpenUnitUIEvent.OnClientEvent:Connect(function(unitData)
+	openEquipmentUI(unitData)
+end)
+
+-- Handle artifact drops (notification)
+ArtifactDroppedEvent.OnClientEvent:Connect(function(artifact)
+	print(string.format("📿 New artifact: %s (%s)", artifact.Name, artifact.Rarity))
+	-- Refresh inventory if UI is open
+	if unitEquipmentGui and unitEquipmentGui.Enabled then
+		refreshArtifactInventory()
+	end
+end)
+
+-- Handle equipment changes (refresh)
+ArtifactEquippedEvent.OnClientEvent:Connect(function(artifactGUID, unitGUID, slot, equipped)
+	if unitEquipmentGui and unitEquipmentGui.Enabled then
+		refreshEquipmentSlots()
+		refreshArtifactInventory()
+	end
+end)
+
+--------------------------------------------------------------------------------
+-- INITIALIZATION
+--------------------------------------------------------------------------------
+
+print("═══════════════════════════════════════════")
+print("   UnitEquipmentUI - Client Initialized")
+print("═══════════════════════════════════════════")

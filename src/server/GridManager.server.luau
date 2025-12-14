@@ -5,9 +5,10 @@
 	
 	Features:
 	- Grid sizes: 3×3 (starter), 3×4, 4×4, 5×5 (max)
+	- LAYERED SLOTS: Each slot can have a Tile (flooring) AND a Unit on top
 	- Place, move, swap, stash operations
 	- Get adjacent units for synergy detection
-	- CFrame calculation for grid positions
+	- CFrame calculation for grid positions (with tile height offset)
 	
 	Part of Phase 2: Spatial Puzzle system.
 ]]
@@ -17,8 +18,13 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
+-- Shared configs
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local TileConfig = require(Shared:WaitForChild("TileConfig"))
+
 -- Constants
 local BRAINROT_TAG = "ActiveBrainrot"
+local _TILE_TAG = "GridTile"  -- Prefixed with _ as reserved for future use
 
 -- Configuration
 local CONFIG = {
@@ -37,7 +43,10 @@ local CONFIG = {
 	DEFAULT_GRID = "starter",
 	
 	-- Grid offset from plot TOP surface
-	GRID_OFFSET_Y = 5, -- Height above plot top surface
+	GRID_OFFSET_Y = 0, -- Units will be grounded via bounding box calculation
+	
+	-- Tile thickness for Y offset when unit is on tile
+	TILE_THICKNESS = TileConfig.TileHeight,
 }
 
 -- Remote events
@@ -85,11 +94,41 @@ local GetGridFunction = RemoteFunctions:FindFirstChild("GetGrid") or Instance.ne
 GetGridFunction.Name = "GetGrid"
 GetGridFunction.Parent = RemoteFunctions
 
+-- BuildModeUI expects these as RemoteFunctions in RemoteEvents folder  
+local PlaceBrainrotFunction = RemoteEvents:FindFirstChild("PlaceBrainrot") or Instance.new("RemoteFunction")
+PlaceBrainrotFunction.Name = "PlaceBrainrot"
+PlaceBrainrotFunction.Parent = RemoteEvents
+
+local RemoveBrainrotFunction = RemoteEvents:FindFirstChild("RemoveBrainrot") or Instance.new("RemoteFunction")
+RemoveBrainrotFunction.Name = "RemoveBrainrot"
+RemoveBrainrotFunction.Parent = RemoteEvents
+
+-- Tile RemoteFunction
+local PlaceTileFunction = RemoteFunctions:FindFirstChild("PlaceTile") or Instance.new("RemoteFunction")
+PlaceTileFunction.Name = "PlaceTile"
+PlaceTileFunction.Parent = RemoteFunctions
+
+local RemoveTileFunction = RemoteFunctions:FindFirstChild("RemoveTile") or Instance.new("RemoteFunction")
+RemoveTileFunction.Name = "RemoveTile"
+RemoveTileFunction.Parent = RemoteFunctions
+
 --------------------------------------------------------------------------------
 -- PLAYER GRID DATA
 --------------------------------------------------------------------------------
 
--- { [userId] = { gridSize = "starter", slots = { [slotIndex] = brainrotInstance } } }
+--[[
+	LAYERED SLOT STRUCTURE:
+	{ [userId] = { 
+		gridSize = "starter", 
+		slots = { 
+			[slotIndex] = { 
+				Unit = brainrotInstance?,  -- The unit on this slot
+				Tile = "TileId"?           -- The tile ID placed here
+			} 
+		}
+		tileInstances = { [slotIndex] = TilePart }  -- Physical tile parts
+	}}
+]]
 local PlayerGrids = {}
 
 --[[
@@ -101,10 +140,24 @@ local function getPlayerGrid(player)
 	if not PlayerGrids[player.UserId] then
 		PlayerGrids[player.UserId] = {
 			gridSize = CONFIG.DEFAULT_GRID,
-			slots = {},  -- { [slotIndex] = brainrotInstance }
+			slots = {},  -- { [slotIndex] = { Unit = Instance?, Tile = string? } }
+			tileInstances = {},  -- { [slotIndex] = TilePart }
 		}
 	end
 	return PlayerGrids[player.UserId]
+end
+
+--[[
+	Gets or creates a slot data entry.
+	@param gridData table
+	@param slotIndex number
+	@return table - The slot data { Unit, Tile }
+]]
+local function getSlotData(gridData, slotIndex)
+	if not gridData.slots[slotIndex] then
+		gridData.slots[slotIndex] = { Unit = nil, Tile = nil }
+	end
+	return gridData.slots[slotIndex]
 end
 
 --[[
@@ -235,6 +288,21 @@ local function getPlotSize(plot)
 end
 
 --[[
+	Gets the tile ID at a slot.
+	@param player Player
+	@param slotIndex number
+	@return string? - The tile ID or nil
+]]
+local function getTileAtSlot(player, slotIndex)
+	local gridData = getPlayerGrid(player)
+	local slot = gridData.slots[slotIndex]
+	if slot then
+		return slot.Tile
+	end
+	return nil
+end
+
+--[[
 	Calculates the world position for a grid slot.
 	Uses 4 corner clusters layout:
 	- Corner 1 (top-left): slots 1-4
@@ -255,6 +323,12 @@ local function getSlotCFrame(player, slotIndex)
 	
 	-- Y position: top of plot (center + half height) + offset
 	local posY = plotCenter.Y + (plotSize.Y / 2) + CONFIG.GRID_OFFSET_Y
+	
+	-- Add tile height if present
+	local tileId = getTileAtSlot(player, slotIndex)
+	if tileId then
+		posY = posY + TileConfig.TileHeight
+	end
 	
 	-- Corner cluster configuration
 	local CLUSTER_SIZE = 2  -- 2x2 per corner
@@ -296,9 +370,241 @@ local function getSlotCFrame(player, slotIndex)
 	return rotation
 end
 
+--[[
+	Gets the floor surface Y position for a player's plot.
+	@param player Player
+	@return number - The Y position of the floor's top surface
+]]
+local function getFloorTopY(player)
+	local plot = findPlayerPlot(player)
+	if not plot then return 10 end
+	
+	local floor = plot:FindFirstChild("Island") 
+		or plot:FindFirstChild("PlotFloor") 
+		or plot:FindFirstChild("Floor")
+		or plot:FindFirstChildWhichIsA("BasePart")
+	
+	if floor and floor:IsA("BasePart") then
+		-- Top of floor = center Y + half height
+		return floor.Position.Y + (floor.Size.Y / 2)
+	end
+	
+	return 10 -- Fallback
+end
+
+--[[
+	Calculates a grounded CFrame for a model.
+	Positions the model so its bottom sits exactly on the floor surface.
+	
+	@param baseCFrame CFrame - The base slot CFrame (X, Z position and rotation)
+	@param model Model - The brainrot model to ground
+	@param floorTopY number - The Y position of the floor's top surface
+	@return CFrame - Adjusted CFrame with correct Y position
+]]
+local function getGroundedCFrame(baseCFrame, model, floorTopY)
+	if not model or not model:IsA("Model") then
+		return baseCFrame
+	end
+	
+	-- Get model's bounding box to determine its height
+	local success, boundsCF, boundsSize = pcall(function()
+		return model:GetBoundingBox()
+	end)
+	
+	if not success or not boundsSize then
+		-- Fallback: just use floor top + a small offset
+		local fallbackPos = Vector3.new(baseCFrame.Position.X, floorTopY + 3, baseCFrame.Position.Z)
+		return CFrame.new(fallbackPos) * (baseCFrame - baseCFrame.Position)
+	end
+	
+	-- Calculate how far the pivot is from the model's bottom
+	local pivotPos = model:GetPivot().Position
+	local boundsCenter = boundsCF.Position
+	local modelBottomY = boundsCenter.Y - (boundsSize.Y / 2)
+	local pivotToBottom = pivotPos.Y - modelBottomY  -- How far below pivot is the bottom
+	
+	-- Position: floor surface + distance from bottom to pivot
+	local groundedY = floorTopY + pivotToBottom
+	
+	-- Create grounded CFrame with rotation from base
+	local groundedPos = Vector3.new(baseCFrame.Position.X, groundedY, baseCFrame.Position.Z)
+	return CFrame.new(groundedPos) * (baseCFrame - baseCFrame.Position)
+end
+
 --------------------------------------------------------------------------------
 -- GRID OPERATIONS
 --------------------------------------------------------------------------------
+
+
+
+--[[
+	Creates the visual tile part for a slot.
+	@param player Player
+	@param slotIndex number
+	@param tileId string
+	@return BasePart? - The created tile part
+]]
+local function createTileVisual(player, slotIndex, tileId)
+	local tileData = TileConfig.GetTile(tileId)
+	if not tileData then return nil end
+	
+	local plot = findPlayerPlot(player)
+	if not plot then return nil end
+	
+	-- Get the position for this slot
+	local baseCFrame = getSlotCFrame(player, slotIndex)
+	local floorTopY = getFloorTopY(player)
+	
+	-- Create the tile part
+	local tilePart = Instance.new("Part")
+	tilePart.Name = "GridTile_" .. slotIndex
+	tilePart.Size = Vector3.new(TileConfig.TileSize, TileConfig.TileHeight, TileConfig.TileSize)
+	tilePart.Anchored = true
+	tilePart.CanCollide = false
+	tilePart.Material = Enum.Material.SmoothPlastic
+	tilePart.Color = tileData.Color
+	tilePart.Transparency = 0.2
+	
+	-- Position tile on floor
+	local tileY = floorTopY + (TileConfig.TileHeight / 2)
+	tilePart.Position = Vector3.new(baseCFrame.Position.X, tileY, baseCFrame.Position.Z)
+	
+	-- Add subtle glow effect
+	local highlight = Instance.new("SurfaceLight")
+	highlight.Color = tileData.Color
+	highlight.Brightness = 0.3
+	highlight.Range = 4
+	highlight.Face = Enum.NormalId.Top
+	highlight.Parent = tilePart
+	
+	-- Store tile ID as attribute
+	tilePart:SetAttribute("TileId", tileId)
+	tilePart:SetAttribute("SlotIndex", slotIndex)
+	
+	-- Parent to a Tiles folder in the plot
+	local tilesFolder = plot:FindFirstChild("GridTiles") or Instance.new("Folder", plot)
+	tilesFolder.Name = "GridTiles"
+	tilePart.Parent = tilesFolder
+	
+	return tilePart
+end
+
+--[[
+	Repositions a unit to account for tile height.
+	@param player Player
+	@param brainrot Model
+	@param slotIndex number
+]]
+local function repositionUnitOnTile(player, brainrot, slotIndex)
+	local gridData = getPlayerGrid(player)
+	local slot = gridData.slots[slotIndex]
+	if not brainrot then return end
+	
+	local baseCFrame = getSlotCFrame(player, slotIndex)
+	local floorTopY = getFloorTopY(player)
+	
+	-- If there's a tile, raise the floor level
+	if slot and slot.Tile then
+		floorTopY = floorTopY + CONFIG.TILE_THICKNESS
+	end
+	
+	local groundedCFrame = getGroundedCFrame(baseCFrame, brainrot, floorTopY)
+	
+	if brainrot:IsA("Model") then
+		brainrot:PivotTo(groundedCFrame)
+	elseif brainrot:IsA("BasePart") then
+		brainrot.CFrame = groundedCFrame
+	end
+end
+
+--[[
+	Places a tile on a grid slot.
+	@param player Player
+	@param tileId string - The tile type ID
+	@param slotIndex number - Target slot (1-indexed)
+	@return boolean, string? - Success, error message
+]]
+local function placeTile(player, tileId, slotIndex)
+	local gridData = getPlayerGrid(player)
+	local totalSlots = getTotalSlots(player)
+	
+	-- Validate tile exists
+	if not TileConfig.GetTile(tileId) then
+		return false, "Invalid tile type"
+	end
+	
+	-- Validate slot index
+	if slotIndex < 1 or slotIndex > totalSlots then
+		return false, "Invalid slot index"
+	end
+	
+	-- Get or create slot data
+	local slot = getSlotData(gridData, slotIndex)
+	
+	-- Remove existing tile visual if any
+	if gridData.tileInstances[slotIndex] then
+		gridData.tileInstances[slotIndex]:Destroy()
+		gridData.tileInstances[slotIndex] = nil
+	end
+	
+	-- Place the new tile
+	slot.Tile = tileId
+	
+	-- Create visual
+	local tileVisual = createTileVisual(player, slotIndex, tileId)
+	if tileVisual then
+		gridData.tileInstances[slotIndex] = tileVisual
+	end
+	
+	-- Reposition any unit on this slot to be on top of tile
+	if slot.Unit then
+		repositionUnitOnTile(player, slot.Unit, slotIndex)
+	end
+	
+	-- Notify clients
+	GridUpdatedEvent:FireClient(player, slotIndex, tileId, "tile_placed")
+	
+	return true
+end
+
+--[[
+	Removes a tile from a grid slot.
+	@param player Player
+	@param slotIndex number
+	@return boolean, string? - Success, error message
+]]
+local function removeTile(player, slotIndex)
+	local gridData = getPlayerGrid(player)
+	local totalSlots = getTotalSlots(player)
+	
+	if slotIndex < 1 or slotIndex > totalSlots then
+		return false, "Invalid slot index"
+	end
+	
+	local slot = gridData.slots[slotIndex]
+	if not slot or not slot.Tile then
+		return false, "No tile in slot"
+	end
+	
+	-- Remove tile visual
+	if gridData.tileInstances[slotIndex] then
+		gridData.tileInstances[slotIndex]:Destroy()
+		gridData.tileInstances[slotIndex] = nil
+	end
+	
+	-- Clear tile data
+	slot.Tile = nil
+	
+	-- Reposition any unit to ground level
+	if slot.Unit then
+		repositionUnitOnTile(player, slot.Unit, slotIndex)
+	end
+	
+	-- Notify clients
+	GridUpdatedEvent:FireClient(player, slotIndex, nil, "tile_removed")
+	
+	return true
+end
 
 --[[
 	Places a brainrot on a grid slot.
@@ -316,21 +622,38 @@ local function placeUnit(player, brainrot, slotIndex)
 		return false, "Invalid slot index"
 	end
 	
-	-- Check if slot is occupied
-	if gridData.slots[slotIndex] then
+	-- Get slot data
+	local slot = getSlotData(gridData, slotIndex)
+	
+	-- Check if slot already has a unit
+	if slot.Unit then
 		return false, "Slot is already occupied"
 	end
 	
-	-- Place the brainrot
-	gridData.slots[slotIndex] = brainrot
-	brainrot:SetAttribute("GridSlot", slotIndex)
+	-- Check if this unit type is already placed elsewhere on the grid
+	local unitType = brainrot:GetAttribute("UnitType") or brainrot.Name
+	for _, slotData in pairs(gridData.slots) do
+		if slotData.Unit then
+			local otherType = slotData.Unit:GetAttribute("UnitType") or slotData.Unit.Name
+			if otherType == unitType then
+				return false, "You can only place one of each unit type!"
+			end
+		end
+	end
 	
-	-- Update position
-	local cframe = getSlotCFrame(player, slotIndex)
-	if brainrot:IsA("Model") and brainrot.PrimaryPart then
-		brainrot:SetPrimaryPartCFrame(cframe)
-	elseif brainrot:IsA("BasePart") then
-		brainrot.CFrame = cframe
+	-- Place the brainrot
+	slot.Unit = brainrot
+	brainrot:SetAttribute("GridSlot", slotIndex)
+	brainrot:SetAttribute("IsStored", false)
+	
+	-- Position unit (accounting for tile height)
+	repositionUnitOnTile(player, brainrot, slotIndex)
+	
+	-- Anchor all parts
+	for _, part in brainrot:GetDescendants() do
+		if part:IsA("BasePart") then
+			part.Anchored = true
+		end
 	end
 	
 	-- Notify clients
@@ -359,28 +682,25 @@ local function moveUnit(player, fromSlot, toSlot)
 	end
 	
 	-- Check if source has a unit
-	local brainrot = gridData.slots[fromSlot]
-	if not brainrot then
+	local fromSlotData = gridData.slots[fromSlot]
+	if not fromSlotData or not fromSlotData.Unit then
 		return false, "No unit in source slot"
 	end
 	
-	-- Check if target is free
-	if gridData.slots[toSlot] then
+	-- Check if target slot unit is free
+	local toSlotData = getSlotData(gridData, toSlot)
+	if toSlotData.Unit then
 		return false, "Target slot is occupied"
 	end
 	
-	-- Move
-	gridData.slots[fromSlot] = nil
-	gridData.slots[toSlot] = brainrot
+	-- Move unit
+	local brainrot = fromSlotData.Unit
+	fromSlotData.Unit = nil
+	toSlotData.Unit = brainrot
 	brainrot:SetAttribute("GridSlot", toSlot)
 	
-	-- Update position
-	local cframe = getSlotCFrame(player, toSlot)
-	if brainrot:IsA("Model") and brainrot.PrimaryPart then
-		brainrot:SetPrimaryPartCFrame(cframe)
-	elseif brainrot:IsA("BasePart") then
-		brainrot.CFrame = cframe
-	end
+	-- Reposition to new slot
+	repositionUnitOnTile(player, brainrot, toSlot)
 	
 	-- Notify clients
 	GridUpdatedEvent:FireClient(player, toSlot, brainrot.Name, "moved")
@@ -407,37 +727,30 @@ local function swapUnits(player, slot1, slot2)
 		return false, "Invalid slot 2"
 	end
 	
-	local brainrot1 = gridData.slots[slot1]
-	local brainrot2 = gridData.slots[slot2]
+	local slot1Data = getSlotData(gridData, slot1)
+	local slot2Data = getSlotData(gridData, slot2)
+	
+	local brainrot1 = slot1Data.Unit
+	local brainrot2 = slot2Data.Unit
 	
 	-- Need at least one unit to swap
 	if not brainrot1 and not brainrot2 then
 		return false, "No units to swap"
 	end
 	
-	-- Swap
-	gridData.slots[slot1] = brainrot2
-	gridData.slots[slot2] = brainrot1
+	-- Swap units
+	slot1Data.Unit = brainrot2
+	slot2Data.Unit = brainrot1
 	
-	-- Update positions and attributes
+	-- Update positions
 	if brainrot1 then
 		brainrot1:SetAttribute("GridSlot", slot2)
-		local cframe = getSlotCFrame(player, slot2)
-		if brainrot1:IsA("Model") and brainrot1.PrimaryPart then
-			brainrot1:SetPrimaryPartCFrame(cframe)
-		elseif brainrot1:IsA("BasePart") then
-			brainrot1.CFrame = cframe
-		end
+		repositionUnitOnTile(player, brainrot1, slot2)
 	end
 	
 	if brainrot2 then
 		brainrot2:SetAttribute("GridSlot", slot1)
-		local cframe = getSlotCFrame(player, slot1)
-		if brainrot2:IsA("Model") and brainrot2.PrimaryPart then
-			brainrot2:SetPrimaryPartCFrame(cframe)
-		elseif brainrot2:IsA("BasePart") then
-			brainrot2.CFrame = cframe
-		end
+		repositionUnitOnTile(player, brainrot2, slot1)
 	end
 	
 	-- Notify clients
@@ -461,13 +774,13 @@ local function stashUnit(player, slotIndex)
 		return nil, "Invalid slot index"
 	end
 	
-	local brainrot = gridData.slots[slotIndex]
-	if not brainrot then
+	local slot = gridData.slots[slotIndex]
+	if not slot or not slot.Unit then
 		return nil, "No unit in slot"
 	end
 	
-	-- Remove from grid
-	gridData.slots[slotIndex] = nil
+	local brainrot = slot.Unit
+	slot.Unit = nil
 	brainrot:SetAttribute("GridSlot", nil)
 	
 	-- Notify clients
@@ -520,9 +833,9 @@ local function getAdjacentUnits(player, slotIndex)
 	
 	local adjacentUnits = {}
 	for _, adjSlot in adjacentSlots do
-		local brainrot = gridData.slots[adjSlot]
-		if brainrot then
-			table.insert(adjacentUnits, {slot = adjSlot, brainrot = brainrot})
+		local slot = gridData.slots[adjSlot]
+		if slot and slot.Unit then
+			table.insert(adjacentUnits, {slot = adjSlot, brainrot = slot.Unit})
 		end
 	end
 	
@@ -532,15 +845,18 @@ end
 --[[
 	Gets the full grid state for a player.
 	@param player Player
-	@return table - { gridSize, rows, cols, slots = { [slotIndex] = unitType } }
+	@return table - { gridSize, rows, cols, slots = { [slotIndex] = {unitType, tileId} } }
 ]]
 local function getGridState(player)
 	local gridData = getPlayerGrid(player)
 	local rows, cols = getGridDimensions(player)
 	
 	local slotsState = {}
-	for slotIndex, brainrot in pairs(gridData.slots) do
-		slotsState[slotIndex] = brainrot:GetAttribute("UnitType") or brainrot.Name
+	for slotIndex, slot in pairs(gridData.slots) do
+		slotsState[slotIndex] = {
+			unitType = slot.Unit and (slot.Unit:GetAttribute("UnitType") or slot.Unit.Name) or nil,
+			tileId = slot.Tile,
+		}
 	end
 	
 	return {
@@ -561,7 +877,8 @@ local function findEmptySlot(player)
 	local totalSlots = getTotalSlots(player)
 	
 	for i = 1, totalSlots do
-		if not gridData.slots[i] then
+		local slot = gridData.slots[i]
+		if not slot or not slot.Unit then
 			return i
 		end
 	end
@@ -601,13 +918,20 @@ end
 local function getGridData(player)
 	local gridData = getPlayerGrid(player)
 	
-	-- Convert brainrot instances to slot data
+	-- Convert slot data for saving
 	local slotsData = {}
-	for slotIndex, brainrot in pairs(gridData.slots) do
-		slotsData[tostring(slotIndex)] = {
-			unitType = brainrot:GetAttribute("UnitType"),
-			unitId = brainrot:GetAttribute("UnitId"),
-		}
+	for slotIndex, slot in pairs(gridData.slots) do
+		local slotSave = {}
+		if slot.Unit then
+			slotSave.unitType = slot.Unit:GetAttribute("UnitType")
+			slotSave.unitId = slot.Unit:GetAttribute("UnitId")
+		end
+		if slot.Tile then
+			slotSave.tileId = slot.Tile
+		end
+		if slotSave.unitType or slotSave.tileId then
+			slotsData[tostring(slotIndex)] = slotSave
+		end
 	end
 	
 	return {
@@ -618,20 +942,32 @@ end
 
 --[[
 	Gets grid positions for DataManager persistence.
-	Returns a table mapping slot indices to unit info.
+	Returns a table mapping slot indices to layered slot info.
 	@param player Player
-	@return table {[slotIndex]: {unitType, rarity}}
+	@return table {[slotIndex]: {Unit = {unitType, rarity, ...}, Tile = tileId}}
 ]]
 local function getGridPositions(player)
 	local gridData = getPlayerGrid(player)
 	local positions = {}
 	
-	for slotIndex, brainrot in pairs(gridData.slots) do
-		positions[tostring(slotIndex)] = {
-			unitType = brainrot:GetAttribute("UnitType"),
-			rarity = brainrot:GetAttribute("Rarity") or "Normal",
-			unitId = brainrot:GetAttribute("UnitId"),
-		}
+	for slotIndex, slotData in pairs(gridData.slots) do
+		local entry = { Unit = nil, Tile = slotData.Tile }
+		
+		if slotData.Unit then
+			local brainrot = slotData.Unit
+			entry.Unit = {
+				unitType = brainrot:GetAttribute("UnitType"),
+				rarity = brainrot:GetAttribute("Rarity") or "Normal",
+				level = brainrot:GetAttribute("Level") or 1,
+				unitId = brainrot:GetAttribute("UnitId"),
+				equippedArtifacts = brainrot:GetAttribute("EquippedArtifacts") or {},
+			}
+		end
+		
+		-- Only save slots that have content
+		if entry.Unit or entry.Tile then
+			positions[tostring(slotIndex)] = entry
+		end
 	end
 	
 	return positions
@@ -691,6 +1027,64 @@ GetGridFunction.OnServerInvoke = function(player)
 	return getGridState(player)
 end
 
+-- Handler for placing a tile on grid
+PlaceTileFunction.OnServerInvoke = function(player, tileId, slotIndex)
+	-- TODO: Validate player has unlocked this tile type
+	return placeTile(player, tileId, slotIndex)
+end
+
+-- Handler for removing a tile from grid
+RemoveTileFunction.OnServerInvoke = function(player, slotIndex)
+	return removeTile(player, slotIndex)
+end
+
+-- Handler for placing a brainrot from inventory/stash onto grid
+PlaceBrainrotFunction.OnServerInvoke = function(player, unitName, rarity, slotIndex)
+	-- First, find or spawn the brainrot
+	local brainrot = nil
+	
+	-- Look for existing brainrot in player's Brainrots folder that matches type
+	local plot = findPlayerPlot(player)
+	if plot then
+		local brainrotsContainer = plot:FindFirstChild("Brainrots")
+		if brainrotsContainer then
+			for _, unit in brainrotsContainer:GetChildren() do
+				local unitType = unit:GetAttribute("UnitType")
+				if unitType == unitName then
+					brainrot = unit
+					break
+				end
+			end
+		end
+	end
+	
+	-- If brainrot doesn't exist, spawn it using BrainrotManager
+	if not brainrot then
+		if _G.BrainrotManager and _G.BrainrotManager.AddUnit then
+			brainrot = _G.BrainrotManager.AddUnit(player, unitName, rarity)
+		end
+	end
+	
+	if not brainrot then
+		return false, "Could not find or create brainrot"
+	end
+	
+	-- Now place on grid
+	return placeUnit(player, brainrot, slotIndex)
+end
+
+-- Handler for removing/stashing a brainrot from grid
+RemoveBrainrotFunction.OnServerInvoke = function(player, slotIndex)
+	local brainrot, err = stashUnit(player, slotIndex)
+	if brainrot then
+		if _G.BrainrotManager and _G.BrainrotManager.StashBrainrot then
+			_G.BrainrotManager.StashBrainrot(player, brainrot)
+		end
+		return true
+	end
+	return false, err
+end
+
 --------------------------------------------------------------------------------
 -- INITIALIZATION
 --------------------------------------------------------------------------------
@@ -715,6 +1109,11 @@ _G.GridManager = {
 	SwapUnits = swapUnits,
 	StashUnit = stashUnit,
 	FindEmptySlot = findEmptySlot,
+	
+	-- Tile operations
+	PlaceTile = placeTile,
+	RemoveTile = removeTile,
+	GetTileAtSlot = getTileAtSlot,
 	
 	-- Query functions
 	GetGridDimensions = getGridDimensions,

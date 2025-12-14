@@ -13,7 +13,7 @@
 ]]
 
 -- Services
-local Players = game:GetService("Players")
+local _Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Wait for shared modules
@@ -71,15 +71,43 @@ GetMarketPricesFunction.Parent = RemoteFunctions
 --------------------------------------------------------------------------------
 
 --[[
-	Gets the current market rate multiplier from StockMarketManager.
+	Gets the category that produces a given item.
+	@param itemId string - The item ID
+	@return string? - The category name or nil
+]]
+local function getItemCategory(itemId: string): string?
+	-- Look through all category item mappings to find which produces this item
+	for category, mapping in pairs(ItemConfig.BrainrotItems) do
+		if mapping.tier1 == itemId or mapping.tier2 == itemId or 
+		   mapping.tier3 == itemId or mapping.tier4 == itemId then
+			return category
+		end
+	end
+	return nil
+end
+
+--[[
+	Gets the current market rate multiplier for a specific item.
+	Uses the item's producing category rate.
+	@param itemId string? - The item ID (optional, returns average if nil)
 	@return number - The market rate (0.5x to 3.0x)
 ]]
-local function getMarketRate()
+local function getMarketRate(itemId: string?): number
+	local StockMarketManager = _G.StockMarketManager
+	
+	if itemId and StockMarketManager then
+		local category = getItemCategory(itemId)
+		if category then
+			return StockMarketManager.GetCategoryRate(category) or 1.0
+		end
+	end
+	
+	-- Fallback to attribute-based rate
 	return stockMarketFolder:GetAttribute("CurrentRate") or 1.0
 end
 
 --[[
-	Calculates the sell price for an item.
+	Calculates the sell price for an item using its category's market rate.
 	@param itemId string - The item to price
 	@return number - The current sell price
 ]]
@@ -88,30 +116,40 @@ local function getItemPrice(itemId)
 	if not itemInfo then return 0 end
 	
 	local basePrice = itemInfo.basePrice or 1
-	local marketRate = getMarketRate()
+	local marketRate = getMarketRate(itemId)
 	
 	return math.floor(basePrice * marketRate)
 end
 
 --[[
-	Gets all current market prices for items.
-	@return table - { [itemId] = price }
+	Gets all current market prices for items with category info.
+	@return table - { [itemId] = {basePrice, currentPrice, tier, category, categoryRate} }
 ]]
 local function getAllPrices()
 	local prices = {}
-	local marketRate = getMarketRate()
+	local StockMarketManager = _G.StockMarketManager
 	
 	for itemId, itemInfo in pairs(ItemConfig.Items) do
 		local basePrice = itemInfo.basePrice or 1
+		local category = getItemCategory(itemId)
+		local categoryRate = 1.0
+		
+		if category and StockMarketManager then
+			categoryRate = StockMarketManager.GetCategoryRate(category) or 1.0
+		end
+		
 		prices[itemId] = {
 			basePrice = basePrice,
-			currentPrice = math.floor(basePrice * marketRate),
+			currentPrice = math.floor(basePrice * categoryRate),
 			tier = itemInfo.tier or 1,
+			category = category,
+			categoryRate = categoryRate,
 		}
 	end
 	
 	return prices
 end
+
 
 --------------------------------------------------------------------------------
 -- SELLING FUNCTIONS

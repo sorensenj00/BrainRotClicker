@@ -463,8 +463,33 @@ local function openSynergyHUD()
 	
 	-- Refresh inventory data
 	local inventoryResult = GetInventoryRemote:InvokeServer()
-	if inventoryResult and inventoryResult.units then
-		InventoryData = inventoryResult.units
+	if inventoryResult then
+		-- Handle both new format {[unitName]: {level, rarity, status}} and old format
+		if inventoryResult.units then
+			local convertedInventory = {}
+			for unitName, unitData in pairs(inventoryResult.units) do
+				if type(unitData) == "table" then
+					-- New format: {level, rarity, status}
+					if unitData.level then
+						local rarity = unitData.rarity or "Normal"
+						if not convertedInventory[unitName] then
+							convertedInventory[unitName] = {}
+						end
+						convertedInventory[unitName][rarity] = {
+							total = unitData.level, -- Level = how many times purchased
+							active = unitData.status == "placed" and 1 or 0,
+						}
+					else
+						-- Old format, use as-is
+						convertedInventory[unitName] = unitData
+					end
+				end
+			end
+			InventoryData = convertedInventory
+		else
+			-- Direct inventory data (old format)
+			InventoryData = inventoryResult
+		end
 		updateAllSynergies()
 	end
 	
@@ -539,16 +564,38 @@ local function initialize()
 	end
 	
 	-- Listen for inventory changes to update synergy progress
-	InventoryChangedEvent.OnClientEvent:Connect(function(unitName: string, rarityData)
-		if not InventoryData[unitName] then
-			InventoryData[unitName] = {}
-		end
-		
-		for rarity, data in rarityData do
-			InventoryData[unitName][rarity] = {
-				total = data.total,
-				active = data.active,
-			}
+	-- The new system fires with no arguments, so we re-fetch inventory when notified
+	InventoryChangedEvent.OnClientEvent:Connect(function()
+		-- Re-fetch inventory from server
+		local inventoryResult = GetInventoryRemote:InvokeServer()
+		if inventoryResult then
+			-- Handle both new format {[unitName]: {level, rarity, status}} and old format
+			if inventoryResult.units then
+				-- Convert new format to old format for synergy compatibility
+				local convertedInventory = {}
+				for unitName, unitData in pairs(inventoryResult.units) do
+					if type(unitData) == "table" then
+						-- New format: {level, rarity, status}
+						if unitData.level then
+							local rarity = unitData.rarity or "Normal"
+							if not convertedInventory[unitName] then
+								convertedInventory[unitName] = {}
+							end
+							convertedInventory[unitName][rarity] = {
+								total = unitData.level, -- Level = how many times purchased
+								active = unitData.status == "placed" and 1 or 0,
+							}
+						else
+							-- Old format, use as-is
+							convertedInventory[unitName] = unitData
+						end
+					end
+				end
+				InventoryData = convertedInventory
+			else
+				-- Direct inventory data (old format)
+				InventoryData = inventoryResult
+			end
 		end
 		
 		if SynergyVisible then

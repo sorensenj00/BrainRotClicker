@@ -20,11 +20,15 @@ local CollectionService = game:GetService("CollectionService")
 -- Wait for shared modules
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+local TileConfig = require(Shared:WaitForChild("TileConfig"))
+local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
 
 -- Constants
 local CONFIG = {
 	PRODUCTION_TICK = 1,  -- Check production every 1 second
 	STORAGE_FULL_CHECK_INTERVAL = 5,  -- Check storage status every 5 seconds for sleeping animation
+	BASE_ARTIFACT_DROP_CHANCE = ArtifactConfig.BaseDropChance,  -- 1% base chance
+	MAX_ARTIFACT_DROP_CHANCE = ArtifactConfig.MaxDropChance,    -- 25% max
 }
 
 -- Tags
@@ -131,6 +135,76 @@ local function getCategoryCounts(player)
 end
 
 --[[
+	Calculates the combined bonuses for a unit from tile and artifacts.
+	@param player Player - The player
+	@param brainrot Model - The brainrot unit
+	@return table - { speedMult, luckMult, tierBonus }
+]]
+local function calculateUnitBonuses(player, brainrot)
+	local bonuses = {
+		speedMult = 1,
+		luckMult = 1,
+		tierBonus = 0,
+	}
+	
+	local GridManager = _G.GridManager
+	local ArtifactManager = _G.ArtifactManager
+	
+	-- Get unit info
+	local slotIndex = brainrot:GetAttribute("GridSlot")
+	local unitGUID = brainrot:GetAttribute("UnitId")
+	local unitType = brainrot:GetAttribute("UnitType") or brainrot.Name
+	local category = ItemConfig.GetBrainrotCategory(unitType)
+	
+	-- Get tile bonus if on grid
+	if slotIndex and GridManager and GridManager.GetTileAtSlot then
+		local tileId = GridManager.GetTileAtSlot(player, slotIndex)
+		if tileId and category then
+			local tileBonus = TileConfig.GetBonus(tileId, category)
+			bonuses.speedMult = bonuses.speedMult * tileBonus.SpeedMult
+			bonuses.luckMult = bonuses.luckMult * tileBonus.LuckMult
+		end
+	end
+	
+	-- Get artifact bonuses
+	if unitGUID and ArtifactManager and ArtifactManager.CalculateUnitArtifactStats then
+		local artifactStats = ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
+		bonuses.speedMult = bonuses.speedMult * artifactStats.CycleTimeMult
+		bonuses.luckMult = bonuses.luckMult + artifactStats.LuckBonus
+		bonuses.tierBonus = bonuses.tierBonus + artifactStats.ItemTierBonus
+	end
+	
+	-- Clamp minimum speed mult (prevent instant production)
+	bonuses.speedMult = math.max(bonuses.speedMult, 0.1)
+	
+	return bonuses
+end
+
+--[[
+	Rolls for artifact drop chance.
+	@param player Player - The player
+	@param brainrot Model - The unit that produced
+	@param bonuses table - The calculated bonuses
+]]
+local function tryArtifactDrop(player, brainrot, bonuses)
+	local ArtifactManager = _G.ArtifactManager
+	if not ArtifactManager then return end
+	
+	-- Calculate drop chance
+	local dropChance = CONFIG.BASE_ARTIFACT_DROP_CHANCE * bonuses.luckMult
+	dropChance = math.min(dropChance, CONFIG.MAX_ARTIFACT_DROP_CHANCE)
+	
+	-- Roll
+	if math.random() < dropChance then
+		-- Generate and add artifact
+		local artifact = ArtifactManager.GenerateArtifact()
+		if artifact then
+			ArtifactManager.AddArtifact(player, artifact)
+		end
+	end
+end
+
+--[[
 	Initializes production state for a player.
 	@param player Player - The player
 ]]
@@ -213,14 +287,35 @@ local function produceItems(player)
 			end
 			local categoryProd = production.categoryProduction[category]
 			
+			-- Find units in this category to get their bonuses
+			local categoryBonus = { speedMult = 1, luckMult = 1, tierBonus = 0 }
+			local unitCount = 0
+			for _, brainrot in CollectionService:GetTagged(BRAINROT_TAG) do
+				if brainrot:GetAttribute("OwnerId") == player.UserId then
+					local unitType = brainrot:GetAttribute("UnitType")
+					if unitType and ItemConfig.GetBrainrotCategory(unitType) == category then
+						local bonuses = calculateUnitBonuses(player, brainrot)
+						-- Accumulate best bonuses (use highest speed mult, sum luck)
+						categoryBonus.speedMult = math.min(categoryBonus.speedMult, bonuses.speedMult)
+						categoryBonus.luckMult = categoryBonus.luckMult + (bonuses.luckMult - 1) -- Sum luck bonuses
+						categoryBonus.tierBonus = math.max(categoryBonus.tierBonus, bonuses.tierBonus)
+						unitCount = unitCount + 1
+					end
+				end
+			end
+			
 			-- Check each tier's production
 			for _, prod in ipairs(productions) do
 				local tier = ItemConfig.Items[prod.itemId] and ItemConfig.Items[prod.itemId].tier or 1
 				local lastProduced = categoryProd.lastProduced[tier] or 0
 				local timeSinceLastProd = now - lastProduced
 				
+				-- Apply speed bonus to production rate
+				local adjustedRate = prod.rate * categoryBonus.speedMult
+				adjustedRate = math.max(adjustedRate, 0.1) -- Minimum 0.1 second cycle
+				
 				-- Check if enough time has passed for this tier
-				if timeSinceLastProd >= prod.rate then
+				if timeSinceLastProd >= adjustedRate then
 					-- Produce the item
 					local added = ItemStorageManager.AddToStorage(player, prod.itemId, 1)
 					
@@ -231,8 +326,19 @@ local function produceItems(player)
 						-- Notify client for visual feedback
 						ItemProducedEvent:FireClient(player, prod.itemId, 1)
 						
+						-- Roll for artifact drop (on any production)
+						for _, brainrot in CollectionService:GetTagged(BRAINROT_TAG) do
+							if brainrot:GetAttribute("OwnerId") == player.UserId then
+								local ut = brainrot:GetAttribute("UnitType")
+								if ut and ItemConfig.GetBrainrotCategory(ut) == category then
+									tryArtifactDrop(player, brainrot, categoryBonus)
+									break -- Only one artifact roll per production
+								end
+							end
+						end
+						
 						-- Debug log
-						print(string.format("📦 %s produced: %s", player.Name, prod.itemId))
+						print(string.format("📦 %s produced: %s (speed: %.2fx)", player.Name, prod.itemId, 1/categoryBonus.speedMult))
 					end
 				end
 			end

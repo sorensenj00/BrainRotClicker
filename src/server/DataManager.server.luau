@@ -80,8 +80,11 @@ local function getDefaultData()
 		storageCapacity = 2000,   -- Current storage capacity (upgradeable)
 		selectedVehicle = "Sneakers", -- Currently selected transport vehicle
 		vehicleCapacities = {},   -- Vehicle upgrade levels: {[vehicleId]: capacity}
-		gridPositions = {},       -- Brainrot grid positions: {[slotIndex]: brainrotId}
+		-- RPG Mechanics: Layered Grid
+		gridPositions = {},       -- Layered grid: {[slotIndex]: {Unit = {...}, Tile = tileId}}
 		discoveredSynergies = {}, -- Discovered synergy recipes: {[synergyId]: true}
+		-- RPG Mechanics: Artifacts
+		playerArtifacts = {},     -- Artifact inventory: {[GUID]: artifactData}
 	}
 end
 
@@ -168,8 +171,31 @@ local function loadPlayerData(player: Player): {money: number, ownedUnits: {[str
 		if not result.gridPositions then
 			result.gridPositions = {}
 		end
+		-- Migration: Convert old gridPositions format to new layered format
+		-- Old format: {[slotIndex]: {unitType, rarity, level, unitId}}
+		-- New format: {[slotIndex]: {Unit = {...}, Tile = tileId}}
+		for slotIndex, slotData in pairs(result.gridPositions) do
+			if slotData.unitType and not slotData.Unit then
+				-- Old format detected, migrate to new format
+				result.gridPositions[slotIndex] = {
+					Unit = {
+						unitType = slotData.unitType,
+						rarity = slotData.rarity,
+						level = slotData.level,
+						unitId = slotData.unitId,
+						equippedArtifacts = {},
+					},
+					Tile = nil,
+				}
+				print(string.format("  [Migration] Converted grid slot %s to layered format", tostring(slotIndex)))
+			end
+		end
 		if not result.discoveredSynergies then
 			result.discoveredSynergies = {}
+		end
+		-- Ensure artifact data exists
+		if not result.playerArtifacts then
+			result.playerArtifacts = {}
 		end
 		print(string.format("✓ Loaded data for %s: $%d, %d units unlocked, %d max storage, %d meatballs, %d tiers", 
 			player.Name, result.money or 0, result.unlockProgress or 5, result.maxStorage, result.totalMeatballs, result.purchasedTiers))
@@ -388,12 +414,24 @@ local function onPlayerAdded(player: Player)
 	local data = loadPlayerData(player)
 	PlayerDataCache[player] = data
 	
-	-- Wait for leaderstats to be created by BrainrotManager
-	local leaderstats = player:WaitForChild("leaderstats", 10)
-	if leaderstats then
-		local money = leaderstats:WaitForChild("Money", 5)
+	-- Create leaderstats IMMEDIATELY to prevent race conditions
+	-- Other scripts depend on leaderstats existing
+	local leaderstats = player:FindFirstChild("leaderstats")
+	if not leaderstats then
+		leaderstats = Instance.new("Folder")
+		leaderstats.Name = "leaderstats"
+		leaderstats.Parent = player
+		
+		local money = Instance.new("IntValue")
+		money.Name = "Money"
+		money.Value = data.money -- Apply saved money immediately
+		money.Parent = leaderstats
+		
+		print(string.format("✓ Created leaderstats for %s with $%d", player.Name, data.money))
+	else
+		-- leaderstats exists, just update value
+		local money = leaderstats:FindFirstChild("Money")
 		if money then
-			-- Apply saved money
 			money.Value = data.money
 			print(string.format("✓ Applied saved money for %s: $%d", player.Name, data.money))
 		end
@@ -485,7 +523,21 @@ local function onPlayerAdded(player: Player)
 		
 		-- Restore brainrot inventory (with rarities) - this sets up the inventory tracking
 		if data.brainrotInventory and next(data.brainrotInventory) ~= nil then
-			if BrainrotManager.SetInventoryData then
+			-- Check if it's the new format (has 'level' field in entries)
+			local firstKey, firstVal = next(data.brainrotInventory)
+			local isNewFormat = (type(firstVal) == "table" and firstVal.level ~= nil)
+			
+			if isNewFormat then
+				-- New Format: {[unitName]: {level, rarity, status}}
+				for unitName, unitData in pairs(data.brainrotInventory) do
+					-- Spawn/Restore unit with correct stats
+					-- Note: AddUnit is idempotent, so it's safe to call even if placement spawns it later
+					if BrainrotManager.AddUnit then
+						BrainrotManager.AddUnit(player, unitName, unitData.rarity, unitData.level)
+					end
+				end
+			elseif BrainrotManager.SetInventoryData then
+				-- Old Format: {[unitName]: {[rarity]: {total, active}}}
 				-- Reset active counts to 0 since we'll spawn them from placements
 				local inventoryWithZeroActive = {}
 				for unitName, rarityData in pairs(data.brainrotInventory) do

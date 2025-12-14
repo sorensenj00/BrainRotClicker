@@ -3,6 +3,7 @@
 	StockMarketGraph Client Script
 	
 	Procedural Geometry Architecture using EditableImage with scanline-based rendering.
+	Renders multiple category stock lines with unique colors.
 	
 	Classes:
 	- DataBuffer: Circular buffer for rate history
@@ -20,6 +21,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 local AssetService = game:GetService("AssetService")
+local HttpService = game:GetService("HttpService")
 
 -- Configuration
 local CONFIG = {
@@ -29,19 +31,28 @@ local CONFIG = {
 	PADDING = 28,
 	
 	-- Graph appearance
-	LINE_THICKNESS = 8,
-	GLOW_THICKNESS = 20,
-	GLOW_OPACITY = 0.7,
+	LINE_THICKNESS = 4,   -- Thinner for multiple lines
+	GLOW_THICKNESS = 10,
+	GLOW_OPACITY = 0.5,
 	
-	-- Colors
-	GREEN_COLOR = Color3.fromRGB(50, 255, 100),
-	RED_COLOR = Color3.fromRGB(255, 70, 70),
-	YELLOW_COLOR = Color3.fromRGB(255, 215, 0),
-	FILL_OPACITY = 0.75,
+	-- Colors per category (from server config)
+	CATEGORY_COLORS = {
+		Skibidi = Color3.fromRGB(148, 103, 189),    -- Purple
+		Bombardiro = Color3.fromRGB(255, 127, 14),  -- Orange
+		Tralalero = Color3.fromRGB(44, 160, 44),    -- Green
+		BrrBrr = Color3.fromRGB(31, 119, 180),      -- Blue
+		Sigma = Color3.fromRGB(214, 39, 40),        -- Red
+		Mewer = Color3.fromRGB(227, 119, 194),      -- Pink
+	},
+	
+	FILL_OPACITY = 0.15,  -- Much lower for multiple overlapping fills
 	
 	-- Buffer
 	MAX_HISTORY = 60,
 }
+
+-- Category order for consistent rendering
+local CATEGORY_ORDER = {"Skibidi", "Bombardiro", "Tralalero", "BrrBrr", "Sigma", "Mewer"}
 
 --------------------------------------------------------------------------------
 -- DataBuffer Class: Circular buffer for rate history
@@ -210,20 +221,23 @@ function MeshRenderer.Clear(self: RendererImpl)
 	)
 end
 
-function MeshRenderer.GetRateColor(rate: number): Color3
-	if rate >= 2.0 then
-		return CONFIG.YELLOW_COLOR
-	elseif rate >= 1.0 then
-		return CONFIG.GREEN_COLOR
-	else
-		return CONFIG.RED_COLOR
+--[[
+	Calculates the perpendicular normal vector for a line segment.
+]]
+local function calculateNormal(p1: Vector2, p2: Vector2): Vector2
+	local dx = p2.X - p1.X
+	local dy = p2.Y - p1.Y
+	local length = math.sqrt(dx * dx + dy * dy)
+	
+	if length < 0.001 then
+		return Vector2.new(0, 1)
 	end
+	
+	return Vector2.new(-dy / length, dx / length)
 end
 
 --[[
-	Draws a filled quad (4-sided polygon) using multiple horizontal lines.
-	This is a fallback since DrawTriangle doesn't exist in the current API.
-	Vertices should be in order: p1 -> p2 -> p3 -> p4 (forming a quad)
+	Draws a filled quad using horizontal lines (scanline approach).
 ]]
 function MeshRenderer.DrawQuad(
 	self: RendererImpl,
@@ -236,15 +250,12 @@ function MeshRenderer.DrawQuad(
 )
 	if not self.image then return end
 	
-	-- Find bounding box
 	local minY = math.floor(math.min(p1.Y, p2.Y, p3.Y, p4.Y))
 	local maxY = math.ceil(math.max(p1.Y, p2.Y, p3.Y, p4.Y))
 	
-	-- Clamp to image bounds
 	minY = math.max(0, minY)
 	maxY = math.min(self.height - 1, maxY)
 	
-	-- For each scanline, find intersections with quad edges and fill
 	local edges = {
 		{p1, p2},
 		{p2, p3},
@@ -257,28 +268,23 @@ function MeshRenderer.DrawQuad(
 		
 		for _, edge in edges do
 			local a, b = edge[1], edge[2]
-			-- Check if this edge crosses the scanline
 			if (a.Y <= y and b.Y > y) or (b.Y <= y and a.Y > y) then
-				-- Calculate x intersection using linear interpolation
 				local t = (y - a.Y) / (b.Y - a.Y)
 				local x = a.X + t * (b.X - a.X)
 				table.insert(intersections, x)
 			end
 		end
 		
-		-- Sort intersections and draw between pairs
 		table.sort(intersections)
 		
 		for i = 1, #intersections - 1, 2 do
 			local x1 = math.floor(intersections[i])
 			local x2 = math.ceil(intersections[i + 1])
 			
-			-- Clamp to image bounds
 			x1 = math.max(0, x1)
 			x2 = math.min(self.width - 1, x2)
 			
 			if x2 > x1 then
-				-- Draw horizontal line segment using DrawLine
 				self.image:DrawLine(
 					Vector2.new(x1, y),
 					Vector2.new(x2, y),
@@ -292,25 +298,7 @@ function MeshRenderer.DrawQuad(
 end
 
 --[[
-	Calculates the perpendicular normal vector for a line segment.
-	Returns a unit vector perpendicular to the line from p1 to p2.
-]]
-local function calculateNormal(p1: Vector2, p2: Vector2): Vector2
-	local dx = p2.X - p1.X
-	local dy = p2.Y - p1.Y
-	local length = math.sqrt(dx * dx + dy * dy)
-	
-	if length < 0.001 then
-		return Vector2.new(0, 1) -- Default up if points are same
-	end
-	
-	-- Perpendicular vector (rotate 90 degrees)
-	return Vector2.new(-dy / length, dx / length)
-end
-
---[[
-	Draws a thick line segment as a quad using the normal vector for thickness.
-	The quad has 4 corners offset from the line by half-thickness in the normal direction.
+	Draws a thick line segment as a quad.
 ]]
 function MeshRenderer.DrawThickLine(
 	self: RendererImpl,
@@ -326,69 +314,41 @@ function MeshRenderer.DrawThickLine(
 	local halfThickness = thickness / 2
 	local offset = normal * halfThickness
 	
-	-- Calculate 4 corners of the line quad
-	-- Corner order: top-left, top-right, bottom-right, bottom-left
-	local c1 = p1 + offset  -- Start top
-	local c2 = p2 + offset  -- End top
-	local c3 = p2 - offset  -- End bottom
-	local c4 = p1 - offset  -- Start bottom
+	local c1 = p1 + offset
+	local c2 = p2 + offset
+	local c3 = p2 - offset
+	local c4 = p1 - offset
 	
 	MeshRenderer.DrawQuad(self, c1, c2, c3, c4, color, transparency)
 end
 
 --[[
-	Draws the gradient fill under a line segment.
-	Creates a quad from the line segment down to the bottom of the graph.
+	Draws a single category's polyline with specified color.
 ]]
-function MeshRenderer.DrawFillSegment(
-	self: RendererImpl,
-	p1: Vector2,
-	p2: Vector2,
-	bottomY: number,
-	color: Color3,
-	transparency: number
-)
-	if not self.image then return end
-	
-	-- Create quad from line segment to bottom
-	local bottom1 = Vector2.new(p1.X, bottomY)
-	local bottom2 = Vector2.new(p2.X, bottomY)
-	
-	-- Draw the fill quad (line on top, bottom edge at bottomY)
-	MeshRenderer.DrawQuad(self, p1, p2, bottom2, bottom1, color, transparency)
-end
-
---[[
-	Draws the complete polyline with:
-	1. Gradient fill under the line
-	2. Glow layer (wider, lower opacity)
-	3. Main stroke layer
-]]
-function MeshRenderer.DrawPolyline(self: RendererImpl, points: {Vector2}, rates: {number})
+function MeshRenderer.DrawCategoryLine(self: RendererImpl, points: {Vector2}, color: Color3, drawFill: boolean)
 	if not self.image or #points < 2 then return end
 	
 	local bottomY = GraphViewport.GetBottomY(self.viewport)
 	
-	-- Pre-calculate colors for each segment
-	local colors: {Color3} = {}
-	for i = 1, #points - 1 do
-		local avgRate = (rates[i] + rates[i + 1]) / 2
-		colors[i] = MeshRenderer.GetRateColor(avgRate)
+	-- Layer 1: Optional gradient fill (bottom layer)
+	if drawFill then
+		for i = 1, #points - 1 do
+			local p1 = points[i]
+			local p2 = points[i + 1]
+			local bottom1 = Vector2.new(p1.X, bottomY)
+			local bottom2 = Vector2.new(p2.X, bottomY)
+			MeshRenderer.DrawQuad(self, p1, p2, bottom2, bottom1, color, CONFIG.FILL_OPACITY)
+		end
 	end
 	
-	-- Layer 1: Gradient fill (bottom layer)
+	-- Layer 2: Glow
 	for i = 1, #points - 1 do
-		MeshRenderer.DrawFillSegment(self, points[i], points[i + 1], bottomY, colors[i], CONFIG.FILL_OPACITY)
+		MeshRenderer.DrawThickLine(self, points[i], points[i + 1], color, CONFIG.GLOW_THICKNESS, CONFIG.GLOW_OPACITY)
 	end
 	
-	-- Layer 2: Glow (wider, more transparent)
+	-- Layer 3: Main stroke
 	for i = 1, #points - 1 do
-		MeshRenderer.DrawThickLine(self, points[i], points[i + 1], colors[i], CONFIG.GLOW_THICKNESS, CONFIG.GLOW_OPACITY)
-	end
-	
-	-- Layer 3: Main stroke (sharp, opaque)
-	for i = 1, #points - 1 do
-		MeshRenderer.DrawThickLine(self, points[i], points[i + 1], colors[i], CONFIG.LINE_THICKNESS, 0)
+		MeshRenderer.DrawThickLine(self, points[i], points[i + 1], color, CONFIG.LINE_THICKNESS, 0)
 	end
 end
 
@@ -399,11 +359,11 @@ function MeshRenderer.DrawCurrentDot(self: RendererImpl, pos: Vector2, color: Co
 	if not self.image then return end
 	
 	-- Draw glow circle
-	self.image:DrawCircle(pos, 18, color, 0.6, Enum.ImageCombineType.AlphaBlend)
+	self.image:DrawCircle(pos, 10, color, 0.5, Enum.ImageCombineType.AlphaBlend)
 	-- Draw main circle
-	self.image:DrawCircle(pos, 12, color, 0, Enum.ImageCombineType.AlphaBlend)
+	self.image:DrawCircle(pos, 6, color, 0, Enum.ImageCombineType.AlphaBlend)
 	-- Draw white center
-	self.image:DrawCircle(pos, 5, Color3.new(1, 1, 1), 0, Enum.ImageCombineType.AlphaBlend)
+	self.image:DrawCircle(pos, 3, Color3.new(1, 1, 1), 0, Enum.ImageCombineType.AlphaBlend)
 end
 
 function MeshRenderer.GetImage(self: RendererImpl): EditableImage?
@@ -424,20 +384,23 @@ type BillboardDisplay = {
 }
 
 local billboardDisplays: {BillboardDisplay} = {}
-local dataBuffer: DataBufferImpl = DataBuffer.new(CONFIG.MAX_HISTORY)
+local categoryBuffers: {[string]: DataBufferImpl} = {}
 local stockMarketFolder: Folder? = nil
+
+-- Initialize buffers for each category
+for _, category in CATEGORY_ORDER do
+	categoryBuffers[category] = DataBuffer.new(CONFIG.MAX_HISTORY)
+end
 
 --[[
 	Creates an ImageLabel for the EditableImage and attaches it.
 ]]
 local function setupImageLabel(graphLines: Frame, renderer: RendererImpl): ImageLabel?
-	-- Remove any existing ImageLabel
 	local existing = graphLines:FindFirstChildOfClass("ImageLabel")
 	if existing then
 		existing:Destroy()
 	end
 	
-	-- Create new ImageLabel
 	local imageLabel = Instance.new("ImageLabel")
 	imageLabel.Name = "GraphImage"
 	imageLabel.Size = UDim2.new(1, 0, 1, 0)
@@ -445,7 +408,6 @@ local function setupImageLabel(graphLines: Frame, renderer: RendererImpl): Image
 	imageLabel.ScaleType = Enum.ScaleType.Stretch
 	imageLabel.Parent = graphLines
 	
-	-- Attach EditableImage using Content.fromObject
 	local editableImage = renderer.image
 	if editableImage then
 		imageLabel.ImageContent = Content.fromObject(editableImage)
@@ -482,7 +444,6 @@ local function findBillboards()
 		local graphLines = graphContainer:FindFirstChild("GraphLines") :: Frame?
 		if not graphLines then continue end
 		
-		-- Create viewport and renderer
 		local viewport = GraphViewport.new(CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT, CONFIG.PADDING, CONFIG.PADDING)
 		local renderer = MeshRenderer.new(viewport, CONFIG.CANVAS_WIDTH, CONFIG.CANVAS_HEIGHT)
 		
@@ -511,66 +472,88 @@ local function findBillboards()
 end
 
 --[[
-	Gets rate color for text labels.
+	Gets rate color for text labels based on rate value.
 ]]
 local function getRateColor(rate: number): Color3
 	if rate >= 2.0 then
-		return CONFIG.YELLOW_COLOR
+		return Color3.fromRGB(255, 215, 0)  -- Gold
 	elseif rate >= 1.0 then
-		return CONFIG.GREEN_COLOR
+		return Color3.fromRGB(100, 255, 100)  -- Green
 	else
-		return CONFIG.RED_COLOR
+		return Color3.fromRGB(255, 70, 70)  -- Red
 	end
 end
 
 --[[
-	Redraws the graph on a single billboard.
+	Redraws the graph on a single billboard with all category lines.
 ]]
 local function drawGraph(display: BillboardDisplay)
 	local renderer = display.renderer
 	if not renderer or not renderer.image then return end
 	if not stockMarketFolder then return end
 	
-	-- Get current attributes
-	local currentRate = stockMarketFolder:GetAttribute("CurrentRate") :: number? or 1.0
-	local rateNameAttr = stockMarketFolder:GetAttribute("RateName") :: string? or "NORMAL"
 	local minRate = stockMarketFolder:GetAttribute("MinRate") :: number? or 0.5
 	local maxRate = stockMarketFolder:GetAttribute("MaxRate") :: number? or 3.0
 	
-	local rates = DataBuffer.GetPoints(dataBuffer)
-	local pointCount = DataBuffer.GetCount(dataBuffer)
+	-- Find point count (use first category's count)
+	local firstBuffer = categoryBuffers[CATEGORY_ORDER[1]]
+	local pointCount = DataBuffer.GetCount(firstBuffer)
 	
 	if pointCount < 2 then return end
 	
 	-- Update viewport bounds
 	GraphViewport.SetBounds(renderer.viewport, minRate, maxRate, pointCount)
 	
-	-- Convert rates to pixel coordinates
-	local points: {Vector2} = {}
-	for i = 1, pointCount do
-		points[i] = GraphViewport.ToPixelCoords(renderer.viewport, i, rates[i])
-	end
-	
-	-- Clear and redraw
+	-- Clear and start drawing
 	MeshRenderer.Clear(renderer)
-	MeshRenderer.DrawPolyline(renderer, points, rates)
 	
-	-- Draw current value dot
-	if #points > 0 then
-		local lastPoint = points[#points]
-		local lastRate = rates[#rates]
-		MeshRenderer.DrawCurrentDot(renderer, lastPoint, MeshRenderer.GetRateColor(lastRate))
+	-- Track best performing category
+	local bestCategory = CATEGORY_ORDER[1]
+	local bestRate = 0
+	
+	-- Draw each category line
+	for i, category in CATEGORY_ORDER do
+		local buffer = categoryBuffers[category]
+		local rates = DataBuffer.GetPoints(buffer)
+		local count = DataBuffer.GetCount(buffer)
+		
+		if count >= 2 then
+			-- Convert rates to pixel coordinates
+			local points: {Vector2} = {}
+			for j = 1, count do
+				points[j] = GraphViewport.ToPixelCoords(renderer.viewport, j, rates[j])
+			end
+			
+			-- Get color for this category
+			local color = CONFIG.CATEGORY_COLORS[category] or Color3.fromRGB(200, 200, 200)
+			
+			-- Draw the line (first category gets fill, others don't)
+			MeshRenderer.DrawCategoryLine(renderer, points, color, i == 1)
+			
+			-- Draw current dot
+			if #points > 0 then
+				local lastPoint = points[#points]
+				MeshRenderer.DrawCurrentDot(renderer, lastPoint, color)
+			end
+			
+			-- Track best rate
+			local currentRate = rates[count] or 1.0
+			if currentRate > bestRate then
+				bestRate = currentRate
+				bestCategory = category
+			end
+		end
 	end
 	
 	-- Update text labels
 	if display.rateDisplay then
-		display.rateDisplay.Text = string.format("%.2fx", currentRate)
-		display.rateDisplay.TextColor3 = getRateColor(currentRate)
+		display.rateDisplay.Text = string.format("BEST: %.2fx", bestRate)
+		display.rateDisplay.TextColor3 = CONFIG.CATEGORY_COLORS[bestCategory] or getRateColor(bestRate)
 	end
 	
 	if display.rateName then
-		display.rateName.Text = rateNameAttr
-		display.rateName.TextColor3 = getRateColor(currentRate)
+		display.rateName.Text = bestCategory:upper()
+		display.rateName.TextColor3 = CONFIG.CATEGORY_COLORS[bestCategory] or getRateColor(bestRate)
 	end
 end
 
@@ -601,16 +584,34 @@ local function updateTimer()
 end
 
 --[[
+	Parses category histories from JSON attribute.
+]]
+local function parseHistories()
+	if not stockMarketFolder then return end
+	
+	local historiesJson = stockMarketFolder:GetAttribute("CategoryHistories") :: string?
+	if not historiesJson then return end
+	
+	local success, histories = pcall(function()
+		return HttpService:JSONDecode(historiesJson)
+	end)
+	
+	if not success or not histories then return end
+	
+	for category, historyStr in pairs(histories) do
+		local buffer = categoryBuffers[category]
+		if buffer then
+			DataBuffer.ParseAndUpdate(buffer, historyStr)
+		end
+	end
+end
+
+--[[
 	Handles rate history updates from the server.
 ]]
 local function onHistoryChanged()
-	if not stockMarketFolder then return end
-	
-	local historyStr = stockMarketFolder:GetAttribute("RateHistory") :: string?
-	if historyStr then
-		DataBuffer.ParseAndUpdate(dataBuffer, historyStr)
-		updateAllGraphs()
-	end
+	parseHistories()
+	updateAllGraphs()
 end
 
 --------------------------------------------------------------------------------
@@ -618,7 +619,7 @@ end
 --------------------------------------------------------------------------------
 
 local function initialize()
-	print("StockMarketGraph: Initializing with EditableImage (Triangle-based)...")
+	print("StockMarketGraph: Initializing multi-category stock display...")
 	
 	-- Wait for StockMarket folder
 	stockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket", 30) :: Folder?
@@ -639,19 +640,19 @@ local function initialize()
 	end
 	
 	-- Initial parse and draw
-	local historyStr = stockMarketFolder:GetAttribute("RateHistory") :: string?
-	if historyStr then
-		DataBuffer.ParseAndUpdate(dataBuffer, historyStr)
-	end
+	parseHistories()
 	updateAllGraphs()
 	
-	-- Listen for rate history changes
+	-- Listen for category history changes
+	stockMarketFolder:GetAttributeChangedSignal("CategoryHistories"):Connect(onHistoryChanged)
+	
+	-- Also listen to legacy attribute for backwards compatibility
 	stockMarketFolder:GetAttributeChangedSignal("RateHistory"):Connect(onHistoryChanged)
 	
 	-- Timer update loop
 	RunService.Heartbeat:Connect(updateTimer)
 	
-	print("✓ StockMarketGraph initialized with Scanline-based EditableImage")
+	print("✓ StockMarketGraph initialized with 6 category lines")
 end
 
 -- Start

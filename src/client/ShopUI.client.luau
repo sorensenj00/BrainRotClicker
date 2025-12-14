@@ -267,9 +267,7 @@ local function createShopButton(unitName: string, config: any, layoutOrder: numb
 	iconLabel.Text = isLocked and "🔒" or "🧠"
 	iconLabel.TextSize = 28
 	iconLabel.Font = Enum.Font.GothamBold
-	iconLabel.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or UI_CONFIG.TEXT_COLOR
 	iconLabel.Parent = button
-	addCorner(iconLabel, 6)
 	
 	-- Unit name
 	local nameLabel = Instance.new("TextLabel")
@@ -340,12 +338,18 @@ local function createShopButton(unitName: string, config: any, layoutOrder: numb
 	-- Buy indicator (only for unlocked)
 	local buyIndicator = Instance.new("TextLabel")
 	buyIndicator.Name = "BuyIndicator"
-	buyIndicator.Size = UDim2.new(0, 30, 0, 30)
-	buyIndicator.Position = UDim2.new(1, -40, 1, -38)
+	buyIndicator.Size = UDim2.new(0, 80, 0, 30) -- Wider for text
+	buyIndicator.Position = UDim2.new(1, -90, 1, -38)
 	buyIndicator.BackgroundTransparency = 1
-	buyIndicator.Text = isLocked and "" or "▶"
+	local ownedCount = config.count or 0
+	local buttonText = "BUY"
+	if ownedCount > 0 then
+		buttonText = "UPGRADE"
+	end
+	
+	buyIndicator.Text = isLocked and "" or buttonText
 	buyIndicator.TextColor3 = UI_CONFIG.ACCENT_COLOR
-	buyIndicator.TextSize = 20
+	buyIndicator.TextSize = 14
 	buyIndicator.Font = Enum.Font.GothamBold
 	buyIndicator.Parent = button
 	

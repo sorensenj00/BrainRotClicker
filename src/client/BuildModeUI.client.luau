@@ -6,8 +6,8 @@
 	Features:
 	- Press TAB to enter/exit Build Mode
 	- Isometric camera view of plot
-	- Grid visualization with drag-and-drop
-	- Ghost preview when dragging units
+	- Grid visualization
+	- KINEMATIC DRAG AND DROP (TFT Style)
 ]]
 
 -- Services
@@ -17,6 +17,11 @@ local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local CollectionService = game:GetService("CollectionService")
+
+-- Shared Configs
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local TileConfig = require(Shared:WaitForChild("TileConfig"))
+local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
 
 -- Player
 local LocalPlayer = Players.LocalPlayer
@@ -37,6 +42,14 @@ local GetInventoryRemote = RemoteEvents:WaitForChild("GetInventory")
 local PlaceBrainrotRemote = RemoteEvents:WaitForChild("PlaceBrainrot")
 local RemoveBrainrotRemote = RemoteEvents:WaitForChild("RemoveBrainrot")
 
+-- Tile remotes
+local PlaceTileRemote = RemoteFunctions:WaitForChild("PlaceTile")
+local RemoveTileRemote = RemoteFunctions:WaitForChild("RemoveTile")
+
+-- State
+local currentTab = "Units" -- "Units" or "Tiles"
+local tileList = {} -- To be populated from TileConfig
+
 -- Events
 local InventoryChangedEvent = RemoteEvents:WaitForChild("InventoryChanged")
 local _BuildModeChangedEvent = RemoteEvents:WaitForChild("BuildModeChanged")
@@ -53,6 +66,13 @@ local CONFIG = {
 	TILE_SIZE = 10,
 	TILE_HEIGHT = 0.1,
 	
+	-- Drag Physics (TFT Feel)
+	DRAG_HEIGHT = 4.0,       -- How high it hovers when dragging
+	DRAG_SMOOTHNESS = 20.0,  -- Position Lerp speed (Higher = Snappier, Lower = Heavier)
+	TILT_STRENGTH = 0.3,     -- How much it tilts when moving
+	TILT_RETURN_SPEED = 10.0,-- How fast it straightens up
+	MAX_TILT_ANGLE = 25,     -- Max degrees of tilt
+	
 	-- Colors (more subtle)
 	EMPTY_COLOR = Color3.fromRGB(100, 100, 150),
 	OCCUPIED_COLOR = Color3.fromRGB(80, 200, 80),
@@ -64,7 +84,7 @@ local CONFIG = {
 	-- UI
 	TOOLBAR_HEIGHT = 80,
 	BUTTON_SIZE = 60,
-	INVENTORY_WIDTH = 280,
+	INVENTORY_WIDTH = 220,
 	
 	-- Rarity colors
 	RARITY_COLORS = {
@@ -72,6 +92,19 @@ local CONFIG = {
 		Spicy = Color3.fromRGB(255, 80, 80),
 		Galaxy = Color3.fromRGB(180, 100, 255),
 	},
+	
+	-- Modern Dark Theme (MoneyHUD Style)
+	THEME_BG = Color3.fromRGB(20, 20, 30),
+	THEME_STROKE = Color3.fromRGB(50, 50, 70),
+	THEME_ACCENT_PURPLE = Color3.fromRGB(80, 60, 140),
+	THEME_ACCENT_PINK = Color3.fromRGB(140, 80, 160),
+	THEME_ACCENT_GOLD = Color3.fromRGB(200, 150, 60),
+	THEME_ACCENT_BLUE = Color3.fromRGB(80, 160, 200),
+	THEME_ACCENT_GREEN = Color3.fromRGB(100, 255, 100), -- For valid
+	THEME_TEXT_PRIMARY = Color3.fromRGB(255, 255, 255),
+	THEME_TEXT_SECONDARY = Color3.fromRGB(180, 180, 180),
+	THEME_PANEL_RADIUS = 16,
+	THEME_BUTTON_RADIUS = 6,
 }
 
 -- State
@@ -84,6 +117,7 @@ local selectedSlot = nil
 local hoveredSlot = nil
 local isDragging = false
 local currentHoverConnection = nil
+local gridFloorHeight = 0 -- Detected automatically
 
 -- Drag-drop state
 local draggedUnit = nil  -- {name: string, rarity: string}
@@ -95,6 +129,7 @@ local placementGhost = nil  -- The ghost model in workspace
 local ghostPulseTween = nil  -- Current pulse tween
 local isGhostValid = false  -- Is ghost in a valid position
 local dragConnection = nil  -- Mouse move connection during drag
+local ghostCenterOffset = Vector3.new() -- Offset from pivot to bounding box center
 
 -- Modules
 local ViewportPreview = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ViewportPreview"))
@@ -110,7 +145,25 @@ local refreshInventoryPanel
 local getSlotUnderMouse
 local renderBuildGrid
 local startDrag
+local startTileDrag
 local completeDrop
+
+-- Helper for rounded stroke panels (MoneyHUD style)
+local function _stylePanel(frame, radius)
+	frame.BackgroundColor3 = CONFIG.THEME_BG
+	frame.BackgroundTransparency = 0.1 -- Slight transparency like MoneyHUD
+	frame.BorderSizePixel = 0
+	
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, radius or CONFIG.THEME_PANEL_RADIUS)
+	corner.Parent = frame
+	
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = CONFIG.THEME_STROKE
+	stroke.Thickness = 2
+	stroke.Parent = frame
+	return frame
+end
 
 -- Camera reference
 local camera = workspace.CurrentCamera
@@ -198,32 +251,6 @@ local function findPlayerPlot()
 end
 
 --[[
-	Gets plot top surface position.
-]]
-local function getPlotTopCenter(plot)
-	-- Try to find the main floor part (check multiple possible names)
-	local floor = plot:FindFirstChild("Island") 
-		or plot:FindFirstChild("PlotFloor") 
-		or plot:FindFirstChild("Floor")
-		or plot:FindFirstChildWhichIsA("BasePart")
-	
-	if floor and floor:IsA("BasePart") then
-		return Vector3.new(floor.Position.X, floor.Position.Y + floor.Size.Y/2, floor.Position.Z)
-	end
-	
-	if plot:IsA("Model") then
-		local cf, size = plot:GetBoundingBox()
-		return Vector3.new(cf.Position.X, cf.Position.Y + size.Y/2, cf.Position.Z)
-	end
-	
-	if plot:IsA("BasePart") then
-		return Vector3.new(plot.Position.X, plot.Position.Y + plot.Size.Y/2, plot.Position.Z)
-	end
-	
-	return Vector3.new(0, 10, 0)
-end
-
---[[
 	Creates a grid tile part (invisible, outline-only for selection).
 ]]
 local function createGridTile(slotIndex, position, isOccupied, unitName)
@@ -294,6 +321,7 @@ renderBuildGrid = function()
 	local plotSize = floor.Size
 	local plotTop = Vector3.new(plotCenter.X, plotCenter.Y + plotSize.Y/2, plotCenter.Z)
 	local gridY = plotTop.Y + 0.5
+	gridFloorHeight = gridY -- Store for physics raycasting
 	
 	-- Clear any old grid container
 	if gridContainer then
@@ -336,7 +364,16 @@ renderBuildGrid = function()
 		local posX = plotCenter.X + corner.x + (localCol - 0.5) * TILE_SPACING
 		local posZ = plotCenter.Z + corner.z + (localRow - 0.5) * TILE_SPACING
 		
-		local unitName = gridState.slots[slotIndex]
+		-- Handle new layered slot format: {unitType = string?, tileId = string?}
+		local slotData = gridState.slots[slotIndex]
+		local unitName = nil
+		
+		if type(slotData) == "table" then
+			unitName = slotData.unitType
+		elseif type(slotData) == "string" then
+			unitName = slotData
+		end
+		
 		local isOccupied = unitName ~= nil
 		local tile = createGridTile(slotIndex, Vector3.new(posX, gridY, posZ), isOccupied, unitName)
 		tile.Parent = gridContainer
@@ -453,92 +490,6 @@ end
 --------------------------------------------------------------------------------
 
 --[[
-	Creates the build mode UI overlay.
-]]
-local function createBuildModeUI()
-	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "BuildModeUI"
-	screenGui.ResetOnSpawn = false
-	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	screenGui.DisplayOrder = 100
-	
-	-- Top bar
-	local topBar = Instance.new("Frame")
-	topBar.Name = "TopBar"
-	topBar.Size = UDim2.new(1, 0, 0, 50)
-	topBar.Position = UDim2.new(0, 0, 0, 0)
-	topBar.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-	topBar.BorderSizePixel = 0
-	topBar.Parent = screenGui
-	
-	-- Title
-	local title = Instance.new("TextLabel")
-	title.Name = "Title"
-	title.Size = UDim2.new(0.5, 0, 1, 0)
-	title.Position = UDim2.new(0, 20, 0, 0)
-	title.BackgroundTransparency = 1
-	title.Text = "🏗️ BUILD MODE"
-	title.TextColor3 = Color3.fromRGB(255, 200, 50)
-	title.TextSize = 24
-	title.Font = Enum.Font.GothamBold
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Parent = topBar
-	
-	-- Instructions
-	local instructions = Instance.new("TextLabel")
-	instructions.Name = "Instructions"
-	instructions.Size = UDim2.new(0.5, -20, 1, 0)
-	instructions.Position = UDim2.new(0.5, 0, 0, 0)
-	instructions.BackgroundTransparency = 1
-	instructions.Text = "Click to select • Drag to move • G or ESC to exit"
-	instructions.TextColor3 = Color3.fromRGB(180, 180, 180)
-	instructions.TextSize = 14
-	instructions.Font = Enum.Font.Gotham
-	instructions.TextXAlignment = Enum.TextXAlignment.Right
-	instructions.Parent = topBar
-	
-	-- Exit button
-	local exitButton = Instance.new("TextButton")
-	exitButton.Name = "ExitButton"
-	exitButton.Size = UDim2.new(0, 100, 0, 36)
-	exitButton.Position = UDim2.new(1, -120, 0.5, -18)
-	exitButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-	exitButton.Text = "✕ EXIT"
-	exitButton.TextColor3 = Color3.new(1, 1, 1)
-	exitButton.TextSize = 14
-	exitButton.Font = Enum.Font.GothamBold
-	exitButton.Parent = topBar
-	
-	local exitCorner = Instance.new("UICorner")
-	exitCorner.CornerRadius = UDim.new(0, 8)
-	exitCorner.Parent = exitButton
-	
-	-- Status bar at bottom
-	local bottomBar = Instance.new("Frame")
-	bottomBar.Name = "BottomBar"
-	bottomBar.Size = UDim2.new(1, 0, 0, 40)
-	bottomBar.Position = UDim2.new(0, 0, 1, -40)
-	bottomBar.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-	bottomBar.BorderSizePixel = 0
-	bottomBar.Parent = screenGui
-	
-	-- Status text
-	local statusLabel = Instance.new("TextLabel")
-	statusLabel.Name = "Status"
-	statusLabel.Size = UDim2.new(1, -40, 1, 0)
-	statusLabel.Position = UDim2.new(0, 20, 0, 0)
-	statusLabel.BackgroundTransparency = 1
-	statusLabel.Text = "Select a tile to begin"
-	statusLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
-	statusLabel.TextSize = 14
-	statusLabel.Font = Enum.Font.Gotham
-	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-	statusLabel.Parent = bottomBar
-	
-	return screenGui
-end
-
---[[
 	Updates the status text.
 ]]
 local function updateStatus(text)
@@ -552,6 +503,119 @@ local function updateStatus(text)
 	end
 end
 
+--[[
+	Creates the build mode UI overlay with Roblox STUD theme.
+]]
+local function createBuildModeUI()
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "BuildModeUI"
+	screenGui.ResetOnSpawn = false
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.DisplayOrder = 100
+	
+	-- Top bar (transparent container)
+	local topBar = Instance.new("Frame")
+	topBar.Name = "TopBar"
+	topBar.Size = UDim2.new(1, 0, 0, 50)
+	topBar.Position = UDim2.new(0, 0, 0, 0)
+	topBar.BackgroundTransparency = 1
+	topBar.BorderSizePixel = 0
+	topBar.Parent = screenGui
+	
+	-- BUILD MODE title badge
+	local titleContainer = Instance.new("Frame")
+	titleContainer.Name = "TitleContainer"
+	titleContainer.Size = UDim2.new(0, 160, 0, 32)
+	titleContainer.Position = UDim2.new(0, 140, 0.5, -16)
+	titleContainer.BackgroundColor3 = CONFIG.THEME_ACCENT_PINK
+	titleContainer.BorderSizePixel = 0
+	titleContainer.Parent = topBar
+	
+	local titleCorner = Instance.new("UICorner")
+	titleCorner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
+	titleCorner.Parent = titleContainer
+	
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, 0, 1, 0)
+	title.Position = UDim2.new(0, 0, 0, 0)
+	title.BackgroundTransparency = 1
+	title.Text = "🏗️ BUILD MODE"
+	title.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+	title.TextSize = 14
+	title.Font = Enum.Font.GothamBold
+	title.Parent = titleContainer
+	
+	-- Instructions
+	local instructions = Instance.new("TextLabel")
+	instructions.Name = "Instructions"
+	instructions.Size = UDim2.new(0, 400, 1, 0)
+	instructions.Position = UDim2.new(0.5, -200, 0, 0)
+	instructions.BackgroundTransparency = 1
+	instructions.Text = "Click to select • Drag to move"
+	instructions.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+	instructions.TextSize = 14
+	instructions.Font = Enum.Font.GothamBold
+	instructions.Parent = topBar
+	
+	-- Exit button (Matching theme style)
+	local exitButton = Instance.new("TextButton")
+	exitButton.Name = "ExitButton"
+	exitButton.Size = UDim2.new(0, 90, 0, 36)
+	exitButton.Position = UDim2.new(1, -105, 0.5, -18)
+	exitButton.BackgroundColor3 = CONFIG.THEME_ACCENT_PURPLE -- Matching theme button color
+	exitButton.Text = "EXIT"
+	exitButton.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+	exitButton.TextSize = 14
+	exitButton.Font = Enum.Font.GothamBold
+	exitButton.Parent = topBar
+	
+	local exitCorner = Instance.new("UICorner")
+	exitCorner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
+	exitCorner.Parent = exitButton
+	
+	-- Hover effect
+	exitButton.MouseEnter:Connect(function()
+		TweenService:Create(exitButton, TweenInfo.new(0.1), {
+			BackgroundColor3 = CONFIG.THEME_ACCENT_PURPLE:Lerp(Color3.new(1,1,1), 0.1)
+		}):Play()
+	end)
+	
+	exitButton.MouseLeave:Connect(function()
+		TweenService:Create(exitButton, TweenInfo.new(0.1), {
+			BackgroundColor3 = CONFIG.THEME_ACCENT_PURPLE
+		}):Play()
+	end)
+	
+	-- Status bar at bottom (transparent container)
+	local bottomBar = Instance.new("Frame")
+	bottomBar.Name = "BottomBar"
+	bottomBar.Size = UDim2.new(1, 0, 0, 36)
+	bottomBar.Position = UDim2.new(0, 0, 1, -36)
+	bottomBar.BackgroundTransparency = 1
+	bottomBar.BorderSizePixel = 0
+	bottomBar.Parent = screenGui
+	
+	-- Status text
+	local statusLabel = Instance.new("TextLabel")
+	statusLabel.Name = "Status"
+	statusLabel.Size = UDim2.new(1, -40, 1, 0)
+	statusLabel.Position = UDim2.new(0, 20, 0, 0)
+	statusLabel.BackgroundTransparency = 1
+	statusLabel.Text = "Editing Plot - Click tile or drag from inventory"
+	statusLabel.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+	statusLabel.TextSize = 14
+	statusLabel.Font = Enum.Font.GothamBold
+	statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+	statusLabel.Parent = bottomBar
+	
+
+	
+	return screenGui
+end
+
+
+
 --------------------------------------------------------------------------------
 -- INVENTORY PANEL (for Build Mode)
 --------------------------------------------------------------------------------
@@ -560,142 +624,86 @@ local RARITY_ORDER = {"Normal", "Spicy", "Galaxy"}
 local inventoryItems = {}  -- UI item frames
 
 --[[
-	Creates an inventory item card for drag-and-drop.
-]]
-local function createInventoryCard(unitName, rarity, storedCount)
-	local rarityColor = CONFIG.RARITY_COLORS[rarity] or Color3.fromRGB(180, 180, 180)
-	
-	local card = Instance.new("Frame")
-	card.Name = unitName .. "_" .. rarity
-	card.Size = UDim2.new(1, -10, 0, 50)
-	card.BackgroundColor3 = Color3.fromRGB(50, 45, 65)
-	card.BorderSizePixel = 0
-	
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 6)
-	corner.Parent = card
-	
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = rarityColor
-	stroke.Thickness = 1
-	stroke.Parent = card
-	
-	-- Icon
-	local icon = Instance.new("TextLabel")
-	icon.Name = "Icon"
-	icon.Size = UDim2.new(0, 36, 0, 36)
-	icon.Position = UDim2.new(0, 6, 0.5, -18)
-	icon.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
-	icon.Text = "🧠"
-	icon.TextSize = 18
-	icon.TextColor3 = rarityColor
-	icon.Parent = card
-	
-	local iconCorner = Instance.new("UICorner")
-	iconCorner.CornerRadius = UDim.new(0, 4)
-	iconCorner.Parent = icon
-	
-	-- Name
-	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Name = "UnitName"
-	nameLabel.Size = UDim2.new(1, -100, 0, 20)
-	nameLabel.Position = UDim2.new(0, 48, 0, 5)
-	nameLabel.BackgroundTransparency = 1
-	nameLabel.Text = unitName
-	nameLabel.TextColor3 = rarityColor
-	nameLabel.TextSize = 12
-	nameLabel.Font = Enum.Font.GothamBold
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-	nameLabel.Parent = card
-	
-	-- Count
-	local countLabel = Instance.new("TextLabel")
-	countLabel.Name = "Count"
-	countLabel.Size = UDim2.new(0, 50, 0, 16)
-	countLabel.Position = UDim2.new(0, 48, 0, 28)
-	countLabel.BackgroundTransparency = 1
-	countLabel.Text = storedCount .. " stored"
-	countLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
-	countLabel.TextSize = 10
-	countLabel.Font = Enum.Font.Gotham
-	countLabel.TextXAlignment = Enum.TextXAlignment.Left
-	countLabel.Parent = card
-	
-	-- Place button
-	local placeBtn = Instance.new("TextButton")
-	placeBtn.Name = "PlaceButton"
-	placeBtn.Size = UDim2.new(0, 50, 0, 30)
-	placeBtn.Position = UDim2.new(1, -60, 0.5, -15)
-	placeBtn.BackgroundColor3 = storedCount > 0 and Color3.fromRGB(80, 180, 80) or Color3.fromRGB(60, 60, 70)
-	placeBtn.Text = "Place"
-	placeBtn.TextColor3 = Color3.new(1, 1, 1)
-	placeBtn.TextSize = 10
-	placeBtn.Font = Enum.Font.GothamBold
-	placeBtn.Active = storedCount > 0
-	placeBtn.Parent = card
-	
-	local btnCorner = Instance.new("UICorner")
-	btnCorner.CornerRadius = UDim.new(0, 4)
-	btnCorner.Parent = placeBtn
-	
-	-- Store metadata
-	card:SetAttribute("UnitName", unitName)
-	card:SetAttribute("Rarity", rarity)
-	card:SetAttribute("StoredCount", storedCount)
-	
-	return card
-end
-
---[[
-	Creates the inventory panel for Build Mode.
+	Creates the inventory panel for Build Mode with Tabs.
 ]]
 local function createInventoryPanel(parent)
 	local panel = Instance.new("Frame")
 	panel.Name = "InventoryPanel"
-	panel.Size = UDim2.new(0, CONFIG.INVENTORY_WIDTH, 1, -100)
-	panel.Position = UDim2.new(0, 10, 0, 55)
-	panel.BackgroundColor3 = Color3.fromRGB(35, 30, 50)
-	panel.BorderSizePixel = 0
+	panel.Size = UDim2.new(0, CONFIG.INVENTORY_WIDTH, 1, -110)
+	panel.Position = UDim2.new(0, 10, 0, 60)
+	_stylePanel(panel)
 	panel.Parent = parent
 	
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 10)
-	corner.Parent = panel
+	-- Tab Container
+	local tabContainer = Instance.new("Frame")
+	tabContainer.Name = "TabContainer"
+	tabContainer.Size = UDim2.new(1, -20, 0, 36)
+	tabContainer.Position = UDim2.new(0, 10, 0, 10)
+	tabContainer.BackgroundTransparency = 1
+	tabContainer.Parent = panel
 	
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = Color3.fromRGB(100, 80, 150)
-	stroke.Thickness = 2
-	stroke.Parent = panel
+	-- Units Tab Button
+	local unitsBtn = Instance.new("TextButton")
+	unitsBtn.Name = "UnitsButton"
+	unitsBtn.Size = UDim2.new(0.5, -5, 1, 0)
+	unitsBtn.Position = UDim2.new(0, 0, 0, 0)
+	unitsBtn.BackgroundColor3 = currentTab == "Units" and CONFIG.THEME_ACCENT_PURPLE or Color3.fromRGB(40,40,50)
+	unitsBtn.Text = "🧠 UNITS"
+	unitsBtn.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+	unitsBtn.TextSize = 12
+	unitsBtn.Font = Enum.Font.GothamBold
+	unitsBtn.Parent = tabContainer
 	
-	-- Title
-	local title = Instance.new("TextLabel")
-	title.Name = "Title"
-	title.Size = UDim2.new(1, -20, 0, 30)
-	title.Position = UDim2.new(0, 10, 0, 8)
-	title.BackgroundTransparency = 1
-	title.Text = "🧠 INVENTORY"
-	title.TextColor3 = Color3.fromRGB(180, 140, 220)
-	title.TextSize = 16
-	title.Font = Enum.Font.GothamBold
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Parent = panel
+	local uCorner = Instance.new("UICorner")
+	uCorner.CornerRadius = UDim.new(0, 6)
+	uCorner.Parent = unitsBtn
 	
+	-- Tiles Tab Button
+	local tilesBtn = Instance.new("TextButton")
+	tilesBtn.Name = "TilesButton"
+	tilesBtn.Size = UDim2.new(0.5, -5, 1, 0)
+	tilesBtn.Position = UDim2.new(0.5, 5, 0, 0)
+	tilesBtn.BackgroundColor3 = currentTab == "Tiles" and CONFIG.THEME_ACCENT_PINK or Color3.fromRGB(40,40,50)
+	tilesBtn.Text = "🧱 TILES"
+	tilesBtn.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+	tilesBtn.TextSize = 12
+	tilesBtn.Font = Enum.Font.GothamBold
+	tilesBtn.Parent = tabContainer
+	
+	local tCorner = Instance.new("UICorner")
+	tCorner.CornerRadius = UDim.new(0, 6)
+	tCorner.Parent = tilesBtn
+	
+	-- Tab Logic
+	unitsBtn.MouseButton1Click:Connect(function()
+		currentTab = "Units"
+		unitsBtn.BackgroundColor3 = CONFIG.THEME_ACCENT_PURPLE
+		tilesBtn.BackgroundColor3 = Color3.fromRGB(40,40,50)
+		refreshInventoryPanel()
+	end)
+	
+	tilesBtn.MouseButton1Click:Connect(function()
+		currentTab = "Tiles"
+		tilesBtn.BackgroundColor3 = CONFIG.THEME_ACCENT_PINK
+		unitsBtn.BackgroundColor3 = Color3.fromRGB(40,40,50)
+		refreshInventoryPanel()
+	end)
+
 	-- Scrolling frame for items
 	local scrollFrame = Instance.new("ScrollingFrame")
 	scrollFrame.Name = "ItemsList"
-	scrollFrame.Size = UDim2.new(1, -20, 1, -50)
-	scrollFrame.Position = UDim2.new(0, 10, 0, 45)
+	scrollFrame.Size = UDim2.new(1, -20, 1, -60)
+	scrollFrame.Position = UDim2.new(0, 10, 0, 55)
 	scrollFrame.BackgroundTransparency = 1
 	scrollFrame.BorderSizePixel = 0
 	scrollFrame.ScrollBarThickness = 4
-	scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 80, 150)
+	scrollFrame.ScrollBarImageColor3 = CONFIG.THEME_ACCENT_PURPLE
 	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scrollFrame.Parent = panel
 	
 	local listLayout = Instance.new("UIListLayout")
-	listLayout.SortOrder = Enum.SortOrder.Name
-	listLayout.Padding = UDim.new(0, 6)
+	listLayout.SortOrder = Enum.SortOrder.LayoutOrder -- Changed to manual order
+	listLayout.Padding = UDim.new(0, 8)
 	listLayout.Parent = scrollFrame
 	
 	-- Auto-resize canvas
@@ -704,251 +712,18 @@ local function createInventoryPanel(parent)
 	end)
 	
 	inventoryPanel = panel
-	return panel
+	return panel;
 end
 
 --[[
-	Refreshes inventory panel with current data.
+	Populates the inventory panel with stored units.
+	Called when entering build mode and after placing/removing units.
 ]]
-refreshInventoryPanel = function()
-	if not inventoryPanel then 
-		return 
-	end
-	
-	local scrollFrame = inventoryPanel:FindFirstChild("ItemsList")
-	if not scrollFrame then 
-		return 
-	end
-	
-	-- Cleanup old 3D previews
-	for _, preview in ipairs(inventoryPreviews) do
-		if preview.Destroy then
-			preview:Destroy()
-		end
-	end
-	inventoryPreviews = {}
-	
-	-- Clear old items (keep TextLabels for empty message)
-	for _, child in scrollFrame:GetChildren() do
-		if child:IsA("Frame") or (child:IsA("TextLabel") and child.Name == "EmptyLabel") then
-			child:Destroy()
-		end
-	end
-	inventoryItems = {}
-	
-	-- Get inventory from server
-	print("BuildModeUI: Invoking GetInventoryRemote")
-	local result = GetInventoryRemote:InvokeServer()
-	print("BuildModeUI: Got inventory result:", result)
-	if not result or not result.units then 
-		print("BuildModeUI: No inventory data!")
-		return 
-	end
-	
-	inventoryData = result.units
-	print("BuildModeUI: inventoryData:", inventoryData)
-	
-	local cardCount = 0
-	
-	-- Create cards for each unit (show ALL - both stored and placed)
-	for unitName, rarityData in pairs(inventoryData) do
-		for _, rarity in RARITY_ORDER do
-			local data = rarityData[rarity]
-			if data and data.total > 0 then
-				local storedCount = data.total - data.active
-				local activeCount = data.active
-				local rarityColor = CONFIG.RARITY_COLORS[rarity] or Color3.fromRGB(180, 180, 180)
-				
-				-- Create card
-				local card = Instance.new("Frame")
-				card.Name = unitName .. "_" .. rarity
-				card.Size = UDim2.new(1, -10, 0, 60)
-				card.BackgroundColor3 = Color3.fromRGB(50, 45, 65)
-				card.BorderSizePixel = 0
-				
-				local corner = Instance.new("UICorner")
-				corner.CornerRadius = UDim.new(0, 6)
-				corner.Parent = card
-				
-				local stroke = Instance.new("UIStroke")
-				stroke.Color = rarityColor
-				stroke.Thickness = 1
-				stroke.Parent = card
-				
-				-- Icon container (Draggable)
-				local iconFrame = Instance.new("Frame")
-				iconFrame.Name = "IconFrame"
-				iconFrame.Size = UDim2.new(0, 44, 0, 44)
-				iconFrame.Position = UDim2.new(0, 4, 0.5, -22)
-				iconFrame.BackgroundColor3 = Color3.fromRGB(35, 30, 45)
-				iconFrame.Parent = card
-				
-				local iconCorner = Instance.new("UICorner")
-				iconCorner.CornerRadius = UDim.new(0, 6)
-				iconCorner.Parent = iconFrame
-				
-				-- Try to create 3D preview, fallback to emoji
-				local brainrotTemplate = BrainrotsFolder:FindFirstChild(unitName)
-				if brainrotTemplate then
-					local preview = ViewportPreview.Create(brainrotTemplate, iconFrame)
-					-- Store for cleanup
-					if not inventoryPreviews then
-						inventoryPreviews = {}
-					end
-					table.insert(inventoryPreviews, preview)
-				else
-					-- Fallback emoji
-					local emoji = Instance.new("TextLabel")
-					emoji.Size = UDim2.new(1, 0, 1, 0)
-					emoji.BackgroundTransparency = 1
-					emoji.Text = "🧠"
-					emoji.TextSize = 22
-					emoji.TextColor3 = rarityColor
-					emoji.Parent = iconFrame
-				end
-				
-				-- Invisible drag button overlay
-				local dragButton = Instance.new("TextButton")
-				dragButton.Name = "DragButton"
-				dragButton.Size = UDim2.new(1, 0, 1, 0)
-				dragButton.BackgroundTransparency = 1
-				dragButton.Text = ""
-				dragButton.Parent = iconFrame
-				
-				-- Connect drag to button
-				dragButton.MouseButton1Down:Connect(function()
-					if storedCount > 0 then
-						startDrag(unitName, rarity)
-					end
-				end)
-				
-				-- Name
-				local nameLabel = Instance.new("TextLabel")
-				nameLabel.Name = "UnitName"
-				nameLabel.Size = UDim2.new(1, -115, 0, 18)
-				nameLabel.Position = UDim2.new(0, 48, 0, 5)
-				nameLabel.BackgroundTransparency = 1
-				nameLabel.Text = unitName
-				nameLabel.TextColor3 = rarityColor
-				nameLabel.TextSize = 11
-				nameLabel.Font = Enum.Font.GothamBold
-				nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-				nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-				nameLabel.Parent = card
-				
-				-- Status labels
-				local statusLabel = Instance.new("TextLabel")
-				statusLabel.Name = "Status"
-				statusLabel.Size = UDim2.new(1, -115, 0, 14)
-				statusLabel.Position = UDim2.new(0, 48, 0, 24)
-				statusLabel.BackgroundTransparency = 1
-				statusLabel.Text = activeCount .. " placed • " .. storedCount .. " stored"
-				statusLabel.TextColor3 = Color3.fromRGB(140, 140, 160)
-				statusLabel.TextSize = 10
-				statusLabel.Font = Enum.Font.Gotham
-				statusLabel.TextXAlignment = Enum.TextXAlignment.Left
-				statusLabel.Parent = card
-				
-				-- Button container
-				local btnContainer = Instance.new("Frame")
-				btnContainer.Name = "Buttons"
-				btnContainer.Size = UDim2.new(0, 55, 0, 48)
-				btnContainer.Position = UDim2.new(1, -62, 0.5, -24)
-				btnContainer.BackgroundTransparency = 1
-				btnContainer.Parent = card
-				
-				-- Place button
-				local placeBtn = Instance.new("TextButton")
-				placeBtn.Name = "PlaceButton"
-				placeBtn.Size = UDim2.new(1, 0, 0, 22)
-				placeBtn.Position = UDim2.new(0, 0, 0, 0)
-				placeBtn.BackgroundColor3 = storedCount > 0 and Color3.fromRGB(80, 180, 80) or Color3.fromRGB(60, 60, 70)
-				placeBtn.Text = "Place"
-				placeBtn.TextColor3 = Color3.new(1, 1, 1)
-				placeBtn.TextSize = 10
-				placeBtn.Font = Enum.Font.GothamBold
-				placeBtn.Active = storedCount > 0
-				placeBtn.Parent = btnContainer
-				
-				local placeBtnCorner = Instance.new("UICorner")
-				placeBtnCorner.CornerRadius = UDim.new(0, 4)
-				placeBtnCorner.Parent = placeBtn
-				
-				-- Remove button
-				local removeBtn = Instance.new("TextButton")
-				removeBtn.Name = "RemoveButton"
-				removeBtn.Size = UDim2.new(1, 0, 0, 22)
-				removeBtn.Position = UDim2.new(0, 0, 0, 26)
-				removeBtn.BackgroundColor3 = activeCount > 0 and Color3.fromRGB(180, 80, 80) or Color3.fromRGB(60, 60, 70)
-				removeBtn.Text = "Remove"
-				removeBtn.TextColor3 = Color3.new(1, 1, 1)
-				removeBtn.TextSize = 10
-				removeBtn.Font = Enum.Font.GothamBold
-				removeBtn.Active = activeCount > 0
-				removeBtn.Parent = btnContainer
-				
-				local removeBtnCorner = Instance.new("UICorner")
-				removeBtnCorner.CornerRadius = UDim.new(0, 4)
-				removeBtnCorner.Parent = removeBtn
-				
-				card.Parent = scrollFrame
-				inventoryItems[unitName .. "_" .. rarity] = card
-				cardCount = cardCount + 1
-				
-				-- Setup place/drag button - starts drag operation
-				placeBtn.MouseButton1Down:Connect(function()
-					print("BuildModeUI: Place button clicked for", unitName, "storedCount:", storedCount)
-					if storedCount <= 0 then 
-						print("BuildModeUI: No stored units, returning")
-						return 
-					end
-					startDrag(unitName, rarity)
-				end)
-				
-				-- Setup remove button
-				removeBtn.MouseButton1Click:Connect(function()
-					if activeCount <= 0 then return end
-					
-					local success, msg = RemoveBrainrotRemote:InvokeServer(unitName, rarity)
-					if success then
-						updateStatus("✓ Removed " .. unitName .. " to inventory")
-						task.defer(renderBuildGrid)
-						task.defer(refreshInventoryPanel)
-					else
-						updateStatus("✗ " .. (msg or "Remove failed"))
-					end
-				end)
-			end
-		end
-	end
-	
-	-- Empty message if no brainrots
-	if cardCount == 0 then
-		local emptyLabel = Instance.new("TextLabel")
-		emptyLabel.Name = "EmptyLabel"
-		emptyLabel.Size = UDim2.new(1, 0, 0, 50)
-		emptyLabel.BackgroundTransparency = 1
-		emptyLabel.Text = "No brainrots yet\nBuy from shop!"
-		emptyLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
-		emptyLabel.TextSize = 12
-		emptyLabel.Font = Enum.Font.Gotham
-		emptyLabel.Parent = scrollFrame
-	end
-end
-
---------------------------------------------------------------------------------
--- PLACEMENT GHOST SYSTEM
---------------------------------------------------------------------------------
-
--- Ghost colors
-local GHOST_VALID_COLOR = Color3.fromRGB(100, 255, 100)
-local GHOST_INVALID_COLOR = Color3.fromRGB(255, 80, 80)
-
 --[[
 	Gets the brainrot model from ReplicatedStorage.
 ]]
 local function getBrainrotModel(unitName: string): Model?
-	-- Check main Brainrots folder first (same as inventory preview)
+	-- Check main Brainrots folder first
 	if BrainrotsFolder then
 		local model = BrainrotsFolder:FindFirstChild(unitName)
 		if model then return model end
@@ -973,6 +748,269 @@ local function getBrainrotModel(unitName: string): Model?
 	
 	return nil
 end
+
+--[[
+	Populates the inventory panel with stored units.
+	Called when entering build mode and after placing/removing units.
+]]
+refreshInventoryPanel = function()
+	if not inventoryPanel then return end
+	
+	local scrollFrame = inventoryPanel:FindFirstChild("ItemsList")
+	if not scrollFrame then return end
+	
+	-- Clear old entries
+	for _, child in scrollFrame:GetChildren() do
+		if child:IsA("Frame") then
+			child:Destroy()
+		end
+	end
+	inventoryItems = {}
+	
+	-- Clean up old previews
+	for _, previewFrame in pairs(inventoryPreviews) do
+		if previewFrame and previewFrame.Parent then
+			previewFrame:Destroy()
+		end
+	end
+	inventoryPreviews = {}
+	
+	-- Fetch inventory from server
+	local success, inventory = pcall(function()
+		return GetInventoryRemote:InvokeServer()
+	end)
+	
+	if not success then return end
+	
+	if currentTab == "Units" then
+		if not inventory or not inventory.units then return end
+		
+		-- Create an entry for each unit that is STORED (not placed)
+		for unitName, unitData in pairs(inventory.units) do
+			if unitData.status == "stored" and (unitData.level or 0) > 0 then
+
+			local rarityColor = CONFIG.RARITY_COLORS[unitData.rarity] or CONFIG.THEME_TEXT_SECONDARY
+			
+			-- Card container (Modern Style)
+			local itemFrame = Instance.new("Frame")
+			itemFrame.Name = "Item_" .. unitName
+			itemFrame.Size = UDim2.new(1, 0, 0, 90) -- Slightly taller for new layout
+			itemFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50) -- Dark inner panel
+			itemFrame.BorderSizePixel = 0
+			itemFrame.Parent = scrollFrame
+			
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
+			corner.Parent = itemFrame
+			
+			-- Viewport (Preview)
+			local viewport = Instance.new("ViewportFrame")
+			viewport.Name = "Preview"
+			viewport.Size = UDim2.new(0, 70, 0, 70)
+			viewport.Position = UDim2.new(0, 10, 0, 10)
+			viewport.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+			viewport.BorderSizePixel = 0
+			viewport.Parent = itemFrame
+			
+			local viewCorner = Instance.new("UICorner")
+			viewCorner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
+			viewCorner.Parent = viewport
+			
+			-- Info Group
+			local infoGroup = Instance.new("Frame")
+			infoGroup.Name = "Info"
+			infoGroup.Size = UDim2.new(1, -90, 1, 0)
+			infoGroup.Position = UDim2.new(0, 90, 0, 0)
+			infoGroup.BackgroundTransparency = 1
+			infoGroup.Parent = itemFrame
+			
+			-- Unit Name
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Name = "Name"
+			nameLabel.Size = UDim2.new(1, 0, 0, 20)
+			nameLabel.Position = UDim2.new(0, 0, 0, 10)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.Text = unitName
+			nameLabel.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+			nameLabel.TextSize = 14
+			nameLabel.Font = Enum.Font.GothamBold
+			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+			nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+			nameLabel.Parent = infoGroup
+			
+			-- Level / Rarity
+			local rarityLabel = Instance.new("TextLabel")
+			rarityLabel.Name = "Rarity"
+			rarityLabel.Size = UDim2.new(1, 0, 0, 16)
+			rarityLabel.Position = UDim2.new(0, 0, 0, 30)
+			rarityLabel.BackgroundTransparency = 1
+			rarityLabel.Text = string.format("Lvl %d • %s", unitData.level or 1, unitData.rarity or "Normal")
+			rarityLabel.TextColor3 = rarityColor
+			rarityLabel.TextSize = 11
+			rarityLabel.Font = Enum.Font.Gotham
+			rarityLabel.TextXAlignment = Enum.TextXAlignment.Left
+			rarityLabel.Parent = infoGroup
+			
+			-- HP Label
+			local hpLabel = Instance.new("TextLabel")
+			hpLabel.Name = "HP"
+			hpLabel.Size = UDim2.new(1, 0, 0, 16)
+			hpLabel.Position = UDim2.new(0, 0, 0, 46)
+			hpLabel.BackgroundTransparency = 1
+			hpLabel.Text = "❤️ " .. tostring((unitData.level or 1) * 10 + 25) -- Example HP calculation
+			hpLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+			hpLabel.TextSize = 11
+			hpLabel.Font = Enum.Font.GothamBold
+			hpLabel.TextXAlignment = Enum.TextXAlignment.Left
+			hpLabel.Parent = infoGroup
+			
+			-- Place Button
+			local placeButton = Instance.new("TextButton")
+			placeButton.Name = "PlaceButton"
+			placeButton.Size = UDim2.new(0, 50, 0, 26)
+			placeButton.Position = UDim2.new(1, -60, 0, 10)
+			placeButton.BackgroundColor3 = CONFIG.THEME_ACCENT_GREEN
+			placeButton.Text = "PLACE"
+			placeButton.TextColor3 = Color3.fromRGB(20, 20, 20)
+			placeButton.TextSize = 10
+			placeButton.Font = Enum.Font.GothamBold
+			placeButton.Parent = itemFrame
+			
+			local btnCorner = Instance.new("UICorner")
+			btnCorner.CornerRadius = UDim.new(0, 4)
+			btnCorner.Parent = placeButton
+			
+			-- Hover effect for place button
+			placeButton.MouseEnter:Connect(function()
+				placeButton.BackgroundColor3 = CONFIG.THEME_ACCENT_GREEN:Lerp(Color3.new(1,1,1), 0.1)
+			end)
+			placeButton.MouseLeave:Connect(function()
+				placeButton.BackgroundColor3 = CONFIG.THEME_ACCENT_GREEN
+			end)
+			
+			-- Drag trigger
+			placeButton.MouseButton1Down:Connect(function()
+				startDrag(unitName, unitData.rarity or "Normal")
+			end)
+			
+			-- Try to add model preview
+			local template = getBrainrotModel(unitName)
+			if template then
+				local previewModel = template:Clone()
+				previewModel.Parent = viewport
+				
+				local previewCamera = Instance.new("Camera")
+				previewCamera.Parent = viewport
+				viewport.CurrentCamera = previewCamera
+				
+				-- Calculate bounding box to properly frame the model
+				local cf, size = previewModel:GetBoundingBox()
+				local maxDim = math.max(size.X, size.Y, size.Z)
+				local distance = maxDim * 1.0  -- Zoomed in closer
+				
+				-- Isolate visual center
+				local center = cf.Position
+				if previewModel.PrimaryPart then
+					center = previewModel.PrimaryPart.Position
+				end
+				
+				previewCamera.CFrame = CFrame.new(center + Vector3.new(distance, distance*0.5, distance), center)
+				
+				inventoryItems[unitName] = itemFrame
+			end
+		end
+	end
+	
+	end
+	
+	if currentTab == "Tiles" then
+		-- Render Tiles List
+		local tileIds = TileConfig.GetAllTileIds()
+		
+		for _, tileId in ipairs(tileIds) do
+			local tileData = TileConfig.Tiles[tileId]
+			if not tileData then continue end
+			
+			-- Card container
+			local itemFrame = Instance.new("Frame")
+			itemFrame.Name = "Tile_" .. tileId
+			itemFrame.Size = UDim2.new(1, 0, 0, 80)
+			itemFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+			itemFrame.BorderSizePixel = 0
+			itemFrame.Parent = scrollFrame
+			
+			local corner = Instance.new("UICorner")
+			corner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
+			corner.Parent = itemFrame
+			
+			-- Color strip
+			local colorStrip = Instance.new("Frame")
+			colorStrip.Name = "ColorStrip"
+			colorStrip.Size = UDim2.new(0, 50, 1, -20)
+			colorStrip.Position = UDim2.new(0, 10, 0, 10)
+			colorStrip.BackgroundColor3 = tileData.Color or Color3.fromRGB(150,150,150)
+			colorStrip.BorderSizePixel = 0
+			colorStrip.Parent = itemFrame
+			
+			local stripCorner = Instance.new("UICorner")
+			stripCorner.CornerRadius = UDim.new(0, 8)
+			stripCorner.Parent = colorStrip
+			
+			-- Info
+			local infoGroup = Instance.new("Frame")
+			infoGroup.Name = "Info"
+			infoGroup.Size = UDim2.new(1, -70, 1, 0)
+			infoGroup.Position = UDim2.new(0, 70, 0, 0)
+			infoGroup.BackgroundTransparency = 1
+			infoGroup.Parent = itemFrame
+			
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Name = "Name"
+			nameLabel.Size = UDim2.new(1, 0, 0, 20)
+			nameLabel.Position = UDim2.new(0, 0, 0, 15)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.Text = tileData.Name
+			nameLabel.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+			nameLabel.TextSize = 14
+			nameLabel.Font = Enum.Font.GothamBold
+			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+			nameLabel.Parent = infoGroup
+			
+			local descLabel = Instance.new("TextLabel")
+			descLabel.Name = "Desc"
+			descLabel.Size = UDim2.new(1, 0, 0, 30)
+			descLabel.Position = UDim2.new(0, 0, 0, 35)
+			descLabel.BackgroundTransparency = 1
+			descLabel.Text = tileData.Description
+			descLabel.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+			descLabel.TextSize = 11
+			descLabel.Font = Enum.Font.Gotham
+			descLabel.TextXAlignment = Enum.TextXAlignment.Left
+			descLabel.TextWrapped = true
+			descLabel.Parent = infoGroup
+			
+			-- Drag Button (Transparent overlay)
+			local dragBtn = Instance.new("TextButton")
+			dragBtn.Name = "DragButton"
+			dragBtn.Size = UDim2.new(1, 0, 1, 0)
+			dragBtn.BackgroundTransparency = 1
+			dragBtn.Text = ""
+			dragBtn.Parent = itemFrame
+			
+			dragBtn.MouseButton1Down:Connect(function()
+				startTileDrag(tileId)
+			end)
+		end
+	end
+end
+
+-- Ghost colors
+
+local GHOST_VALID_COLOR = Color3.fromRGB(100, 255, 100)
+
+local GHOST_INVALID_COLOR = Color3.fromRGB(255, 80, 80)
+
+
 
 --[[
 	Sets transparency on all parts in a model (for ghost effects).
@@ -1005,16 +1043,60 @@ end
 
 --[[
 	Creates a ghost preview using the MeshPart-only approach.
-	Only MeshParts get the ghost effect - they contain actual visual geometry.
-	Regular Parts (hitboxes, root parts, etc.) are kept fully invisible.
 ]]
-local function createPlacementGhost(unitName: string): Model?
-	local originalModel = getBrainrotModel(unitName)
+--[[
+	Creates a ghost preview using the MeshPart-only approach.
+]]
+--[[
+	Creates a ghost preview using the MeshPart-only approach.
+]]
+local function createPlacementGhost(nameOrId: string, isTile: boolean?): Model?
 	local ghost
+	
+	if isTile then
+		-- Create Tile Ghost
+		local tileData = TileConfig.GetTile(nameOrId)
+		if not tileData then return nil end
+		
+		ghost = Instance.new("Model")
+		local part = Instance.new("Part")
+		part.Name = "TileGhost"
+		part.Size = Vector3.new(CONFIG.TILE_SIZE - 0.5, CONFIG.TILE_HEIGHT, CONFIG.TILE_SIZE - 0.5)
+		part.Transparency = 0.3
+		part.Color = tileData.Color or GHOST_VALID_COLOR
+		part.Material = Enum.Material.ForceField
+		part.Anchored = true
+		part.CanCollide = false
+		part.CastShadow = false
+		part.Parent = ghost
+		ghost.PrimaryPart = part
+		
+		-- Add slight glow
+		local highlight = Instance.new("SurfaceLight")
+		highlight.Color = tileData.Color or GHOST_VALID_COLOR
+		highlight.Brightness = 0.5
+		highlight.Face = Enum.NormalId.Top
+		highlight.Parent = part
+		
+		ghost.Name = "PlacementGhost_Tile"
+		ghost.Parent = workspace
+		placementGhost = ghost
+		isGhostValid = true
+		ghostCenterOffset = Vector3.new()
+		return ghost
+	end
+
+	local originalModel = getBrainrotModel(nameOrId)
 
 	-- 1. Create the Clone
 	if originalModel then
 		ghost = originalModel:Clone()
+		-- Calculate bounding box center offset from pivot
+		-- This ensures the ghost is centered on the model's visual center
+		local cf, _size = originalModel:GetBoundingBox()
+		local pivotPos = originalModel:GetPivot().Position
+		local boundingBoxCenter = cf.Position
+		ghostCenterOffset = pivotPos - boundingBoxCenter
 	else
 		-- Fallback if model is missing
 		ghost = Instance.new("Model")
@@ -1034,53 +1116,65 @@ local function createPlacementGhost(unitName: string): Model?
 		ghost.Parent = workspace
 		placementGhost = ghost
 		isGhostValid = true
+		ghostCenterOffset = Vector3.new()
 		return ghost
 	end
 
 	ghost.Name = "PlacementGhost"
 
-	-- 2. Clean up non-visual instances (Scripts, Sounds, etc.)
-	for _, item in ghost:GetDescendants() do
+	-- 2. Clean up logic (Destroy specific types AND specific names)
+	local descendants = ghost:GetDescendants()
+	for _, item in descendants do
+		-- Check if the item still exists (it might have been a child of a previously destroyed item)
+		if not item.Parent then continue end
+
+		-- A. Remove unwanted classes (Scripts, UI, Sounds, Humanoids)
 		if item:IsA("Humanoid") 
-			or item:IsA("LuaSourceContainer") -- All script types
+			or item:IsA("LuaSourceContainer") 
 			or item:IsA("Sound") 
-			or item:IsA("Light") -- All light types
+			or item:IsA("Light") 
 			or item:IsA("ParticleEmitter") 
 			or item:IsA("Trail")
 			or item:IsA("Beam")
-			or item:IsA("Fire")
-			or item:IsA("Smoke")
-			or item:IsA("Sparkles")
 			or item:IsA("BillboardGui")
 			or item:IsA("SurfaceGui")
 		then
 			item:Destroy()
+			continue
 		end
-	end
 
-	-- 3. Apply Ghost Visuals - ONLY to MeshParts!
-	-- MeshParts contain actual visual geometry (character models, etc.)
-	-- Regular Parts are typically hitboxes, root parts, or other non-visual structure
-	for _, part in ghost:GetDescendants() do
-		if part:IsA("MeshPart") then
-			-- MeshPart = actual visual geometry, apply ghost effect
-			part.CanCollide = false
-			part.CastShadow = false
-			part.Anchored = true
-			part.Transparency = 0.5
-			part.Color = GHOST_VALID_COLOR
-			part.Material = Enum.Material.ForceField
-			
-		elseif part:IsA("Part") or part:IsA("UnionOperation") or part:IsA("BasePart") then
-			-- Regular Parts = hitboxes, root parts, etc. - keep invisible
-			part.CanCollide = false
-			part.CastShadow = false
-			part.Anchored = true
-			part.Transparency = 1
-			
-		elseif part:IsA("Decal") or part:IsA("Texture") then
-			-- Hide decals on ghosts for cleaner look
-			part.Transparency = 1
+		-- B. Remove unwanted specific Parts (The "Weird Box" fix)
+		if item.Name == "FakeRootPart" 
+			or item.Name == "RootPart" 
+			or item.Name == "HumanoidRootPart" 
+			or item.Name == "Hitbox" 
+			or item.Name == "VfxInstance"
+            or item.Name == "AnimationController" -- Also usually junk in ghosts
+		then
+			item:Destroy()
+			continue
+		end
+		
+		-- C. Apply Ghost Visuals to what remains
+		if item:IsA("BasePart") then
+			if item:IsA("MeshPart") then
+				-- MeshPart = actual visual geometry, apply ghost effect
+				item.CanCollide = false
+				item.CastShadow = false
+				item.Anchored = true
+				item.Transparency = 0.3
+				item.Color = GHOST_VALID_COLOR
+				item.Material = Enum.Material.ForceField
+			else
+				-- Regular Parts/Unions = remaining structure - keep invisible
+				-- (If any survived the delete list above)
+				item.CanCollide = false
+				item.CastShadow = false
+				item.Anchored = true
+				item.Transparency = 1
+			end
+		elseif item:IsA("Decal") or item:IsA("Texture") then
+			item:Destroy() -- Clean up textures too for a cleaner ghost look
 		end
 	end
 
@@ -1126,7 +1220,7 @@ local function startGhostPulse()
 	-- Create pulse loop
 	local pulsing = true
 	local currentTransparency = 0.3
-	local direction = 1 -- 1 = fading out, -1 = fading in
+	local direction = 1
 	
 	task.spawn(function()
 		while pulsing and placementGhost and placementGhost.Parent do
@@ -1162,83 +1256,193 @@ local function setGhostInvalid()
 	isGhostValid = false
 end
 
---[[
-	Moves ghost to a slot position.
-]]
-local function moveGhostToSlot(slotIndex: number)
-	if not placementGhost then return end
-	
-	local tile = gridTiles[slotIndex]
-	if tile then
-		local pos = tile.Position + Vector3.new(0, 2, 0)
-		placementGhost:PivotTo(CFrame.new(pos))
-	end
-end
-
 --------------------------------------------------------------------------------
 -- DRAG AND DROP SYSTEM
 --------------------------------------------------------------------------------
 
 --[[
+	Calculates the mouse position on the 3D plane at grid height.
+	Allows dragging freely between tiles.
+]]
+local function getMousePlanePosition()
+	local mouse = UserInputService:GetMouseLocation()
+	local ray = camera:ViewportPointToRay(mouse.X, mouse.Y)
+	
+	-- Create a mathematical plane at the grid height (y = gridFloorHeight)
+	-- Plane equation: (P - P0) dot Normal = 0
+	-- Ray: P = Origin + Direction * t
+	-- (Origin + Dir*t - P0) dot Normal = 0
+	-- t = (P0 - Origin) dot Normal / (Dir dot Normal)
+	
+	local normal = Vector3.new(0, 1, 0)
+	local p0 = Vector3.new(0, gridFloorHeight, 0)
+	
+	local denominator = ray.Direction:Dot(normal)
+	
+	if math.abs(denominator) > 0.001 then -- Prevent division by zero
+		local t = (p0 - ray.Origin):Dot(normal) / denominator
+		if t > 0 then
+			return ray.Origin + ray.Direction * t
+		end
+	end
+	
+	return nil
+end
+
+--[[
 	Starts a drag operation from inventory.
 ]]
 startDrag = function(unitName: string, rarity: string)
-	print("BuildModeUI: startDrag called for", unitName, rarity)
+	print("DEBUG: startDrag called for", unitName)
 	if isDragging then return end
 	
-	print("BuildModeUI: Starting drag operation")
 	isDragging = true
-	draggedUnit = {name = unitName, rarity = rarity}
+	draggedUnit = {type = "unit", name = unitName, rarity = rarity}
 	
-	-- Try to create ghost (may fail if model not found)
+	-- Determine Start Position
+	local mousePos = getMousePlanePosition()
+	local startPos = mousePos or Vector3.new(0, gridFloorHeight, 0)
+	
+	-- Physics State Variables
+	local currentPos = startPos
+	local currentVelocity = Vector3.new()
+	local currentTilt = CFrame.new()
+	
+	-- Create ghost
 	local ghost = createPlacementGhost(unitName)
 	if ghost then
+		print("DEBUG: Ghost created successfully")
+		-- Apply offset so visual center is at the target position
+		ghost:PivotTo(CFrame.new(startPos + Vector3.new(0, CONFIG.DRAG_HEIGHT, 0) + ghostCenterOffset))
 		startGhostPulse()
+	else
+		warn("DEBUG: Ghost creation FAILED for " .. unitName)
 	end
 	
 	updateStatus("🎯 Release over an empty tile to place " .. unitName)
 	
-	-- Connect mouse move to track hovered slot
-	dragConnection = RunService.RenderStepped:Connect(function()
+	-- KINEMATIC DRAG LOOP
+	dragConnection = RunService.RenderStepped:Connect(function(dt)
 		if not isDragging then return end
 		
-		-- Get slot under mouse
+		-- 1. Determine Target Position (Mouse on Floor Plane)
+		local rawMousePos = getMousePlanePosition()
+		if not rawMousePos then return end
+		
+		local targetPos = rawMousePos + Vector3.new(0, CONFIG.DRAG_HEIGHT, 0)
+		
+		-- 2. Smooth Position (Lag Effect)
+		-- Simple Lerp is often smoother than Spring for Mouse Drag in Roblox due to update rates
+		local lerpAlpha = math.clamp(dt * CONFIG.DRAG_SMOOTHNESS, 0, 1)
+		local newPos = currentPos:Lerp(targetPos, lerpAlpha)
+		
+		-- Calculate velocity for tilt
+		local velocity = (newPos - currentPos) / dt
+		currentPos = newPos
+		
+		-- 3. Calculate Tilt (Procedural Animation)
+		-- Tilt axis is perpendicular to velocity and up vector
+		local tiltAxis = velocity:Cross(Vector3.yAxis)
+		local speed = velocity.Magnitude
+		
+		-- Calculate target tilt rotation
+		local targetTiltRot = CFrame.new()
+		if speed > 0.1 and tiltAxis.Magnitude > 0.01 then
+			-- Calculate angle based on speed (clamped)
+			local tiltAngle = math.rad(math.clamp(speed * CONFIG.TILT_STRENGTH, -CONFIG.MAX_TILT_ANGLE, CONFIG.MAX_TILT_ANGLE))
+			
+			-- We invert the angle so it "drags" behind
+			targetTiltRot = CFrame.fromAxisAngle(tiltAxis.Unit, -tiltAngle)
+		end
+		
+		-- Smoothly interpolate tilt
+		currentTilt = currentTilt:Lerp(targetTiltRot, dt * CONFIG.TILT_RETURN_SPEED)
+		
+		-- 4. Apply to Ghost
+		if placementGhost then
+			-- Apply offset so visual center follows cursor
+			placementGhost:PivotTo(CFrame.new(currentPos + ghostCenterOffset) * currentTilt)
+		end
+		
+		-- 5. Grid Interaction (Highlighting)
 		local slot = getSlotUnderMouse()
 		
 		if slot then
-			-- Move ghost if exists
-			if placementGhost then
-				moveGhostToSlot(slot)
-			end
-			
-			-- Check if slot is valid (empty)
 			local tile = gridTiles[slot]
 			local isOccupied = tile and tile:GetAttribute("IsOccupied")
 			
 			if isOccupied then
-				-- Invalid slot
-				if placementGhost then
-					setGhostInvalid()
-				end
-				if tile then
-					highlightTile(slot, CONFIG.INVALID_COLOR)
-				end
+				if placementGhost then setGhostInvalid() end
+				if tile then highlightTile(slot, CONFIG.INVALID_COLOR) end
 				isGhostValid = false
 			else
-				-- Valid slot
-				if placementGhost and not isGhostValid then
-					startGhostPulse()
-				end
-				if tile then
-					highlightTile(slot, CONFIG.HOVER_COLOR)
-				end
+				if placementGhost and not isGhostValid then startGhostPulse() end
+				if tile then highlightTile(slot, CONFIG.HOVER_COLOR) end
 				isGhostValid = true
 			end
 		else
-			-- Not over any slot
-			if placementGhost then
-				setGhostInvalid()
-			end
+			if placementGhost then setGhostInvalid() end
+			isGhostValid = false
+		end
+	end)
+end
+
+--[[
+	Starts a drag operation from inventory for a TILE.
+]]
+startTileDrag = function(tileId: string)
+	if isDragging then return end
+	
+	isDragging = true
+	draggedUnit = {type = "tile", id = tileId}
+	
+	-- Determine Start Position
+	local mousePos = getMousePlanePosition()
+	local startPos = mousePos or Vector3.new(0, gridFloorHeight, 0)
+	
+	-- Physics State Variables
+	local currentPos = startPos
+	
+	-- Create ghost (pass true for isTile)
+	local ghost = createPlacementGhost(tileId, true)
+	if ghost then
+		-- Apply offset so visual center is at the target position
+		ghost:PivotTo(CFrame.new(startPos + Vector3.new(0, CONFIG.DRAG_HEIGHT, 0) + ghostCenterOffset))
+		startGhostPulse()
+	end
+	
+	updateStatus("🎯 Tile Mode: Release over a slot to place " .. tileId)
+	
+	-- KINEMATIC DRAG LOOP (Tiles - simplified, no tilt needed for flat tiles usually)
+	dragConnection = RunService.RenderStepped:Connect(function(dt)
+		if not isDragging then return end
+		
+		-- 1. Determine Target Position (Mouse on Floor Plane)
+		local rawMousePos = getMousePlanePosition()
+		if not rawMousePos then return end
+		
+		local targetPos = rawMousePos + Vector3.new(0, CONFIG.DRAG_HEIGHT, 0)
+		
+		-- 2. Smooth Position
+		local lerpAlpha = math.clamp(dt * CONFIG.DRAG_SMOOTHNESS, 0, 1)
+		local newPos = currentPos:Lerp(targetPos, lerpAlpha)
+		currentPos = newPos
+		
+		-- 4. Apply to Ghost
+		if placementGhost then
+			placementGhost:PivotTo(CFrame.new(currentPos + ghostCenterOffset))
+		end
+		
+		-- 5. Grid Interaction (Highlighting)
+		local slot = getSlotUnderMouse()
+		
+		if slot then
+			-- For tiles, we check if the slot already has THIS tile? Or just highlight valid
+			if placementGhost and not isGhostValid then startGhostPulse() end
+			highlightTile(slot, CONFIG.HOVER_COLOR)
+			isGhostValid = true
+		else
+			if placementGhost then setGhostInvalid() end
 			isGhostValid = false
 		end
 	end)
@@ -1275,23 +1479,37 @@ completeDrop = function()
 	local slot = getSlotUnderMouse()
 	
 	if slot and isGhostValid then
-		-- Check if slot is empty
-		local tile = gridTiles[slot]
-		local isOccupied = tile and tile:GetAttribute("IsOccupied")
-		
-		if not isOccupied then
-			-- Place the unit!
-			local success, msg = PlaceBrainrotRemote:InvokeServer(draggedUnit.name, draggedUnit.rarity, slot)
+		-- Handle different drag types
+		if draggedUnit.type == "tile" then
+			-- Place Tile
+			local success, msg = PlaceTileRemote:InvokeServer(draggedUnit.id, slot)
 			
 			if success then
-				updateStatus("✓ Placed " .. draggedUnit.name .. " at slot " .. slot)
+				updateStatus("✓ Placed " .. (draggedUnit.id or "tile") .. " at slot " .. slot)
 				task.defer(renderBuildGrid)
-				task.defer(refreshInventoryPanel)
 			else
-				updateStatus("✗ " .. (msg or "Place failed"))
+				updateStatus("✗ " .. (msg or "Tile placement failed"))
 			end
-		else
-			updateStatus("✗ Slot is occupied")
+			
+		elseif draggedUnit.type == "unit" or draggedUnit.type == nil then -- Default to unit
+			-- Check if slot is empty (units can't overlap)
+			local tile = gridTiles[slot]
+			local isOccupied = tile and tile:GetAttribute("IsOccupied")
+			
+			if not isOccupied then
+				-- Place the unit!
+				local success, msg = PlaceBrainrotRemote:InvokeServer(draggedUnit.name, draggedUnit.rarity, slot)
+				
+				if success then
+					updateStatus("✓ Placed " .. (draggedUnit.name or "unit") .. " at slot " .. slot)
+					task.defer(renderBuildGrid)
+					task.defer(refreshInventoryPanel)
+				else
+					updateStatus("✗ " .. (msg or "Place failed"))
+				end
+			else
+				updateStatus("✗ Slot is occupied")
+			end
 		end
 	else
 		updateStatus("✗ Invalid drop location")
@@ -1373,7 +1591,6 @@ end
 
 --[[
 	Toggles visibility of all visual elements in a model.
-	Only shows MeshParts when enabling - regular Parts stay invisible.
 ]]
 local function setVisualsEnabled(model: Model, enabled: boolean)
 	for _, descendant in model:GetDescendants() do
@@ -1384,7 +1601,6 @@ local function setVisualsEnabled(model: Model, enabled: boolean)
 			or descendant.Name == "HumanoidRootPart"
 			or descendant.Name == "Hitbox"
 		then
-			-- Ensure these stay invisible
 			if descendant:IsA("BasePart") then
 				descendant.Transparency = 1
 			end
@@ -1392,16 +1608,14 @@ local function setVisualsEnabled(model: Model, enabled: boolean)
 		end
 		
 		if descendant:IsA("MeshPart") then
-			-- MeshParts = actual visual geometry, toggle visibility
 			descendant.Transparency = enabled and 0 or 1
 		elseif descendant:IsA("Part") or descendant:IsA("UnionOperation") then
-			-- Regular Parts = hitboxes, structure - keep invisible always
 			descendant.Transparency = 1
 		elseif descendant:IsA("Decal") or descendant:IsA("Texture") then
 			descendant.Transparency = enabled and 0 or 1
 		elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Trail") or descendant:IsA("Beam") then
 			descendant.Enabled = enabled
-		elseif descendant:IsA("LayerCollector") then -- SurfaceGui, BillboardGui
+		elseif descendant:IsA("LayerCollector") then
 			descendant.Enabled = enabled
 		end
 	end
@@ -1415,6 +1629,7 @@ local function startDragFromWorld(brainrotModel: Model, slotIndex: number)
 	
 	isDragging = true
 	draggedUnit = {
+		type = "unit",
 		name = brainrotModel:GetAttribute("UnitType") or brainrotModel.Name,
 		rarity = brainrotModel:GetAttribute("Rarity") or "Normal",
 		fromSlot = slotIndex,
@@ -1424,8 +1639,24 @@ local function startDragFromWorld(brainrotModel: Model, slotIndex: number)
 	
 	updateStatus("🎯 Drag to new slot or inventory panel to store")
 	
+	-- Setup Physics State
+	-- Start exactly where the unit currently is
+	local startPos
+	if brainrotModel.PrimaryPart then
+		startPos = brainrotModel.PrimaryPart.Position
+	else
+		startPos = brainrotModel:GetPivot().Position
+	end
+	
+	local currentPos = startPos
+	local currentTilt = CFrame.new()
+	
 	-- Create placement ghost
 	createPlacementGhost(draggedUnit.name)
+	if placementGhost then
+		-- Apply offset so visual center is at the start position
+		placementGhost:PivotTo(CFrame.new(startPos + ghostCenterOffset))
+	end
 	
 	-- Hide the original model while dragging
 	if brainrotModel then
@@ -1437,20 +1668,48 @@ local function startDragFromWorld(brainrotModel: Model, slotIndex: number)
 		highlightTile(slotIndex, CONFIG.SELECTED_COLOR)
 	end
 	
-	-- Connect mouse move to track hovered slot and update ghost
-	dragConnection = RunService.RenderStepped:Connect(function()
+	-- KINEMATIC DRAG LOOP (World)
+	dragConnection = RunService.RenderStepped:Connect(function(dt)
 		if not isDragging then return end
 		
+		-- 1. Determine Target (Mouse on Floor Plane)
+		local rawMousePos = getMousePlanePosition()
+		if not rawMousePos then return end
+		
+		local targetPos = rawMousePos + Vector3.new(0, CONFIG.DRAG_HEIGHT, 0)
+		
+		-- 2. Smooth Position
+		local lerpAlpha = math.clamp(dt * CONFIG.DRAG_SMOOTHNESS, 0, 1)
+		local newPos = currentPos:Lerp(targetPos, lerpAlpha)
+		
+		local velocity = (newPos - currentPos) / dt
+		currentPos = newPos
+		
+		-- 3. Calculate Tilt
+		local tiltAxis = velocity:Cross(Vector3.yAxis)
+		local speed = velocity.Magnitude
+		
+		local targetTiltRot = CFrame.new()
+		if speed > 0.1 and tiltAxis.Magnitude > 0.01 then
+			local tiltAngle = math.rad(math.clamp(speed * CONFIG.TILT_STRENGTH, -CONFIG.MAX_TILT_ANGLE, CONFIG.MAX_TILT_ANGLE))
+			targetTiltRot = CFrame.fromAxisAngle(tiltAxis.Unit, -tiltAngle)
+		end
+		
+		currentTilt = currentTilt:Lerp(targetTiltRot, dt * CONFIG.TILT_RETURN_SPEED)
+		
+		-- 4. Apply
+		if placementGhost then
+			-- Apply offset so visual center follows cursor
+			placementGhost:PivotTo(CFrame.new(currentPos + ghostCenterOffset) * currentTilt)
+		end
+		
+		-- 5. Logic Checks
 		local slot = getSlotUnderMouse()
 		
-		-- Update ghost position
-		if placementGhost and slot then
-			moveGhostToSlot(slot)
-			
+		if slot then
 			local tile = gridTiles[slot]
 			local isOccupied = tile and tile:GetAttribute("IsOccupied")
 			
-			-- Don't show as invalid if it's our own source slot
 			if slot == draggedUnit.fromSlot then
 				startGhostPulse()
 			elseif isOccupied then
@@ -1461,7 +1720,7 @@ local function startDragFromWorld(brainrotModel: Model, slotIndex: number)
 				highlightTile(slot, CONFIG.HOVER_COLOR)
 			end
 		elseif placementGhost then
-			-- Mouse not over grid - check if over inventory
+			-- Check inventory hover
 			local mouse = LocalPlayer:GetMouse()
 			if inventoryPanel then
 				local panelPos = inventoryPanel.AbsolutePosition
@@ -1498,7 +1757,6 @@ local function completeDragFromWorld()
 		if mouse.X >= panelPos.X and mouse.X <= panelPos.X + panelSize.X and
 		   mouse.Y >= panelPos.Y and mouse.Y <= panelPos.Y + panelSize.Y then
 			-- Drop on inventory - remove from grid to storage
-			print("BuildModeUI: Dropping on inventory panel - storing")
 			local success, msg = RemoveBrainrotRemote:InvokeServer(draggedUnit.name, draggedUnit.rarity)
 			if success then
 				updateStatus("✓ Stored " .. draggedUnit.name .. " in inventory")
@@ -1508,13 +1766,13 @@ local function completeDragFromWorld()
 				updateStatus("✗ " .. (msg or "Store failed"))
 			end
 			
-			-- Cleanup
 			isDragging = false
 			draggedUnit = nil
 			if dragConnection then
 				dragConnection:Disconnect()
 				dragConnection = nil
 			end
+			destroyPlacementGhost()
 			return
 		end
 	end
@@ -1687,7 +1945,6 @@ end
 local function enterBuildModeLocal()
 	if isInBuildMode then return end
 	
-	-- Request from server
 	local success, err = EnterBuildMode:InvokeServer()
 	if not success then
 		warn("BuildModeUI: Failed to enter - " .. tostring(err))
@@ -1748,38 +2005,30 @@ end
 exitBuildModeLocal = function()
 	if not isInBuildMode then return end
 	
-	-- Request from server
 	ExitBuildMode:InvokeServer()
 	
 	isInBuildMode = false
 	
-	-- Clean up
 	if currentHoverConnection then
 		currentHoverConnection:Disconnect()
 		currentHoverConnection = nil
 	end
 	
-	-- Destroy grid
 	destroyBuildGrid()
 	
-	-- Clear inventory panel reference
 	inventoryPanel = nil
 	inventoryItems = {}
 	
-	-- Destroy UI
 	if buildModeGui then
 		buildModeGui:Destroy()
 		buildModeGui = nil
 	end
 	
-	-- Return camera
 	tweenToPlayerView()
 	
-	-- Clear selection
 	selectedSlot = nil
 	hoveredSlot = nil
 	
-	-- Fire event for GridOverlay
 	local buildModeToggle = ReplicatedStorage:FindFirstChild("BuildModeToggle")
 	if buildModeToggle then
 		buildModeToggle:Fire(false)
@@ -1803,7 +2052,6 @@ end
 -- INPUT HANDLING
 --------------------------------------------------------------------------------
 
--- G or Tab key to toggle
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	
@@ -1814,29 +2062,25 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
--- Mouse click handling - try to drag brainrot models first
+-- Mouse click handling
 local mouse = LocalPlayer:GetMouse()
 mouse.Button1Down:Connect(function()
 	if not isInBuildMode then return end
 	if isDragging then return end
 	
-	-- Check if clicking on a brainrot model
 	local brainrot, slotIndex = getBrainrotUnderMouse()
 	if brainrot and slotIndex then
-		-- Start dragging this brainrot
 		startDragFromWorld(brainrot, slotIndex)
 		return
 	end
 	
-	-- Otherwise, handle grid click
 	handleClick()
 end)
 
--- Mouse release for completing drag-drop
+-- Mouse release
 mouse.Button1Up:Connect(function()
 	if not isInBuildMode or not isDragging then return end
 	
-	-- Check if this is a world drag or inventory drag
 	if draggedUnit and draggedUnit.isFromWorld then
 		completeDragFromWorld()
 	else
@@ -1850,10 +2094,28 @@ end)
 
 GridUpdatedEvent.OnClientEvent:Connect(function(slotIndex, unitName, action)
 	if isInBuildMode then
-		-- Refresh the grid when updates happen
 		task.defer(renderBuildGrid)
 	end
 end)
+
+--------------------------------------------------------------------------------
+-- LISTEN FOR INVENTORY CHANGES (when brainrots are purchased)
+--------------------------------------------------------------------------------
+
+InventoryChangedEvent.OnClientEvent:Connect(function()
+	if isInBuildMode then
+		task.defer(refreshInventoryPanel)
+	end
+end)
+
+-- Listen for InventoryToggleEvent (from HUD)
+local InventoryToggleEvent = ReplicatedStorage:FindFirstChild("InventoryToggleEvent")
+if not InventoryToggleEvent then
+	InventoryToggleEvent = Instance.new("BindableEvent")
+	InventoryToggleEvent.Name = "InventoryToggleEvent"
+	InventoryToggleEvent.Parent = ReplicatedStorage
+end
+InventoryToggleEvent.Event:Connect(toggleBuildMode)
 
 --------------------------------------------------------------------------------
 -- INITIALIZATION
@@ -1861,10 +2123,10 @@ end)
 
 print("✓ BuildModeUI initialized - Press TAB to toggle Build Mode")
 
--- Export
 _G.BuildModeUI = {
 	Toggle = toggleBuildMode,
 	Enter = enterBuildModeLocal,
 	Exit = exitBuildModeLocal,
 	IsActive = function() return isInBuildMode end,
 }
+

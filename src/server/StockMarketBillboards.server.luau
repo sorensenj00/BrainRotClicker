@@ -123,7 +123,7 @@ local function createBillboard(positionData: {name: string, offset: Vector3, rot
 	title.Size = UDim2.new(1, 0, 0.12, 0)
 	title.Position = UDim2.new(0, 0, 0, 0)
 	title.BackgroundTransparency = 1
-	title.Text = "📈 SAUCE MARKET"
+	title.Text = "📈 BRAINROT STOCKS"
 	title.TextColor3 = Color3.fromRGB(255, 255, 255)
 	title.TextScaled = true
 	title.Font = Enum.Font.GothamBold
@@ -132,10 +132,10 @@ local function createBillboard(positionData: {name: string, offset: Vector3, rot
 	-- Current rate display
 	local rateDisplay = Instance.new("TextLabel")
 	rateDisplay.Name = "RateDisplay"
-	rateDisplay.Size = UDim2.new(0.4, 0, 0.15, 0)
+	rateDisplay.Size = UDim2.new(0.35, 0, 0.12, 0)
 	rateDisplay.Position = UDim2.new(0.05, 0, 0.12, 0)
 	rateDisplay.BackgroundTransparency = 1
-	rateDisplay.Text = "1.00x"
+	rateDisplay.Text = "BEST: 1.00x"
 	rateDisplay.TextColor3 = Color3.fromRGB(100, 255, 100)
 	rateDisplay.TextScaled = true
 	rateDisplay.Font = Enum.Font.GothamBold

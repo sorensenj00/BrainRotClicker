@@ -20,6 +20,9 @@ local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local GetOwnershipRemote = RemoteEvents:WaitForChild("GetOwnership")
 local OwnershipChangedEvent = RemoteEvents:WaitForChild("OwnershipChanged")
 
+-- Brainrots folder for preview
+local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
+
 --------------------------------------------------------------------------------
 -- UI CONFIGURATION
 --------------------------------------------------------------------------------
@@ -43,6 +46,16 @@ local UI_CONFIG = {
 	
 	-- Animation
 	TWEEN_TIME = 0.2,
+	
+	-- Theme (Modern Dark from BuildMode)
+	THEME_BG = Color3.fromRGB(20, 20, 30),
+	THEME_STROKE = Color3.fromRGB(50, 50, 70),
+	THEME_ACCENT_PURPLE = Color3.fromRGB(80, 60, 140),
+	THEME_ACCENT_PINK = Color3.fromRGB(140, 80, 160),
+	THEME_ACCENT_GOLD = Color3.fromRGB(200, 150, 60),
+	THEME_ACCENT_BLUE = Color3.fromRGB(60, 120, 200),
+	THEME_TEXT_PRIMARY = Color3.fromRGB(255, 255, 255),
+	THEME_TEXT_SECONDARY = Color3.fromRGB(180, 180, 180),
 }
 
 --------------------------------------------------------------------------------
@@ -90,21 +103,21 @@ local function createMoneyHUD(): ScreenGui
 	-- Main HUD panel
 	local hudPanel = Instance.new("Frame")
 	hudPanel.Name = "HUDPanel"
-	hudPanel.Size = UDim2.new(0, UI_CONFIG.PANEL_WIDTH, 0, UI_CONFIG.PANEL_HEIGHT)
-	hudPanel.Position = UDim2.new(1, -UI_CONFIG.PANEL_WIDTH - UI_CONFIG.PANEL_MARGIN, 0, UI_CONFIG.PANEL_MARGIN)
-	hudPanel.BackgroundColor3 = UI_CONFIG.BACKGROUND_COLOR
+	hudPanel.Size = UDim2.new(0, UI_CONFIG.PANEL_WIDTH, 0, 260) -- Adjusted height
+	hudPanel.Position = UDim2.new(1, -UI_CONFIG.PANEL_WIDTH - UI_CONFIG.PANEL_MARGIN, 0, 60) -- Lowered slightly
+	hudPanel.BackgroundColor3 = UI_CONFIG.THEME_BG
 	hudPanel.BackgroundTransparency = 0.1
 	hudPanel.BorderSizePixel = 0
 	hudPanel.Parent = screenGui
 	addCorner(hudPanel, UI_CONFIG.CORNER_RADIUS)
-	addStroke(hudPanel, UI_CONFIG.STROKE_COLOR, 2)
+	addStroke(hudPanel, UI_CONFIG.THEME_STROKE, 2)
 	
 	-- Add padding
 	local padding = Instance.new("UIPadding")
 	padding.PaddingLeft = UDim.new(0, 16)
 	padding.PaddingRight = UDim.new(0, 16)
-	padding.PaddingTop = UDim.new(0, 12)
-	padding.PaddingBottom = UDim.new(0, 12)
+	padding.PaddingTop = UDim.new(0, 16)
+	padding.PaddingBottom = UDim.new(0, 16)
 	padding.Parent = hudPanel
 	
 	-- Money icon and label container
@@ -139,129 +152,142 @@ local function createMoneyHUD(): ScreenGui
 	moneyLabel.TextXAlignment = Enum.TextXAlignment.Left
 	moneyLabel.Parent = moneyContainer
 	
-	-- Money per second (placeholder)
+	-- Money per second
 	local mpsLabel = Instance.new("TextLabel")
 	mpsLabel.Name = "MPSLabel"
 	mpsLabel.Size = UDim2.new(1, 0, 0, 18)
-	mpsLabel.Position = UDim2.new(0, 0, 0, 38)
+	mpsLabel.Position = UDim2.new(0, 40, 0, 32)
 	mpsLabel.BackgroundTransparency = 1
-	mpsLabel.Text = "+$0/s" -- Placeholder, not implemented yet
+	mpsLabel.Text = "+$0/s"
 	mpsLabel.TextColor3 = UI_CONFIG.MPS_COLOR
 	mpsLabel.TextSize = 14
 	mpsLabel.Font = Enum.Font.Gotham
 	mpsLabel.TextXAlignment = Enum.TextXAlignment.Left
 	mpsLabel.Parent = hudPanel
 	
-	-- Item storage container
-	local itemsContainer = Instance.new("Frame")
-	itemsContainer.Name = "ItemsContainer"
-	itemsContainer.Size = UDim2.new(1, 0, 0, 24)
-	itemsContainer.Position = UDim2.new(0, 0, 0, 60)
-	itemsContainer.BackgroundTransparency = 1
-	itemsContainer.Parent = hudPanel
+	-- Separator
+	local div = Instance.new("Frame")
+	div.Name = "Divider"
+	div.Size = UDim2.new(0, 2, 0, 40)
+	div.Position = UDim2.new(0, 0, 0, 60)
+	div.BackgroundColor3 = UI_CONFIG.THEME_ACCENT_BLUE
+	div.BorderSizePixel = 0
+	div.Parent = hudPanel
+	addCorner(div, 2)
 	
-	-- Items bar background (fills container)
+	-- Storage Section
+	local storageContainer = Instance.new("Frame")
+	storageContainer.Name = "ItemsContainer" -- Kept Name for script compatibility
+	storageContainer.Size = UDim2.new(1, -20, 0, 50)
+	storageContainer.Position = UDim2.new(0, 15, 0, 60)
+	storageContainer.BackgroundTransparency = 1
+	storageContainer.Parent = hudPanel
+	
+	local storageTitle = Instance.new("TextLabel")
+	storageTitle.Name = "Title"
+	storageTitle.Size = UDim2.new(1, 0, 0, 20)
+	storageTitle.BackgroundTransparency = 1
+	storageTitle.Text = "📦 ITEMS: 0 / 2000" -- Initial text
+	storageTitle.Name = "ItemsAmount" -- Kept Name for script compatibility
+	storageTitle.TextColor3 = UI_CONFIG.THEME_TEXT_PRIMARY
+	storageTitle.TextSize = 12
+	storageTitle.Font = Enum.Font.GothamBold
+	storageTitle.TextXAlignment = Enum.TextXAlignment.Left
+	storageTitle.Parent = storageContainer
+	
 	local itemsBarBg = Instance.new("Frame")
 	itemsBarBg.Name = "ItemsBarBg"
-	itemsBarBg.Size = UDim2.new(1, 0, 1, 0)
-	itemsBarBg.Position = UDim2.new(0, 0, 0, 0)
-	itemsBarBg.BackgroundColor3 = UI_CONFIG.ITEMS_BG_COLOR
+	itemsBarBg.Size = UDim2.new(1, 0, 0, 12)
+	itemsBarBg.Position = UDim2.new(0, 0, 0, 25)
+	itemsBarBg.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
 	itemsBarBg.BorderSizePixel = 0
-	itemsBarBg.Parent = itemsContainer
-	addCorner(itemsBarBg, 6)
+	itemsBarBg.Parent = storageContainer
+	addCorner(itemsBarBg, 4)
 	
-	-- Items bar fill
 	local itemsBarFill = Instance.new("Frame")
 	itemsBarFill.Name = "ItemsBarFill"
-	itemsBarFill.Size = UDim2.new(0, 0, 1, 0) -- Start empty
-	itemsBarFill.Position = UDim2.new(0, 0, 0, 0)
-	itemsBarFill.BackgroundColor3 = UI_CONFIG.ITEMS_FILL_COLOR
+	itemsBarFill.Size = UDim2.new(0, 0, 1, 0)
+	itemsBarFill.BackgroundColor3 = UI_CONFIG.THEME_ACCENT_BLUE
 	itemsBarFill.BorderSizePixel = 0
 	itemsBarFill.Parent = itemsBarBg
-	addCorner(itemsBarFill, 6)
+	addCorner(itemsBarFill, 4)
 	
-	-- Items amount text (overlay on bar)
-	local itemsAmountLabel = Instance.new("TextLabel")
-	itemsAmountLabel.Name = "ItemsAmount"
-	itemsAmountLabel.Size = UDim2.new(1, 0, 1, 0)
-	itemsAmountLabel.Position = UDim2.new(0, 0, 0, 0)
-	itemsAmountLabel.BackgroundTransparency = 1
-	itemsAmountLabel.Text = "📦 ITEMS: 0 / 2000"
-	itemsAmountLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	itemsAmountLabel.TextSize = 11
-	itemsAmountLabel.Font = Enum.Font.GothamBold
-	itemsAmountLabel.ZIndex = 2
-	itemsAmountLabel.Parent = itemsBarBg
+	-- Action Icons Container
+	local actionsFrame = Instance.new("Frame")
+	actionsFrame.Name = "ActionsFrame"
+	actionsFrame.Size = UDim2.new(1, 0, 0, 50)
+	actionsFrame.Position = UDim2.new(0, 0, 0, 125)
+	actionsFrame.BackgroundTransparency = 1
+	actionsFrame.Parent = hudPanel
 	
-	-- Shop button (cart icon) 
-	local shopButton = Instance.new("TextButton")
-	shopButton.Name = "ShopButton"
-	shopButton.Size = UDim2.new(1, 0, 0, 28)
-	shopButton.Position = UDim2.new(0, 0, 0, 92)
-	shopButton.BackgroundColor3 = Color3.fromRGB(80, 60, 140)
-	shopButton.BorderSizePixel = 0
-	shopButton.Text = "🛒 Open Shop (B)"
-	shopButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-	shopButton.TextSize = 12
-	shopButton.Font = Enum.Font.GothamBold
-	shopButton.Parent = hudPanel
-	addCorner(shopButton, 6)
+	local uiLayout = Instance.new("UIListLayout")
+	uiLayout.FillDirection = Enum.FillDirection.Horizontal
+	uiLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	uiLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	uiLayout.Padding = UDim.new(0, 15)
+	uiLayout.Parent = actionsFrame
 	
-	-- Brainrots/Inventory button
-	local brainrotsButton = Instance.new("TextButton")
-	brainrotsButton.Name = "BrainrotsButton"
-	brainrotsButton.Size = UDim2.new(1, 0, 0, 28)
-	brainrotsButton.Position = UDim2.new(0, 0, 0, 125)
-	brainrotsButton.BackgroundColor3 = Color3.fromRGB(140, 80, 160)
-	brainrotsButton.BorderSizePixel = 0
-	brainrotsButton.Text = "🧠 Brainrots (I)"
-	brainrotsButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-	brainrotsButton.TextSize = 12
-	brainrotsButton.Font = Enum.Font.GothamBold
-	brainrotsButton.Parent = hudPanel
-	addCorner(brainrotsButton, 6)
+	-- Helper to create icon buttons
+	local function createIconButton(name, textIcon, color, order)
+		local btn = Instance.new("TextButton")
+		btn.Name = name
+		btn.Size = UDim2.new(0, 48, 0, 48)
+		btn.BackgroundColor3 = color
+		btn.LayoutOrder = order
+		btn.Text = textIcon
+		btn.TextSize = 24
+		btn.TextColor3 = UI_CONFIG.THEME_TEXT_PRIMARY
+		btn.Font = Enum.Font.GothamBold
+		btn.Parent = actionsFrame
+		
+		addCorner(btn, 12)
+		addStroke(btn, UI_CONFIG.THEME_STROKE, 1.5)
+		
+		return btn
+	end
 	
-	-- Synergies button
-	local synergiesButton = Instance.new("TextButton")
-	synergiesButton.Name = "SynergiesButton"
-	synergiesButton.Size = UDim2.new(1, 0, 0, 28)
-	synergiesButton.Position = UDim2.new(0, 0, 0, 158)
-	synergiesButton.BackgroundColor3 = Color3.fromRGB(200, 150, 60)
-	synergiesButton.BorderSizePixel = 0
-	synergiesButton.Text = "⚡ Synergies (Y)"
-	synergiesButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-	synergiesButton.TextSize = 12
-	synergiesButton.Font = Enum.Font.GothamBold
-	synergiesButton.Parent = hudPanel
-	addCorner(synergiesButton, 6)
+	-- 1. Shop Button
+	createIconButton("ShopButton", "🛒", UI_CONFIG.THEME_ACCENT_PURPLE, 1)
 	
-	-- Transport button (NEW)
-	local transportButton = Instance.new("TextButton")
-	transportButton.Name = "TransportButton"
-	transportButton.Size = UDim2.new(1, 0, 0, 28)
-	transportButton.Position = UDim2.new(0, 0, 0, 191)
-	transportButton.BackgroundColor3 = Color3.fromRGB(80, 160, 200)
-	transportButton.BorderSizePixel = 0
-	transportButton.Text = "📦 Transport (T)"
-	transportButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-	transportButton.TextSize = 12
-	transportButton.Font = Enum.Font.GothamBold
-	transportButton.Parent = hudPanel
-	addCorner(transportButton, 6)
+	-- 2. Brainrots Button (3D Preview)
+	local brainrotsBtn = createIconButton("BrainrotsButton", "", UI_CONFIG.THEME_ACCENT_PINK, 2)
 	
-	-- Market button (NEW)
-	local marketButton = Instance.new("TextButton")
-	marketButton.Name = "MarketButton"
-	marketButton.Size = UDim2.new(1, 0, 0, 28)
-	marketButton.Position = UDim2.new(0, 0, 0, 224)
-	marketButton.BackgroundColor3 = Color3.fromRGB(220, 170, 50)
-	marketButton.BorderSizePixel = 0
-	marketButton.Text = "🏪 Market (M)"
-	marketButton.TextColor3 = Color3.fromRGB(30, 30, 30)
-	marketButton.TextSize = 12
-	marketButton.Font = Enum.Font.GothamBold
-	marketButton.Parent = hudPanel
-	addCorner(marketButton, 6)
+	-- Viewport for Brainrot
+	local viewport = Instance.new("ViewportFrame")
+	viewport.Size = UDim2.new(1, -6, 1, -6)
+	viewport.Position = UDim2.new(0, 3, 0, 3)
+	viewport.BackgroundTransparency = 1
+	viewport.Parent = brainrotsBtn
+	
+	-- Pick random model for preview
+	task.spawn(function()
+		local allModels = {}
+		if BrainrotsFolder then
+			for _, m in BrainrotsFolder:GetChildren() do
+				if m:IsA("Model") then table.insert(allModels, m) end
+			end
+		end
+		
+		if #allModels > 0 then
+			local randomModel = allModels[math.random(1, #allModels)]:Clone()
+			randomModel.Parent = viewport
+			
+			local cam = Instance.new("Camera")
+			cam.Parent = viewport
+			viewport.CurrentCamera = cam
+			
+			local cf, size = randomModel:GetBoundingBox()
+			local maxDim = math.max(size.X, size.Y, size.Z)
+			local dist = maxDim * 1.5
+			cam.CFrame = CFrame.new(cf.Position + Vector3.new(dist, dist*0.5, dist), cf.Position)
+		end
+	end)
+	
+	-- 3. Synergies Button
+	createIconButton("SynergiesButton", "📖", UI_CONFIG.THEME_ACCENT_GOLD, 3)
+	
+	-- 4. Backpack Button (NEW)
+	createIconButton("BackpackButton", "🎒", UI_CONFIG.THEME_ACCENT_BLUE, 4)
 	
 	return screenGui
 end
@@ -277,7 +303,6 @@ local ItemsBarFill: Frame
 local ItemsAmountLabel: TextLabel
 
 local previousMoney: number = 0
-local cachedPlot: Instance? = nil
 
 -- Track ownership for MPS calculation
 local OwnedCounts: {[string]: number} = {}
@@ -397,11 +422,140 @@ local function initialize()
 		-- Get items bar references (was tank bar)
 		local itemsContainer = hudPanel:FindFirstChild("ItemsContainer")
 		if itemsContainer then
+			ItemsAmountLabel = itemsContainer:FindFirstChild("ItemsAmount")
 			local itemsBarBg = itemsContainer:FindFirstChild("ItemsBarBg")
 			if itemsBarBg then
 				ItemsBarFill = itemsBarBg:FindFirstChild("ItemsBarFill")
-				ItemsAmountLabel = itemsBarBg:FindFirstChild("ItemsAmount")
 			end
+		end
+	end
+	
+	-- Get action buttons from ActionsFrame
+	local actionsFrame = MoneyHUDGui:FindFirstChild("ActionsFrame")
+	if actionsFrame then 
+		local shopButton = actionsFrame:FindFirstChild("ShopButton")
+		local brainrotsButton = actionsFrame:FindFirstChild("BrainrotsButton")
+		local synergiesButton = actionsFrame:FindFirstChild("SynergiesButton")
+		local backpackButton = actionsFrame:FindFirstChild("BackpackButton")
+
+		-- Setup shop button click
+		if shopButton then
+			-- Create or get the BindableEvent for shop toggle
+			local shopToggleEvent = ReplicatedStorage:FindFirstChild("ShopToggleEvent")
+			if not shopToggleEvent then
+				shopToggleEvent = Instance.new("BindableEvent")
+				shopToggleEvent.Name = "ShopToggleEvent"
+				shopToggleEvent.Parent = ReplicatedStorage
+			end
+			
+			shopButton.MouseButton1Click:Connect(function()
+				shopToggleEvent:Fire()
+			end)
+			
+			-- Hover effects
+			shopButton.MouseEnter:Connect(function()
+				TweenService:Create(shopButton, TweenInfo.new(0.1), {
+					BackgroundColor3 = Color3.fromRGB(100, 80, 170),
+					Size = UDim2.new(0, 56, 0, 56)
+				}):Play()
+			end)
+			
+			shopButton.MouseLeave:Connect(function()
+				TweenService:Create(shopButton, TweenInfo.new(0.1), {
+					BackgroundColor3 = UI_CONFIG.THEME_ACCENT_PURPLE,
+					Size = UDim2.new(0, 48, 0, 48)
+				}):Play()
+			end)
+		end
+		
+		-- Setup brainrots button click
+		if brainrotsButton then
+			-- Create or get the BindableEvent for inventory toggle
+			local inventoryToggleEvent = ReplicatedStorage:FindFirstChild("InventoryToggleEvent")
+			if not inventoryToggleEvent then
+				inventoryToggleEvent = Instance.new("BindableEvent")
+				inventoryToggleEvent.Name = "InventoryToggleEvent"
+				inventoryToggleEvent.Parent = ReplicatedStorage
+			end
+			
+			brainrotsButton.MouseButton1Click:Connect(function()
+				inventoryToggleEvent:Fire()
+			end)
+			
+			-- Hover effects
+			brainrotsButton.MouseEnter:Connect(function()
+				TweenService:Create(brainrotsButton, TweenInfo.new(0.1), {
+					BackgroundColor3 = Color3.fromRGB(170, 100, 190),
+					Size = UDim2.new(0, 56, 0, 56)
+				}):Play()
+			end)
+			
+			brainrotsButton.MouseLeave:Connect(function()
+				TweenService:Create(brainrotsButton, TweenInfo.new(0.1), {
+					BackgroundColor3 = UI_CONFIG.THEME_ACCENT_PINK,
+					Size = UDim2.new(0, 48, 0, 48)
+				}):Play()
+			end)
+		end
+		
+		-- Setup synergies button click
+		if synergiesButton then
+			-- Create or get the BindableEvent for synergy toggle
+			local synergyToggleEvent = ReplicatedStorage:FindFirstChild("SynergyToggleEvent")
+			if not synergyToggleEvent then
+				synergyToggleEvent = Instance.new("BindableEvent")
+				synergyToggleEvent.Name = "SynergyToggleEvent"
+				synergyToggleEvent.Parent = ReplicatedStorage
+			end
+			
+			synergiesButton.MouseButton1Click:Connect(function()
+				synergyToggleEvent:Fire()
+			end)
+			
+			-- Hover effects
+			synergiesButton.MouseEnter:Connect(function()
+				TweenService:Create(synergiesButton, TweenInfo.new(0.1), {
+					BackgroundColor3 = Color3.fromRGB(230, 180, 80),
+					Size = UDim2.new(0, 56, 0, 56)
+				}):Play()
+			end)
+			
+			synergiesButton.MouseLeave:Connect(function()
+				TweenService:Create(synergiesButton, TweenInfo.new(0.1), {
+					BackgroundColor3 = UI_CONFIG.THEME_ACCENT_GOLD,
+					Size = UDim2.new(0, 48, 0, 48)
+				}):Play()
+			end)
+		end
+		
+		-- Setup backpack button click
+		if backpackButton then
+			-- Create or get the BindableEvent for backpack toggle
+			local backpackToggleEvent = ReplicatedStorage:FindFirstChild("BackpackToggleEvent")
+			if not backpackToggleEvent then
+				backpackToggleEvent = Instance.new("BindableEvent")
+				backpackToggleEvent.Name = "BackpackToggleEvent"
+				backpackToggleEvent.Parent = ReplicatedStorage
+			end
+			
+			backpackButton.MouseButton1Click:Connect(function()
+				backpackToggleEvent:Fire()
+			end)
+			
+			-- Hover effects
+			backpackButton.MouseEnter:Connect(function()
+				TweenService:Create(backpackButton, TweenInfo.new(0.1), {
+					BackgroundColor3 = Color3.fromRGB(100, 150, 255),
+					Size = UDim2.new(0, 56, 0, 56)
+				}):Play()
+			end)
+			
+			backpackButton.MouseLeave:Connect(function()
+				TweenService:Create(backpackButton, TweenInfo.new(0.1), {
+					BackgroundColor3 = UI_CONFIG.THEME_ACCENT_BLUE,
+					Size = UDim2.new(0, 48, 0, 48)
+				}):Play()
+			end)
 		end
 	end
 	
@@ -445,109 +599,19 @@ local function initialize()
 	-- Listen for item storage updates (from ItemStorageManager)
 	local StorageUpdatedEvent = RemoteEvents:FindFirstChild("StorageUpdated")
 	if StorageUpdatedEvent then
-		StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
+		StorageUpdatedEvent.OnClientEvent:Connect(function(_, total, capacity)
 			updateItemsDisplay(total or 0, capacity or 2000)
 		end)
 		-- Also fetch initial values
 		local GetStorageFunction = RemoteEvents:FindFirstChild("GetStorage")
 		if GetStorageFunction then
 			task.spawn(function()
-				local items, total, capacity = GetStorageFunction:InvokeServer()
+				local _, total, capacity = GetStorageFunction:InvokeServer()
 				updateItemsDisplay(total or 0, capacity or 2000)
 			end)
 		end
 	end
-	
-	-- Setup shop button click
-	local shopHudPanel = MoneyHUDGui:FindFirstChild("HUDPanel")
-	if shopHudPanel then
-		local shopButton = shopHudPanel:FindFirstChild("ShopButton")
-		if shopButton then
-			-- Create or get the BindableEvent for shop toggle
-			local shopToggleEvent = ReplicatedStorage:FindFirstChild("ShopToggleEvent")
-			if not shopToggleEvent then
-				shopToggleEvent = Instance.new("BindableEvent")
-				shopToggleEvent.Name = "ShopToggleEvent"
-				shopToggleEvent.Parent = ReplicatedStorage
-			end
-			
-			shopButton.MouseButton1Click:Connect(function()
-				shopToggleEvent:Fire()
-			end)
-			
-			-- Hover effects
-			shopButton.MouseEnter:Connect(function()
-				TweenService:Create(shopButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(100, 80, 170)
-				}):Play()
-			end)
-			
-			shopButton.MouseLeave:Connect(function()
-				TweenService:Create(shopButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(80, 60, 140)
-				}):Play()
-			end)
-		end
-		
-		-- Setup brainrots button click
-		local brainrotsButton = shopHudPanel:FindFirstChild("BrainrotsButton")
-		if brainrotsButton then
-			-- Create or get the BindableEvent for inventory toggle
-			local inventoryToggleEvent = ReplicatedStorage:FindFirstChild("InventoryToggleEvent")
-			if not inventoryToggleEvent then
-				inventoryToggleEvent = Instance.new("BindableEvent")
-				inventoryToggleEvent.Name = "InventoryToggleEvent"
-				inventoryToggleEvent.Parent = ReplicatedStorage
-			end
-			
-			brainrotsButton.MouseButton1Click:Connect(function()
-				inventoryToggleEvent:Fire()
-			end)
-			
-			-- Hover effects
-			brainrotsButton.MouseEnter:Connect(function()
-				TweenService:Create(brainrotsButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(170, 100, 190)
-				}):Play()
-			end)
-			
-			brainrotsButton.MouseLeave:Connect(function()
-				TweenService:Create(brainrotsButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(140, 80, 160)
-				}):Play()
-			end)
-		end
-		
-		-- Setup synergies button click
-		local synergiesButton = shopHudPanel:FindFirstChild("SynergiesButton")
-		if synergiesButton then
-			-- Create or get the BindableEvent for synergy toggle
-			local synergyToggleEvent = ReplicatedStorage:FindFirstChild("SynergyToggleEvent")
-			if not synergyToggleEvent then
-				synergyToggleEvent = Instance.new("BindableEvent")
-				synergyToggleEvent.Name = "SynergyToggleEvent"
-				synergyToggleEvent.Parent = ReplicatedStorage
-			end
-			
-			synergiesButton.MouseButton1Click:Connect(function()
-				synergyToggleEvent:Fire()
-			end)
-			
-			-- Hover effects
-			synergiesButton.MouseEnter:Connect(function()
-				TweenService:Create(synergiesButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(230, 180, 80)
-				}):Play()
-			end)
-			
-			synergiesButton.MouseLeave:Connect(function()
-				TweenService:Create(synergiesButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(200, 150, 60)
-				}):Play()
-			end)
-		end
-	end
-	
+
 	print("MoneyHUD: Ready!")
 end
 

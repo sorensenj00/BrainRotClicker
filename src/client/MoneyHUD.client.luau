@@ -431,12 +431,15 @@ local function initialize()
 	end
 	
 	-- Get action buttons from ActionsFrame
-	local actionsFrame = MoneyHUDGui:FindFirstChild("ActionsFrame")
+	local actionsFrame = hudPanel and hudPanel:FindFirstChild("ActionsFrame")
 	if actionsFrame then 
 		local shopButton = actionsFrame:FindFirstChild("ShopButton")
 		local brainrotsButton = actionsFrame:FindFirstChild("BrainrotsButton")
 		local synergiesButton = actionsFrame:FindFirstChild("SynergiesButton")
 		local backpackButton = actionsFrame:FindFirstChild("BackpackButton")
+		
+		print(string.format("MoneyHUD: Buttons found - Shop:%s, Brainrots:%s, Synergies:%s, Backpack:%s",
+			tostring(shopButton~=nil), tostring(brainrotsButton~=nil), tostring(synergiesButton~=nil), tostring(backpackButton~=nil)))
 
 		-- Setup shop button click
 		if shopButton then
@@ -470,16 +473,17 @@ local function initialize()
 		
 		-- Setup brainrots button click
 		if brainrotsButton then
-			-- Create or get the BindableEvent for inventory toggle
-			local inventoryToggleEvent = ReplicatedStorage:FindFirstChild("InventoryToggleEvent")
-			if not inventoryToggleEvent then
-				inventoryToggleEvent = Instance.new("BindableEvent")
-				inventoryToggleEvent.Name = "InventoryToggleEvent"
-				inventoryToggleEvent.Parent = ReplicatedStorage
+			-- Create or get the BindableEvent for backpack toggle (we use this now instead of InventoryToggleEvent)
+			local backpackToggleEvent = ReplicatedStorage:FindFirstChild("BackpackToggleEvent")
+			if not backpackToggleEvent then
+				backpackToggleEvent = Instance.new("BindableEvent")
+				backpackToggleEvent.Name = "BackpackToggleEvent"
+				backpackToggleEvent.Parent = ReplicatedStorage
 			end
 			
 			brainrotsButton.MouseButton1Click:Connect(function()
-				inventoryToggleEvent:Fire()
+				-- Open Backpack filtered to Units
+				backpackToggleEvent:Fire("Unit")
 			end)
 			
 			-- Hover effects

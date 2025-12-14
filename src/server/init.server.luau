@@ -490,7 +490,7 @@ local function initializeTemplates()
 	
 	-- Create placeholder templates if they don't exist (for testing)
 	if not MainIslandTemplate then
-		warn("MainIsland template not found! Creating placeholder...")
+		-- warn("MainIsland template not found! Creating placeholder...")
 		local newModel = Instance.new("Model")
 		newModel.Name = "MainIsland"
 		
@@ -508,7 +508,7 @@ local function initializeTemplates()
 	end
 	
 	if not PlayerPlotTemplate then
-		warn("PlayerPlot template not found! Creating placeholder...")
+		-- warn("PlayerPlot template not found! Creating placeholder...")
 		local newModel = Instance.new("Model")
 		newModel.Name = "PlayerPlot"
 		
@@ -526,7 +526,7 @@ local function initializeTemplates()
 	end
 	
 	if not BridgeTemplate then
-		warn("Bridge template not found! Creating placeholder...")
+		-- warn("Bridge template not found! Creating placeholder...")
 		local newModel = Instance.new("Model")
 		newModel.Name = "Bridge"
 		

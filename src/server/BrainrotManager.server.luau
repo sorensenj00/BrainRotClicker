@@ -139,6 +139,36 @@ end
 --------------------------------------------------------------------------------
 
 --[[
+	Finds the brainrot model template from various locations.
+]]
+local function getBrainrotTemplate(unitName: string): Model?
+	-- 1. Check Assets/Brainrots (Preferred location for visuals)
+	local assetsFolder = ReplicatedStorage:FindFirstChild("Assets")
+	if assetsFolder then
+		local brainrotsSubfolder = assetsFolder:FindFirstChild("Brainrots")
+		if brainrotsSubfolder then
+			local model = brainrotsSubfolder:FindFirstChild(unitName)
+			if model then return model end
+		end
+	end
+	
+	-- 2. Check Units folder
+	local unitsFolder = ReplicatedStorage:FindFirstChild("Units")
+	if unitsFolder then
+		local model = unitsFolder:FindFirstChild(unitName)
+		if model then return model end
+	end
+	
+	-- 3. Check main Brainrots folder (Fallback)
+	if BrainrotsFolder then
+		local model = BrainrotsFolder:FindFirstChild(unitName)
+		if model then return model end
+	end
+	
+	return nil
+end
+
+--[[
 	Adds a brainrot to the player.
 	If they already have this unit type -> Stacks (Level Up).
 	If they don't -> Spawns new.
@@ -194,7 +224,7 @@ local function addBrainrotToPlayer(player: Player, unitName: string, forceRarity
 		-------------------------------------------------------
 		-- SPAWN NEW UNIT
 		-------------------------------------------------------
-		local template = BrainrotsFolder:FindFirstChild(unitName)
+		local template = getBrainrotTemplate(unitName)
 		if not template then
 			warn("Template not found:", unitName)
 			return nil
@@ -236,6 +266,13 @@ local function addBrainrotToPlayer(player: Player, unitName: string, forceRarity
 		CollectionService:AddTag(brainrot, BRAINROT_TAG)
 		updateVisuals(brainrot)
 		
+		-- Ensure anchored so it doesn't fall (especially when stored at -100 Y)
+		for _, part in brainrot:GetDescendants() do
+			if part:IsA("BasePart") then
+				part.Anchored = true
+			end
+		end
+		
 		print("Spawned new unit:", unitName)
 		
 		-- Notify Client (for UI updates)
@@ -265,10 +302,24 @@ local function getPlacementData(player: Player)
 	if _G.GridManager and _G.GridManager.GetGridPositions then
 		local gridPos = _G.GridManager.GetGridPositions(player)
 		for slot, data in pairs(gridPos) do
-			-- Create a copy to avoid modifying the original
-			local entry = table.clone(data)
-			entry.slotIndex = tonumber(slot)
-			table.insert(placements, entry)
+			if data.Unit then
+				-- Handle layered data structure: {Unit={...}, Tile=...}
+				local entry = {}
+				entry.slotIndex = tonumber(slot)
+				
+				local unitData = data.Unit
+				entry.unitType = unitData.unitType
+				entry.rarity = unitData.rarity
+				entry.level = unitData.level
+				-- entry.unitId = unitData.unitId
+				
+				table.insert(placements, entry)
+			elseif data.unitType then
+				-- Handle legacy flat structure (fallback)
+				local entry = table.clone(data)
+				entry.slotIndex = tonumber(slot)
+				table.insert(placements, entry)
+			end
 		end
 	end
 	return placements
@@ -279,12 +330,25 @@ end
 ]]
 local function spawnFromPlacement(player: Player, data: any)
 	-- data: {unitType, rarity, level, slotIndex}
-	if not data or not data.unitType then
+	if not data then return nil end
+	
+	-- Extract data (handle both flat and nested structures)
+	local unitType = data.unitType
+	local rarity = data.rarity
+	local level = data.level
+	
+	if not unitType and data.Unit then
+		unitType = data.Unit.unitType
+		rarity = data.Unit.rarity
+		level = data.Unit.level
+	end
+
+	if not unitType then
 		warn("BrainrotManager: Invalid placement data for player " .. player.Name)
 		return nil
 	end
 	
-	local unit = addBrainrotToPlayer(player, data.unitType, data.rarity, data.level)
+	local unit = addBrainrotToPlayer(player, unitType, rarity, level)
 	if unit and _G.GridManager and _G.GridManager.PlaceUnit then
 		_G.GridManager.PlaceUnit(player, unit, data.slotIndex)
 	end

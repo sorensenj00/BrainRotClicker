@@ -2,8 +2,6 @@
 	StorageUpgradeManager Server Module
 	
 	Handles the storage upgrade shop on the Main Island.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -31,6 +29,7 @@ local CONFIG = {
 }
 
 local StorageUpgradeManager = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- LOGIC
@@ -60,33 +59,46 @@ local function handleUpgradeStorage(player)
 		end
 	end
 	
-	local ISM = _G.ItemStorageManager
+	local ISM = Services.ItemStorageManager
 	if not ISM then return false, "ItemStorageManager failed" end
 	
-	local success, msg = ISM.UpgradeStorage(player)
-	if success then
-		local info = ISM.GetStorageUpgradeInfo(player)
-		StorageUpgradedEvent:FireClient(player, {
-			currentMax = info.currentCapacity,
-			upgradeLevel = info.upgradeLevel,
-			nextPrice = info.nextPrice,
-			nextMaxStorage = info.nextCapacity
-		})
-	end
-	return success, msg
+	-- Calculate price
+	local currentCap = ISM.GetStorageCapacity(player)
+	local lvl = getUpgradeLevel(currentCap)
+	local price = getUpgradePrice(lvl)
+
+	local ls = player:FindFirstChild("leaderstats")
+	local money = ls and ls:FindFirstChild("Money")
+	if not money or money.Value < price then return false, "Not enough money" end
+
+	money.Value -= price
+	local newCap = getNewMaxStorage(currentCap)
+
+	ISM.SetStorageCapacity(player, newCap)
+
+	local nextLvl = lvl + 1
+	local nextPrice = getUpgradePrice(nextLvl)
+	local nextCap = getNewMaxStorage(newCap)
+
+	StorageUpgradedEvent:FireClient(player, {
+		currentMax = newCap,
+		upgradeLevel = nextLvl,
+		nextPrice = nextPrice,
+		nextMaxStorage = nextCap
+	})
+
+	return true, "Storage Upgraded!"
 end
 
 local function handleGetStorageInfo(player)
-	local ISM = _G.ItemStorageManager
-	if not ISM then
-		return { currentMax = CONFIG.BASE_STORAGE, upgradeLevel = 0, nextPrice = CONFIG.BASE_PRICE, nextMaxStorage = CONFIG.BASE_STORAGE*2 }
-	end
-	local info = ISM.GetStorageUpgradeInfo(player)
+	local ISM = Services.ItemStorageManager
+	local currentCap = ISM and ISM.GetStorageCapacity(player) or CONFIG.BASE_STORAGE
+	local lvl = getUpgradeLevel(currentCap)
 	return {
-		currentMax = info.currentCapacity,
-		upgradeLevel = info.upgradeLevel,
-		nextPrice = info.nextPrice,
-		nextMaxStorage = info.nextCapacity
+		currentMax = currentCap,
+		upgradeLevel = lvl,
+		nextPrice = getUpgradePrice(lvl),
+		nextMaxStorage = getNewMaxStorage(currentCap)
 	}
 end
 
@@ -127,8 +139,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function StorageUpgradeManager.Init()
+function StorageUpgradeManager.Init(services)
 	print("   StorageUpgradeManager (Module) - Initializing")
+	Services = services or {}
 	task.spawn(createStorageVendor)
 	
 	UpgradeStorageRemote.OnServerInvoke = handleUpgradeStorage

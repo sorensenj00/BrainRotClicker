@@ -2,8 +2,6 @@
 	StockMarketManager Server Module
 	
 	Handles the dynamic brainrot stock market.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -33,6 +31,7 @@ local CATEGORY_COLORS = {
 }
 
 local StockMarketManager = {}
+local Services = {}
 local categoryRates = {}
 local categoryHistories = {}
 local nextUpdate = 0
@@ -105,8 +104,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function StockMarketManager.Init()
+function StockMarketManager.Init(services)
 	print("   StockMarketManager (Module) - Initializing")
+	Services = services or {}
 	
 	stockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket") or Instance.new("Folder")
 	stockMarketFolder.Name = "StockMarket"

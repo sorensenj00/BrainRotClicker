@@ -2,8 +2,6 @@
 	StorageBoxManager Server Module
 	
 	Creates a visual storage box on each player's plot.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -17,6 +15,7 @@ local STORAGE_CONFIG = {
 }
 
 local StorageBoxManager = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- STORAGE LOGIC
@@ -76,8 +75,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function StorageBoxManager.Init()
+function StorageBoxManager.Init(services)
 	print("   StorageBoxManager (Module) - Initializing")
+	Services = services or {}
 	
 	for _, player in Players:GetPlayers() do
 		task.defer(function()

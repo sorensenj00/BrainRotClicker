@@ -2,8 +2,6 @@
 	MewingManager Server Module
 	
 	Tracks and rewards players for "Mewing" (staying AFK/silent).
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -30,6 +28,7 @@ local CONFIG = {
 }
 
 local MewingManager = {}
+local Services = {}
 local PlayerMewingState = {}
 local lastCheck = 0
 
@@ -141,8 +140,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function MewingManager.Init()
+function MewingManager.Init(services)
 	print("   MewingManager (Module) - Initializing")
+	Services = services or {}
 	
 	Players.PlayerAdded:Connect(function(player)
 		PlayerMewingState[player] = { LastActivityTime = os.time(), CurrentTier = 0, HasCosmetic = false }

@@ -8,8 +8,6 @@
 	3. Creating bridges connecting each plot to the hub
 	4. Assigning plots to players
 	5. Tier System (expanding plots)
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -51,6 +49,7 @@ local PlotsFolder
 local PlayerTierSystems = {}
 
 local MapSystem = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- UTILITY
@@ -270,8 +269,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function MapSystem.Init()
+function MapSystem.Init(services)
 	print("   MapSystem (Module) - Initializing")
+	Services = services or {}
 	
 	MainIslandTemplate = ServerStorage:FindFirstChild("MainIsland") or ReplicatedStorage:FindFirstChild("MainIsland")
 	PlayerPlotTemplate = ServerStorage:FindFirstChild("PlayerPlot") or ReplicatedStorage:FindFirstChild("PlayerPlot")
@@ -314,7 +314,7 @@ function MapSystem.Init()
 	print("✓ MapSystem Initialized")
 end
 
-MapSystem.GetPlayerPlot = function(p) local idx = PlayerToPlot[p]; return idx and Plots[idx] end
+MapSystem.GetPlayerPlot = function(p) local idx = PlayerToPlot[p]; return idx and Plots[idx] and Plots[idx].Model end
 MapSystem.GetAllPlots = function() return Plots end
 MapSystem.CONFIG = CONFIG
 MapSystem.TIER_CONFIG = TIER_CONFIG

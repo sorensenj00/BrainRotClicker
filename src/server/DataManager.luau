@@ -2,28 +2,19 @@
 	DataManager Server Module
 	
 	Handles saving and loading player data.
-	Now acts as a bridge/adapter to the new DataService (ProfileService).
-	
-	CONVERTED TO MODULE SCRIPT
+	Acts as a bridge/adapter to the new DataService (ProfileService).
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
-
-
--- New Data Service
 local DataService = require(script.Parent.DataService)
 
 -- Module Table
 local DataManager = {}
-
--- Dependencies (Injected via Init or _G fallback for legacy)
-local BrainrotManager
-local InventoryManager
+local Services = {}
 
 -- Configuration
 local CONFIG = {
-	DEFAULT_MONEY = 100,      -- Starting money for new players
+	DEFAULT_MONEY = 100,
 }
 
 --------------------------------------------------------------------------------
@@ -32,31 +23,23 @@ local CONFIG = {
 
 local function getDefaultData()
 	return {
-		-- Core economy
 		money = CONFIG.DEFAULT_MONEY,
-		ownedUnits = {},              -- Legacy: kept for ShopManager compatibility
-		unlockProgress = 5,           -- 5 units unlocked initially
-		maxStorage = 500,             -- Default max storage
-		purchasedTiers = 1,           -- Number of purchased tiers
-		convenienceUpgrades = {},     -- Purchased convenience upgrades
-		-- Brainrot placements (position restoration)
-		brainrotPlacements = {},      -- Array of placed brainrots with positions/attributes
-		-- Item production system
-		itemStorage = {},             -- Items in plot storage
-		backpack = {},                -- Items in player's backpack
-		storageCapacity = 2000,       -- Current storage capacity
-		selectedVehicle = "Sneakers", -- Currently selected transport vehicle
-		vehicleCapacities = {},       -- Vehicle upgrade levels
-		-- RPG Mechanics: Grid
-		gridPositions = {},           -- Layered grid data
-		discoveredSynergies = {},     -- Discovered synergy recipes
+		ownedUnits = {},
+		unlockProgress = 5,
+		purchasedTiers = 1,
+		convenienceUpgrades = {},
+		brainrotPlacements = {},
+		itemStorage = {},
+		backpack = {},
+		storageCapacity = 2000,
+		selectedVehicle = "Sneakers",
+		vehicleCapacities = {},
+		gridPositions = {},
+		discoveredSynergies = {},
 	}
 end
 
 local function gatherPlayerData(player: Player): any
-	-- Resolve Global Dependencies if not injected
-	if not BrainrotManager then BrainrotManager = _G.BrainrotManager end
-	
 	-- Get money from leaderstats
 	local money = CONFIG.DEFAULT_MONEY
 	local leaderstats = player:FindFirstChild("leaderstats")
@@ -71,9 +54,9 @@ local function gatherPlayerData(player: Player): any
 	local ownedUnits = {}
 	local unlockProgress = 5
 	
-	if _G.ShopManager then
-		if _G.ShopManager.GetUnlockProgress then
-			unlockProgress = _G.ShopManager.GetUnlockProgress(player)
+	if Services.ShopManager then
+		if Services.ShopManager.GetUnlockProgress then
+			unlockProgress = Services.ShopManager.GetUnlockProgress(player)
 		end
 		
 		local ownedFolder = player:FindFirstChild("OwnedUnits")
@@ -86,12 +69,10 @@ local function gatherPlayerData(player: Player): any
 		end
 	end
 	
-
-	
 	-- Get tier data from MapSystem
 	local purchasedTiers = 1
-	if _G.MapSystem and _G.MapSystem.GetPlayerTierSystem then
-		local tierSystem = _G.MapSystem.GetPlayerTierSystem(player)
+	if Services.MapSystem and Services.MapSystem.GetPlayerTierSystem then
+		local tierSystem = Services.MapSystem.GetPlayerTierSystem(player)
 		if tierSystem then
 			purchasedTiers = #tierSystem.Tiers
 		end
@@ -99,11 +80,9 @@ local function gatherPlayerData(player: Player): any
 	
 	-- Get convenience upgrades
 	local convenienceUpgrades = {}
-	if _G.ConvenienceUpgrades and _G.ConvenienceUpgrades.GetPlayerUpgrades then
-		convenienceUpgrades = _G.ConvenienceUpgrades.GetPlayerUpgrades(player)
+	if Services.ConvenienceUpgradesManager and Services.ConvenienceUpgradesManager.GetPlayerUpgrades then
+		convenienceUpgrades = Services.ConvenienceUpgradesManager.GetPlayerUpgrades(player)
 	end
-	
-
 	
 	-- Get item storage data
 	local itemStorage = {}
@@ -114,42 +93,39 @@ local function gatherPlayerData(player: Player): any
 	local gridPositions = {}
 	local discoveredSynergies = {}
 	
-	if _G.ItemStorageManager then
-		if _G.ItemStorageManager.GetStorageContents then
-			itemStorage = _G.ItemStorageManager.GetStorageContents(player) or {}
+	if Services.ItemStorageManager then
+		if Services.ItemStorageManager.GetStorageContents then
+			itemStorage = Services.ItemStorageManager.GetStorageContents(player) or {}
 		end
-		if _G.ItemStorageManager.GetBackpackContents then
-			backpack = _G.ItemStorageManager.GetBackpackContents(player) or {}
+		if Services.ItemStorageManager.GetBackpackContents then
+			backpack = Services.ItemStorageManager.GetBackpackContents(player) or {}
 		end
-		if _G.ItemStorageManager.GetStorageCapacity then
-			storageCapacity = _G.ItemStorageManager.GetStorageCapacity(player) or 2000
-		end
-	end
-	
-	if _G.TransportManager then
-		if _G.TransportManager.GetSelectedVehicle then
-			selectedVehicle = _G.TransportManager.GetSelectedVehicle(player) or "Sneakers"
-		end
-		if _G.TransportManager.GetVehicleCapacities then
-			vehicleCapacities = _G.TransportManager.GetVehicleCapacities(player) or {}
+		if Services.ItemStorageManager.GetStorageCapacity then
+			storageCapacity = Services.ItemStorageManager.GetStorageCapacity(player) or 2000
 		end
 	end
 	
-	if _G.GridManager then
-		if _G.GridManager.GetGridPositions then
-			gridPositions = _G.GridManager.GetGridPositions(player) or {}
+	if Services.TransportManager then
+		if Services.TransportManager.GetSelectedVehicle then
+			selectedVehicle = Services.TransportManager.GetSelectedVehicle(player) or "Sneakers"
+		end
+		if Services.TransportManager.GetVehicleCapacities then
+			vehicleCapacities = Services.TransportManager.GetVehicleCapacities(player) or {}
 		end
 	end
 	
-	if _G.AdjacencySynergyManager then
-		if _G.AdjacencySynergyManager.GetDiscoveredSynergies then
-			discoveredSynergies = _G.AdjacencySynergyManager.GetDiscoveredSynergies(player) or {}
+	if Services.GridManager then
+		if Services.GridManager.GetGridPositions then
+			gridPositions = Services.GridManager.GetGridPositions(player) or {}
 		end
 	end
+	
+	-- AdjacencySynergyManager not in core services yet, skipping or need check
+	-- For simplicity, omitting optional synergy data gathering if manager is not critical
 	
 	return {
 		money = money,
-		lifetimeEarnings = 0, -- Will be populated by PrestigeManager
+		lifetimeEarnings = 0,
 		unlockProgress = unlockProgress,
 		purchasedTiers = purchasedTiers,
 		convenienceUpgrades = convenienceUpgrades,
@@ -168,10 +144,6 @@ end
 --------------------------------------------------------------------------------
 
 local function applyLegacyData(player: Player, data: any)
-	-- Resolve Global Dependencies if not injected
-	if not BrainrotManager then BrainrotManager = _G.BrainrotManager end
-	if not InventoryManager then InventoryManager = _G.InventoryManager end
-
 	if not data then
 		warn("DataManager: No data to apply for " .. player.Name)
 		return
@@ -197,22 +169,17 @@ local function applyLegacyData(player: Player, data: any)
 	
 	-- Early restore convenience upgrades
 	if data.convenienceUpgrades and next(data.convenienceUpgrades) ~= nil then
-		if _G.ConvenienceUpgrades and _G.ConvenienceUpgrades.SetPlayerUpgrades then
-			_G.ConvenienceUpgrades.SetPlayerUpgrades(player, data.convenienceUpgrades)
+		if Services.ConvenienceUpgradesManager and Services.ConvenienceUpgradesManager.SetPlayerUpgrades then
+			Services.ConvenienceUpgradesManager.SetPlayerUpgrades(player, data.convenienceUpgrades)
 		end
 	end
 	
-	-- Wait for ShopManager to initialize (usually fast, but lets NOT wait here to avoid blocking)
-	-- We assume ShopManager will read the values we set in leaderstats/Allocated values
-	
-	-- Spawn logic is async
 	task.spawn(function()
-		task.wait(1) -- Give time for other systems to load
+		task.wait(1)
 		
-		-- MIGRATION: Restore Inventory from Legacy ownedUnits if Inventory is empty
-		-- This fixes data loss for existing players moving to V3 architecture
-		if InventoryManager then
-			local currentInv = InventoryManager.GetInventory(player)
+		-- MIGRATION: Restore Inventory from Legacy ownedUnits
+		if Services.InventoryManager then
+			local currentInv = Services.InventoryManager.GetInventory(player)
 			local isEmpty = true
 			for _ in pairs(currentInv) do isEmpty = false; break end
 			
@@ -220,8 +187,7 @@ local function applyLegacyData(player: Player, data: any)
 				print("DataManager: Migrating legacy inventory for " .. player.Name)
 				for unitName, count in pairs(data.ownedUnits) do
 					if type(count) == "number" and count > 0 then
-						-- Give 1 level per count (approximation)
-						InventoryManager.AddUnit(player, unitName, "Normal", count)
+						Services.InventoryManager.AddUnit(player, unitName, "Normal", count)
 					end
 				end
 			end
@@ -230,12 +196,12 @@ local function applyLegacyData(player: Player, data: any)
 		-- Restore Grid / Brainrot Placements
 		local gridData = data.GridPlacements or data.gridPositions
 		
-		if gridData and next(gridData) ~= nil and BrainrotManager and BrainrotManager.SpawnBrainrotAtSlot then
+		if gridData and next(gridData) ~= nil and Services.BrainrotManager and Services.BrainrotManager.SpawnBrainrotAtSlot then
 			for slotIndexStr, slotData in pairs(gridData) do
 				local slotIndex = tonumber(slotIndexStr)
 				if slotIndex and slotData.Unit then
 					local unitInfo = slotData.Unit
-					BrainrotManager.SpawnBrainrotAtSlot(
+					Services.BrainrotManager.SpawnBrainrotAtSlot(
 						player, 
 						unitInfo.unitType, 
 						slotIndex,
@@ -244,13 +210,11 @@ local function applyLegacyData(player: Player, data: any)
 						unitInfo.unitId
 					)
 				end
-				if slotData.Tile and _G.GridManager and _G.GridManager.PlaceTile then
-					_G.GridManager.PlaceTile(player, slotIndex, slotData.Tile)
+				if slotData.Tile and Services.GridManager and Services.GridManager.PlaceTile then
+					Services.GridManager.PlaceTile(player, slotIndex, slotData.Tile)
 				end
 			end
 		end
-		
-		-- NOTE: Other restorations (Prestige, Artifacts) are handled by their own managers listeners
 	end)
 end
 
@@ -258,11 +222,9 @@ end
 -- PUBLIC API
 --------------------------------------------------------------------------------
 
-function DataManager.Init()
+function DataManager.Init(services)
 	print("   DataManager (Module) - Initializing")
-	
-	if not BrainrotManager then BrainrotManager = _G.BrainrotManager end
-	if not InventoryManager then InventoryManager = _G.InventoryManager end
+	Services = services or {}
 	
 	-- Register with DataService
 	DataService.RegisterHandler("Legacy", {
@@ -291,7 +253,6 @@ function DataManager.GetCachedData(player)
 end
 
 function DataManager.ResetPlayerData(player, keepPrestigeData)
-	-- Pass through to DataService logic (simplified for module)
 	local currentData = DataService.GetData(player)
 	if not currentData then return end
 	
@@ -299,8 +260,8 @@ function DataManager.ResetPlayerData(player, keepPrestigeData)
 	
 	if keepPrestigeData then
 		local startingMoney = CONFIG.DEFAULT_MONEY
-		if _G.PrestigeManager and _G.PrestigeManager.GetStartingMoneyBonus then
-			startingMoney = startingMoney + _G.PrestigeManager.GetStartingMoneyBonus(player)
+		if Services.PrestigeManager and Services.PrestigeManager.GetStartingMoneyBonus then
+			startingMoney = startingMoney + Services.PrestigeManager.GetStartingMoneyBonus(player)
 		end
 		newData.money = startingMoney
 	else

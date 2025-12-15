@@ -3,8 +3,6 @@
 	
 	Handles admin commands for testing purposes.
 	SECURED: Now requires admin permissions to execute.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -21,13 +19,13 @@ AdminAction.Parent = RemoteEvents
 
 -- Security Configuration
 local ADMIN_USER_IDS = {
-	[1340966465] = true, -- Soren's ID (inferred from previous context or context not available, using placeholder)
-	-- Add other admin IDs here
+	[1340966465] = true, -- Placeholder
 }
 
 local IS_STUDIO = RunService:IsStudio()
 
 local AdminService = {}
+local Services = {}
 local handlers = {}
 
 --------------------------------------------------------------------------------
@@ -41,41 +39,24 @@ local function isAdmin(player)
 	return false
 end
 
-local function waitForSystem(name)
-	local attempts = 0
-	while not _G[name] and attempts < 50 do
-		attempts += 1
-		task.wait(0.1)
-	end
-	return _G[name]
-end
-
 --------------------------------------------------------------------------------
 -- HANDLERS
 --------------------------------------------------------------------------------
 
 handlers.ResetPlot = function(player)
-	local DataManager = waitForSystem("DataManager")
-	if DataManager and DataManager.ResetPlayerData then
-		DataManager.ResetPlayerData(player, false)
+	if Services.DataManager and Services.DataManager.ResetPlayerData then
+		Services.DataManager.ResetPlayerData(player, false)
 		print("✓ Admin: Reset all DataStore data for " .. player.Name)
 	end
 	
-	if _G.MapSystem and _G.MapSystem.ResetPlayerPlot then
-		_G.MapSystem.ResetPlayerPlot(player)
+	if Services.MapSystem and Services.MapSystem.ResetPlayerPlot then
+		Services.MapSystem.ResetPlayerPlot(player)
 		
-		local BM = waitForSystem("BrainrotManager")
-		if BM and BM.ClearPlayerInventory then BM.ClearPlayerInventory(player) end
+		if Services.ShopManager and Services.ShopManager.ResetPlayerData then
+			Services.ShopManager.ResetPlayerData(player)
+		end
 		
-		local CU = waitForSystem("ConvenienceUpgrades")
-		if CU and CU.ResetPlayerUpgrades then CU.ResetPlayerUpgrades(player) end
-		
-		local SM = waitForSystem("ShopManager")
-		if SM and SM.ResetPlayerData then SM.ResetPlayerData(player) end
-		
-		local PM = waitForSystem("PrestigeManager")
-		if PM and PM.ResetPlayerData then PM.ResetPlayerData(player) end
-		
+		-- Money Reset
 		local ls = player:FindFirstChild("leaderstats")
 		local m = ls and ls:FindFirstChild("Money")
 		if m then m.Value = 100 end
@@ -86,11 +67,7 @@ handlers.ResetPlot = function(player)
 end
 
 handlers.WipeProfile = function(player)
-	-- We need to require DataService to wipe
-	-- Ideally this should be exposed via DataManager, but we'll try to require it if possible
-	-- Or rely on DataManager having a Wipe function (which it doesn't usually expose publicly like this)
-	-- For now, we will disable this dangerous command or implement it if DataService is available in _G
-	return false, "WipeProfile disabled for safety in migration" 
+	return false, "WipeProfile disabled"
 end
 
 handlers.AddMoney = function(player)
@@ -114,8 +91,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function AdminService.Init()
+function AdminService.Init(services)
 	print("   AdminService (Module) - Initializing")
+	Services = services or {}
 	
 	AdminAction.OnServerInvoke = function(player, action, ...)
 		if not isAdmin(player) then

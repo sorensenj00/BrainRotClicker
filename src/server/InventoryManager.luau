@@ -2,8 +2,6 @@
 	InventoryManager Server Module
 	
 	The Single Source of Truth for player unit inventory state.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -38,6 +36,7 @@ local COMPONENT_KEY = "Inventory"
 --------------------------------------------------------------------------------
 
 local InventoryManager = {}
+local Services = {} -- Service Container
 
 -- Signal for server-side listeners (BrainrotManager)
 local UnitChangedSignal = Instance.new("BindableEvent")
@@ -63,8 +62,9 @@ end
 -- PUBLIC API
 --------------------------------------------------------------------------------
 
-function InventoryManager.Init()
+function InventoryManager.Init(services)
 	print("   InventoryManager (Module) - Initializing")
+	Services = services or {}
 	
 	-- Create canonical GetInventory RemoteFunction
 	local GetInventoryRemote = RemoteEvents:FindFirstChild("GetInventory") or Instance.new("RemoteFunction")
@@ -96,7 +96,7 @@ function InventoryManager.Init()
 		local invData = getInventoryData(player) or {}
 		
 		-- Get GridManager to check placement status
-		local GridManager = _G.GridManager
+		local GridManager = Services.GridManager
 		local gridPositions = {}
 		if GridManager and GridManager.GetGridPositions then
 			gridPositions = GridManager.GetGridPositions(player) or {}

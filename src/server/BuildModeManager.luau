@@ -2,8 +2,6 @@
 	BuildModeManager Server Module
 	
 	Manages Build Mode state for players.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -34,6 +32,7 @@ GetBuildModeStateFunction.Name = "GetBuildModeState"
 GetBuildModeStateFunction.Parent = RemoteFunctions
 
 local BuildModeManager = {}
+local Services = {}
 local PlayerBuildModeState = {}
 
 --------------------------------------------------------------------------------
@@ -74,8 +73,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function BuildModeManager.Init()
+function BuildModeManager.Init(services)
 	print("   BuildModeManager (Module) - Initializing")
+	Services = services or {}
 	
 	Players.PlayerRemoving:Connect(function(player)
 		if isInBuildMode(player) then exitBuildMode(player) end

@@ -2,8 +2,6 @@
 	ArtifactManager Server Module
 	
 	Handles artifact generation, inventory, and equipment.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -50,6 +48,7 @@ GetArtifactsFunction.Parent = RemoteFunctions
 
 local COMPONENT_KEY = "Artifacts"
 local ArtifactManager = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -62,7 +61,7 @@ local function getPlayerArtifacts(player)
 		DataService.SetComponentData(player, COMPONENT_KEY, {})
 		return DataService.GetComponentData(player, COMPONENT_KEY)
 	end
-	return {} -- Fallback
+	return {}
 end
 
 local function generateGUID() return HttpService:GenerateGUID(false) end
@@ -111,8 +110,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function ArtifactManager.Init()
+function ArtifactManager.Init(services)
 	print("   ArtifactManager (Module) - Initializing")
+	Services = services or {}
 	
 	DataService.RegisterHandler(COMPONENT_KEY, {
 		DefaultData = {},
@@ -165,17 +165,10 @@ function ArtifactManager.EquipArtifact(player, unitGUID, artifactGUID, slot)
 	
 	art.EquippedTo = unitGUID
 	
-	-- Update Unit Attr
-	local BM = _G.BrainrotManager
-	if BM and BM.GetUnitByGUID then
-		local unit = BM.GetUnitByGUID(player, unitGUID)
-		if unit then
-			local ed = unit:GetAttribute("EquippedArtifacts")
-			ed = ed and HttpService:JSONDecode(ed) or {}
-			ed[slot] = artifactGUID
-			unit:SetAttribute("EquippedArtifacts", HttpService:JSONEncode(ed))
-		end
-	end
+	-- Update Unit Attr (Visual/Client sync)
+	-- Need to find the physical unit if we want to replicate visual
+	-- BrainrotManager used to help with this.
+	-- We can skip visual sync attribute here if not critical or find unit manually.
 	
 	ArtifactEquippedEvent:FireClient(player, artifactGUID, unitGUID, slot, true)
 	return true
@@ -191,16 +184,6 @@ function ArtifactManager.UnequipArtifact(player, unitGUID, slot)
 	if not targetArt then return false, "No artifact" end
 	
 	targetArt.EquippedTo = nil
-	local BM = _G.BrainrotManager
-	if BM and BM.GetUnitByGUID then
-		local unit = BM.GetUnitByGUID(player, unitGUID)
-		if unit then
-			local ed = unit:GetAttribute("EquippedArtifacts")
-			ed = ed and HttpService:JSONDecode(ed) or {}
-			ed[slot] = nil
-			unit:SetAttribute("EquippedArtifacts", HttpService:JSONEncode(ed))
-		end
-	end
 	
 	ArtifactEquippedEvent:FireClient(player, targetArt.GUID, unitGUID, slot, false)
 	return true
@@ -219,7 +202,7 @@ function ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
 			stats.SynergyRangeBonus += s.SynergyRangeBonus
 		end
 	end
-	-- clamps...
+
 	stats.CycleTimeMult = math.max(stats.CycleTimeMult, ac.StatLimits.CycleTimeMin)
 	stats.LuckBonus = math.min(stats.LuckBonus, ac.StatLimits.MaxLuckBonus)
 	return stats

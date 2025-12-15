@@ -2,8 +2,6 @@
 	TransportManager Server Module
 	
 	Handles the transport system for carrying items from storage to market.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -65,6 +63,7 @@ LoadMaxFromStorageRemote.Parent = RemoteFunctions
 
 -- Module
 local TransportManager = {}
+local Services = {}
 
 -- State
 local PlayerTransport = {}
@@ -74,7 +73,7 @@ local PlayerTransport = {}
 --------------------------------------------------------------------------------
 
 local function getItemStorage()
-	return _G.ItemStorageManager
+	return Services.ItemStorageManager
 end
 
 local function getBackpackCapacity(player)
@@ -110,8 +109,9 @@ end
 -- PUBLIC API
 --------------------------------------------------------------------------------
 
-function TransportManager.Init()
+function TransportManager.Init(services)
 	print("   TransportManager (Module) - Initializing")
+	Services = services or {}
 	
 	Players.PlayerAdded:Connect(function(player)
 		-- Wait briefly for ISM

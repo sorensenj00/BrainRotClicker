@@ -2,8 +2,6 @@
 	StockMarketBillboards Server Module
 	
 	Creates giant floating billboards above the Main Island.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Workspace = game:GetService("Workspace")
@@ -24,6 +22,7 @@ local BILLBOARD_POSITIONS = {
 }
 
 local StockMarketBillboards = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- LOGIC
@@ -45,8 +44,6 @@ local function createBillboard(posData, center)
 	screen.CFrame = CFrame.new(pos) * CFrame.Angles(0, math.rad(posData.rotation), 0)
 	screen.Parent = model
 	
-	-- Frames omitted for brevity but logic should ideally be here. 
-	-- Since the prompt requires unmodified core logic, I will include abbreviated frame creation.
 	local ft = 2
 	local fc = BILLBOARD_CONFIG.FRAME_COLOR
 	
@@ -88,8 +85,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function StockMarketBillboards.Init()
+function StockMarketBillboards.Init(services)
 	print("   StockMarketBillboards (Module) - Initializing")
+	Services = services or {}
 	
 	task.spawn(function()
 		local mainIsland = Workspace:WaitForChild("MainIsland", 10)

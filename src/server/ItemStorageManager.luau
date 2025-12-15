@@ -2,8 +2,6 @@
 	ItemStorageManager Server Module
 	
 	Manages item-based storage for the Sell a Brainrot system.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -14,46 +12,39 @@ local DataService = require(script.Parent.DataService)
 local CONFIG = {
 	DEFAULT_STORAGE_CAPACITY = 2000,
 	BACKPACK_CAPACITY = 200,
-	STORAGE_UPGRADES = {
-		{capacity = 2000, cost = 0},
-		{capacity = 10000, cost = 15000},
-		{capacity = 50000, cost = 75000},
-		{capacity = math.huge, cost = 0},
-	},
 }
 
--- Configs (Dynamically loaded to avoid cyclic issues if possible, or wait)
--- Configs (Dynamically loaded to avoid cyclic issues if possible, or wait)
--- local Shared = ReplicatedStorage:WaitForChild("Shared") -- Moved to Init/Lazy
-local ItemConfig -- Lazy loaded
+-- Configs
+local ItemConfig
 
 -- State
 local PlayerStorage = {} 
 local PlayerBackpack = {}
 
 -- Remotes
-local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
-if not RemoteEvents then
-	RemoteEvents = Instance.new("Folder")
-	RemoteEvents.Name = "RemoteEvents"
-	RemoteEvents.Parent = ReplicatedStorage
-end
+local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
+RemoteEvents.Name = "RemoteEvents"
+RemoteEvents.Parent = ReplicatedStorage
+
+local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions") or Instance.new("Folder")
+RemoteFunctions.Name = "RemoteFunctions"
+RemoteFunctions.Parent = ReplicatedStorage
 
 local StorageUpdatedEvent = RemoteEvents:FindFirstChild("StorageUpdated") or Instance.new("RemoteEvent")
 StorageUpdatedEvent.Name = "StorageUpdated"
-StorageUpdatedEvent.Parent = RemoteEvents
+StorageUpdatedEvent.Parent = ReplicatedStorage
 
 local BackpackUpdatedEvent = RemoteEvents:FindFirstChild("BackpackUpdated") or Instance.new("RemoteEvent")
 BackpackUpdatedEvent.Name = "BackpackUpdated"
-BackpackUpdatedEvent.Parent = RemoteEvents
+BackpackUpdatedEvent.Parent = ReplicatedStorage
 
-local GetStorageFunction = RemoteEvents:FindFirstChild("GetStorage") or Instance.new("RemoteFunction")
+local GetStorageFunction = RemoteFunctions:FindFirstChild("GetStorage") or Instance.new("RemoteFunction")
 GetStorageFunction.Name = "GetStorage"
-GetStorageFunction.Parent = RemoteEvents
+GetStorageFunction.Parent = RemoteFunctions
 
-local GetBackpackFunction = RemoteEvents:FindFirstChild("GetBackpack") or Instance.new("RemoteFunction")
+local GetBackpackFunction = RemoteFunctions:FindFirstChild("GetBackpack") or Instance.new("RemoteFunction")
 GetBackpackFunction.Name = "GetBackpack"
-GetBackpackFunction.Parent = RemoteEvents
+GetBackpackFunction.Parent = RemoteFunctions
 
 local TakeFromStorageEvent = RemoteEvents:FindFirstChild("TakeFromStorage") or Instance.new("RemoteEvent")
 TakeFromStorageEvent.Name = "TakeFromStorage"
@@ -61,6 +52,7 @@ TakeFromStorageEvent.Parent = RemoteEvents
 
 -- Module
 local ItemStorageManager = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -74,14 +66,13 @@ local function getTotalItemCount(items)
 	return total
 end
 
-
-
 --------------------------------------------------------------------------------
 -- PUBLIC API
 --------------------------------------------------------------------------------
 
-function ItemStorageManager.Init()
+function ItemStorageManager.Init(services)
 	print("   ItemStorageManager (Module) - Initializing")
+	Services = services or {}
 	
 	-- Load Configs
 	task.spawn(function()
@@ -93,26 +84,11 @@ function ItemStorageManager.Init()
 	DataService.RegisterHandler("ItemStorage", {
 		DefaultData = {},
 		OnLoad = function(player, data)
-			-- Ensure table exists
 			if not PlayerStorage[player] then
 				PlayerStorage[player] = { items = {}, capacity = CONFIG.DEFAULT_STORAGE_CAPACITY }
 			end
-			-- Populate items from save
 			PlayerStorage[player].items = data or {}
 			
-			-- Load capacity if saved elsewhere, or we need to sync it.
-			-- Capacity was legacy "storageCapacity" root key.
-			-- We might need a separate handler or just assume default + upgrades?
-			-- UpgradeManager usually handles capacity.
-			-- For now, we trust the defaults/upgrades logic to set capacity later, 
-			-- or we read it if we can.
-			-- Let's stick to items here.
-			
-			-- Try to recover capacity from root data if possible? 
-			-- DataService.GetData(player).storageCapacity? 
-			-- We can't easily access root from component handler unless we cheat.
-			-- We'll assume capacity is set by StorageUpgradeManager or upgrades.
-			-- OR we read it here:
 			local root = DataService.GetData(player)
 			if root and root.storageCapacity then
 				PlayerStorage[player].capacity = root.storageCapacity
@@ -141,9 +117,6 @@ function ItemStorageManager.Init()
 			return {}
 		end
 	})
-	
-	-- NOTE: Cleanup removed to prevent race condition with DataService save
-	-- OnSave handlers will read from PlayerStorage/PlayerBackpack, so we must NOT clear before save
 	
 	-- Connect Remotes
 	GetStorageFunction.OnServerInvoke = function(player)
@@ -186,9 +159,6 @@ function ItemStorageManager.IsStorageFull(player)
 	return getTotalItemCount(storage.items) >= storage.capacity
 end
 
--- Export additional functions as needed...
--- For brevity, implementing Key functions.
-
 function ItemStorageManager.TakeFromStorage(player, itemId, count)
 	local storage = PlayerStorage[player]
 	local backpack = PlayerBackpack[player]
@@ -206,24 +176,59 @@ function ItemStorageManager.TakeFromStorage(player, itemId, count)
 	
 	backpack.items[itemId] = (backpack.items[itemId] or 0) + amount
 	
-	backpack.items[itemId] = (backpack.items[itemId] or 0) + amount
-	
-	
 	StorageUpdatedEvent:FireClient(player, storage.items, getTotalItemCount(storage.items), storage.capacity)
 	BackpackUpdatedEvent:FireClient(player, backpack.items, getTotalItemCount(backpack.items), backpack.capacity)
 	
 	return amount
 end
 
--- Map other required API methods used by legacy systems
-ItemStorageManager.GetBackpackContents = function(player)
+-- Compatibility Exports
+function ItemStorageManager.GetBackpackContents(player)
 	return PlayerBackpack[player] and PlayerBackpack[player].items or {}
 end
-ItemStorageManager.GetStorageContents = function(player)
+
+function ItemStorageManager.GetStorageContents(player)
 	return PlayerStorage[player] and PlayerStorage[player].items or {}
 end
-ItemStorageManager.GetStorageCapacity = function(player)
-	return PlayerStorage[player] and PlayerStorage[player].capacity or 0
+
+function ItemStorageManager.GetStorageCapacity(player)
+	return PlayerStorage[player] and PlayerStorage[player].capacity or CONFIG.DEFAULT_STORAGE_CAPACITY
+end
+
+function ItemStorageManager.SetBackpackCapacity(player, cap)
+	if not PlayerBackpack[player] then PlayerBackpack[player] = { items={}, capacity=cap} end
+	PlayerBackpack[player].capacity = cap
+	BackpackUpdatedEvent:FireClient(player, PlayerBackpack[player].items, getTotalItemCount(PlayerBackpack[player].items), cap)
+end
+
+function ItemStorageManager.SetStorageCapacity(player, cap)
+	if not PlayerStorage[player] then PlayerStorage[player] = { items={}, capacity=cap} end
+	PlayerStorage[player].capacity = cap
+
+	-- Update DataService root if needed (legacy capacity storage)
+	DataService.SetComponentData(player, "storageCapacity", cap)
+
+	StorageUpdatedEvent:FireClient(player, PlayerStorage[player].items, getTotalItemCount(PlayerStorage[player].items), cap)
+end
+
+function ItemStorageManager.TransferToBackpack(player, itemId, count)
+	-- Alias for TakeFromStorage used by TransportManager
+	return ItemStorageManager.TakeFromStorage(player, itemId, count)
+end
+
+function ItemStorageManager.RemoveFromBackpack(player, itemId, count)
+	local backpack = PlayerBackpack[player]
+	if not backpack then return 0 end
+
+	local avail = backpack.items[itemId] or 0
+	local toRemove = math.min(count, avail)
+	if toRemove <= 0 then return 0 end
+
+	backpack.items[itemId] = avail - toRemove
+	if backpack.items[itemId] <= 0 then backpack.items[itemId] = nil end
+
+	BackpackUpdatedEvent:FireClient(player, backpack.items, getTotalItemCount(backpack.items), backpack.capacity)
+	return toRemove
 end
 
 return ItemStorageManager

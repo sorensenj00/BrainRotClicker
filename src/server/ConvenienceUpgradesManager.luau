@@ -7,8 +7,6 @@
 	3. Creating the Convenience Shop vendor on main island
 	4. Spawning Auto-Collector bots
 	5. Creating Speed Treadmill Bridge boost zones
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -43,6 +41,7 @@ local PlayerUpgrades = {}
 local PlayerCollectorBots = {}
 
 local ConvenienceUpgradesManager = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- CALCULATIONS
@@ -219,7 +218,7 @@ local function updateCollectorBots(player)
 	local needed = countAutoCollectorBots(upgrades)
 	local current = PlayerCollectorBots[player.UserId] or {}
 	
-	local BM = _G.BrainrotManager
+	local BM = Services.BrainrotManager
 	local plot = BM and BM.GetPlayerPlot(player)
 	if not plot then return end
 	
@@ -325,8 +324,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function ConvenienceUpgradesManager.Init()
+function ConvenienceUpgradesManager.Init(services)
 	print("   ConvenienceUpgradesManager (Module) - Initializing")
+	Services = services or {}
 	
 	Players.PlayerAdded:Connect(function(player)
 		if not PlayerUpgrades[player.UserId] then PlayerUpgrades[player.UserId] = {} end

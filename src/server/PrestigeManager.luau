@@ -7,8 +7,6 @@
 	3. Meatball Shop purchases
 	4. Golden Meatball Altar creation and interaction
 	5. Income multipliers from meatballs and upgrades
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -26,11 +24,6 @@ local function getPrestigeConfig()
 end
 
 local DataService = require(script.Parent.DataService)
--- We can require DataManager directly now if needed for Reset, but _G works broadly for now.
--- Actually, let's use _G.DataManager for reset to avoid cyclic dependency if DataManager requires PrestigeManager 
--- (DataManager reads PrestigeManager for starting bonus).
--- Circular dependency risk: DataManager -> PrestigeManager (Bonus) -> DataManager (Reset). 
--- Solution: One must use lazy access. PrestigeManager using _G.DataManager inside execution function is safe lazy access.
 
 -- Remotes
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
@@ -49,6 +42,7 @@ local DEFAULT_PRESTIGE_DATA = {
 
 -- Module
 local PrestigeManager = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
@@ -151,8 +145,9 @@ end
 -- PUBLIC API
 --------------------------------------------------------------------------------
 
-function PrestigeManager.Init()
+function PrestigeManager.Init(services)
 	print("   PrestigeManager (Module) - Initializing")
+	Services = services or {}
 	
 	DataService.RegisterHandler(COMPONENT_KEY, {
 		DefaultData = DEFAULT_PRESTIGE_DATA,
@@ -240,8 +235,8 @@ function PrestigeManager.ExecutePrestige(player)
 	data.totalMeatballs += pending
 	data.prestigeCount += 1
 	
-	if _G.DataManager and _G.DataManager.ResetPlayerData then
-		_G.DataManager.ResetPlayerData(player, true)
+	if Services.DataManager and Services.DataManager.ResetPlayerData then
+		Services.DataManager.ResetPlayerData(player, true)
 	else
 		warn("PrestigeManager: Check DataManager usage")
 	end

@@ -2,18 +2,18 @@
 	ServerMain.server.luau
 	
 	The central bootstrapper for the server-side architecture.
-	Ensures deterministic load order and initializes systems.
+	Ensures deterministic load order and initializes systems with Dependency Injection.
 	
 	Load Order:
 	1. Core Services (Data, Inventory)
 	2. Logic Systems (Brainrot, ItemProduction)
-	3. Feature Systems (Shop, etc. - TO BE MIGRATED)
+	3. Feature Systems (Shop, etc.)
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
--- Ensure Remote Folders Exist (Critical for Client)
+-- Ensure Remote Folders Exist
 local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
 RemoteEvents.Name = "RemoteEvents"
 RemoteEvents.Parent = ReplicatedStorage
@@ -22,46 +22,37 @@ local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions") or I
 RemoteFunctions.Name = "RemoteFunctions"
 RemoteFunctions.Parent = ReplicatedStorage
 
--- NOTE: GetInventory RemoteFunction is created by InventoryManager (canonical source)
-
 local StockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket") or Instance.new("Folder")
 StockMarketFolder.Name = "StockMarket"
 StockMarketFolder.Parent = ReplicatedStorage
 
--- Module Storage
-local loadedModules = {}
+-- Service Container (Dependency Injection)
+local Services = {}
 
 --[[
-	Helper to safe require and init a module.
-	Also sets a global alias for backward compatibility.
+	Helper to safe require and register a module.
 ]]
-local function loadModule(name, path, globalAlias)
+local function registerService(name, path)
 	local success, module = pcall(require, path)
 	if not success then
 		warn(string.format("❌ Failed to require %s: %s", name, module))
 		return nil
 	end
 	
-	print(string.format("📦 Loaded key module: %s", name))
-	loadedModules[name] = module
-	
-	-- Backwards Compatibility: Set Global
-	if globalAlias then
-		_G[globalAlias] = module
-	end
-	
+	print(string.format("📦 Loaded service: %s", name))
+	Services[name] = module
 	return module
 end
 
 --[[
-	Helper to initialize a loaded module if it has an Init function.
+	Helper to initialize a loaded service.
 ]]
-local function initModule(name)
-	local module = loadedModules[name]
+local function initService(name)
+	local module = Services[name]
 	if module and type(module.Init) == "function" then
 		print(string.format("🚀 Initializing %s...", name))
 		task.spawn(function()
-			local success, err = pcall(module.Init)
+			local success, err = pcall(module.Init, Services)
 			if not success then
 				warn(string.format("❌ Error initializing %s: %s", name, err))
 			else
@@ -79,67 +70,59 @@ print("╔═══════════════════════�
 print("║           SERVER BOOTSTRAP START          ║")
 print("╚═══════════════════════════════════════════╝")
 
--- 1. Core Data Systems
-local DataManager = loadModule("DataManager", script.Parent.DataManager, "DataManager")
-local InventoryManager = loadModule("InventoryManager", script.Parent.InventoryManager, "InventoryManager")
+-- 1. Load All Modules
+registerService("DataManager", script.Parent.DataManager)
+registerService("InventoryManager", script.Parent.InventoryManager)
+registerService("MapSystem", script.Parent.MapSystem)
+registerService("BrainrotManager", script.Parent.BrainrotManager)
+registerService("ItemProductionManager", script.Parent.ItemProductionManager)
+registerService("GridManager", script.Parent.GridManager)
+registerService("ItemStorageManager", script.Parent.ItemStorageManager)
+registerService("ShopManager", script.Parent.ShopManager)
+registerService("TransportManager", script.Parent.TransportManager)
+registerService("PrestigeManager", script.Parent.PrestigeManager)
+registerService("ArtifactManager", script.Parent.ArtifactManager)
+registerService("StockMarketManager", script.Parent.StockMarketManager)
+registerService("StockMarketBillboards", script.Parent.StockMarketBillboards)
+registerService("MarketManager", script.Parent.MarketManager)
+registerService("StorageBoxManager", script.Parent.StorageBoxManager)
+registerService("StorageUpgradeManager", script.Parent.StorageUpgradeManager)
+registerService("ConvenienceUpgradesManager", script.Parent.ConvenienceUpgradesManager)
+registerService("BuildModeManager", script.Parent.BuildModeManager)
+registerService("IslandShopManager", script.Parent.IslandShopManager)
+registerService("MewingManager", script.Parent.MewingManager)
+registerService("UnitInteractionManager", script.Parent.UnitInteractionManager)
+registerService("AdminService", script.Parent.AdminService)
 
--- 2. Core Game Logic
--- MapSystem must be loaded early as it handles plots
-local MapSystem = loadModule("MapSystem", script.Parent.MapSystem, "MapSystem")
-local BrainrotManager = loadModule("BrainrotManager", script.Parent.BrainrotManager, "BrainrotManager")
-local ItemProductionManager = loadModule("ItemProductionManager", script.Parent.ItemProductionManager, "ItemProductionManager")
-local GridManager = loadModule("GridManager", script.Parent.GridManager, "GridManager")
-local ItemStorageManager = loadModule("ItemStorageManager", script.Parent.ItemStorageManager, "ItemStorageManager")
+-- 2. Initialize All Systems (In Order)
 
--- 3. Core Features
-local ShopManager = loadModule("ShopManager", script.Parent.ShopManager, "ShopManager")
-local TransportManager = loadModule("TransportManager", script.Parent.TransportManager, "TransportManager")
-local PrestigeManager = loadModule("PrestigeManager", script.Parent.PrestigeManager, "PrestigeManager")
-local ArtifactManager = loadModule("ArtifactManager", script.Parent.ArtifactManager, "ArtifactManager")
+-- Priority 1: Core Data & Map
+initService("DataManager")
+initService("MapSystem")
+initService("InventoryManager")
 
--- 4. Extended Features
-local StockMarketManager = loadModule("StockMarketManager", script.Parent.StockMarketManager, "StockMarketManager")
-local StockMarketBillboards = loadModule("StockMarketBillboards", script.Parent.StockMarketBillboards, "StockMarketBillboards")
-local MarketManager = loadModule("MarketManager", script.Parent.MarketManager, "MarketManager")
-local StorageBoxManager = loadModule("StorageBoxManager", script.Parent.StorageBoxManager, "StorageBoxManager")
-local StorageUpgradeManager = loadModule("StorageUpgradeManager", script.Parent.StorageUpgradeManager, "StorageUpgradeManager")
-local ConvenienceUpgradesManager = loadModule("ConvenienceUpgradesManager", script.Parent.ConvenienceUpgradesManager, "ConvenienceUpgrades")
-local BuildModeManager = loadModule("BuildModeManager", script.Parent.BuildModeManager, "BuildModeManager")
-local IslandShopManager = loadModule("IslandShopManager", script.Parent.IslandShopManager, "IslandShop")
-local MewingManager = loadModule("MewingManager", script.Parent.MewingManager, "MewingManager")
-local UnitInteractionManager = loadModule("UnitInteractionManager", script.Parent.UnitInteractionManager, "UnitInteractionManager")
-local AdminService = loadModule("AdminService", script.Parent.AdminService, "AdminService")
--- NOTE: InventoryService removed - redundant, InventoryManager is canonical
-
--- 5. Initialize All Systems
--- Priority 1: Data & Map
-initModule("DataManager")
-initModule("MapSystem")
-initModule("InventoryManager")
-
--- Priority 2: Logic
-initModule("BrainrotManager")
-initModule("ItemProductionManager")
-initModule("GridManager")
-initModule("ItemStorageManager")
+-- Priority 2: Core Logic
+initService("BrainrotManager")
+initService("ItemProductionManager")
+initService("GridManager")
+initService("ItemStorageManager")
 
 -- Priority 3: Features
-initModule("ShopManager")
-initModule("TransportManager")
-initModule("PrestigeManager")
-initModule("ArtifactManager")
--- NOTE: InventoryService removed - InventoryManager handles this now
-initModule("StockMarketManager")
-initModule("StockMarketBillboards")
-initModule("MarketManager")
-initModule("StorageBoxManager")
-initModule("StorageUpgradeManager")
-initModule("ConvenienceUpgradesManager")
-initModule("BuildModeManager")
-initModule("IslandShopManager")
-initModule("MewingManager")
-initModule("UnitInteractionManager")
-initModule("AdminService")
+initService("ShopManager")
+initService("TransportManager")
+initService("PrestigeManager")
+initService("ArtifactManager")
+initService("StockMarketManager")
+initService("StockMarketBillboards")
+initService("MarketManager")
+initService("StorageBoxManager")
+initService("StorageUpgradeManager")
+initService("ConvenienceUpgradesManager")
+initService("BuildModeManager")
+initService("IslandShopManager")
+initService("MewingManager")
+initService("UnitInteractionManager")
+initService("AdminService")
 
 print("---------------------------------------------")
 print("✓ Server Bootstrap Complete")

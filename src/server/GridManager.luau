@@ -12,8 +12,16 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
 -- Shared configs
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local TileConfig = require(Shared:WaitForChild("TileConfig"))
+-- Shared configs (Lazy Loaded)
+local TileConfig
+
+local function getTileConfig()
+	if not TileConfig then
+		local Shared = ReplicatedStorage:WaitForChild("Shared")
+		TileConfig = require(Shared:WaitForChild("TileConfig"))
+	end
+	return TileConfig
+end
 
 -- DataService for real-time grid persistence
 local DataService = require(script.Parent.DataService)
@@ -31,7 +39,7 @@ local CONFIG = {
 	},
 	DEFAULT_GRID = "starter",
 	GRID_OFFSET_Y = 0,
-	TILE_THICKNESS = TileConfig.TileHeight,
+	TILE_THICKNESS = 1, -- Default, updated from config later if needed
 }
 
 -- Remote Objects (created if missing)
@@ -184,7 +192,10 @@ local function getSlotCFrame(player, slotIndex)
 	
 	local posY = plotCenter.Y + (plotSize.Y / 2) + CONFIG.GRID_OFFSET_Y
 	local tileId = getTileAtSlot(player, slotIndex)
-	if tileId then posY = posY + TileConfig.TileHeight end
+	if tileId then 
+		local tc = getTileConfig()
+		posY = posY + tc.TileHeight 
+	end
 	
 	local CLUSTER_SIZE = 2
 	local TILE_SPACING = CONFIG.TILE_SIZE
@@ -249,7 +260,8 @@ local function repositionUnitOnTile(player, brainrot, slotIndex)
 end
 
 local function createTileVisual(player, slotIndex, tileId)
-	local tileData = TileConfig.GetTile(tileId)
+	local tc = getTileConfig()
+	local tileData = tc.GetTile(tileId)
 	if not tileData then return nil end
 	local plot = findPlayerPlot(player)
 	if not plot then return nil end
@@ -257,11 +269,11 @@ local function createTileVisual(player, slotIndex, tileId)
 	local baseCFrame = getSlotCFrame(player, slotIndex) -- Includes Tile Y offset
 	-- But the tile itself needs to be BELOW that unit surface
 	local floorTopY = getFloorTopY(player)
-	local tileY = floorTopY + (TileConfig.TileHeight / 2)
+	local tileY = floorTopY + (tc.TileHeight / 2)
 	
 	local tilePart = Instance.new("Part")
 	tilePart.Name = "GridTile_" .. slotIndex
-	tilePart.Size = Vector3.new(TileConfig.TileSize, TileConfig.TileHeight, TileConfig.TileSize)
+	tilePart.Size = Vector3.new(tc.TileSize, tc.TileHeight, tc.TileSize)
 	tilePart.Anchored = true
 	tilePart.CanCollide = false
 	tilePart.Material = Enum.Material.SmoothPlastic
@@ -319,23 +331,93 @@ end
 function GridManager.Init()
 	print("   GridManager (Module) - Initializing")
 	
-	-- Note: Player connections handled by ServerMain requiring this module?
-	-- Or we attach them here.
-	-- Legacy used PlayerAdded -> load data.
-	-- New architecture: DataService loads data, we just react or provide a getter.
-	-- Actually, DataService.RegisterHandler wasn't used in legacy?
-	-- It used Profile.Data directly. We will stick to that for now.
+	-- Register Data Handler
+	DataService.RegisterHandler("GridPlacements", {
+		DefaultData = {},
+		OnLoad = function(player, data)
+			-- Restore Grid
+			if not data then
+				local PlayerLifecycleManager = require(script.Parent.PlayerLifecycleManager)
+				PlayerLifecycleManager.SetGridRestored(player)
+				return
+			end
+			
+			task.spawn(function()
+				-- Lazy load dependencies if needed
+				local BrainrotManager = _G.BrainrotManager
+				local MapSystem = _G.MapSystem
+				
+				-- WAIT FOR PLOT (Fix Race Condition)
+				local plot = nil
+				local attempts = 0
+				while not plot and attempts < 100 do -- Wait up to 10s
+					if not player.Parent then return end -- Player left
+					
+					if MapSystem and MapSystem.GetPlayerPlot then
+						plot = MapSystem.GetPlayerPlot(player)
+					end
+					
+					if not plot then
+						task.wait(0.1)
+						attempts += 1
+						BrainrotManager = _G.BrainrotManager
+						MapSystem = _G.MapSystem
+					end
+				end
+				
+				if not plot then
+					warn("GridManager: Could not find plot for " .. player.Name .. " - Grid restoration failed")
+					return
+				end
+				
+				-- Proceed with restoration
+				for slotIndexStr, slotData in pairs(data) do
+					local slotIndex = tonumber(slotIndexStr)
+					if slotIndex then
+						-- Restore Tile
+						if slotData.Tile then
+							GridManager.PlaceTile(player, slotIndex, slotData.Tile)
+						end
+						
+						-- Restore Unit
+						if slotData.Unit and BrainrotManager then
+							-- Reconstruct placement data for BrainrotManager
+							local placementData = {
+								unitType = slotData.Unit.unitType,
+								rarity = slotData.Unit.rarity,
+								level = slotData.Unit.level,
+								unitId = slotData.Unit.unitId,
+								slotIndex = slotIndex
+							}
+							-- Spawn physical unit and place it
+							BrainrotManager.SpawnFromPlacement(player, placementData)
+						end
+					end
+				end
+				
+				local PlayerLifecycleManager = require(script.Parent.PlayerLifecycleManager)
+				PlayerLifecycleManager.SetGridRestored(player)
+			end)
+		end,
+		OnSave = function(player, data)
+			-- Return current state to ensure it's saved correctly
+			return GridManager.GetGridPositions(player)
+		end
+	})
 	
-	-- Register Connects
-	Players.PlayerRemoving:Connect(function(player)
-		PlayerGrids[player.UserId] = nil
-	end)
+	-- NOTE: PlayerGrids cleanup removed to prevent race condition with DataService save
+	-- DataService OnSave will read from PlayerGrids, so we must NOT clear it before save completes
 	
 	-- Connect Remotes
 	PlaceUnitFunction.OnServerInvoke = GridManager.PlaceUnitFromInventory
 	MoveUnitFunction.OnServerInvoke = GridManager.MoveUnit
 	SwapUnitsFunction.OnServerInvoke = GridManager.SwapUnits
 	StashUnitFunction.OnServerInvoke = GridManager.StashUnit
+	
+	-- Legacy Connections
+	PlaceBrainrotFunction.OnServerInvoke = GridManager.PlaceUnitFromInventory
+	RemoveBrainrotFunction.OnServerInvoke = GridManager.StashUnit
+	
 	GetGridFunction.OnServerInvoke = function(player)
 		local gridData = getPlayerGrid(player)
 		-- Serialize specific fields for client
@@ -390,17 +472,34 @@ function GridManager.PlaceUnit(player, brainrot, slotIndex)
 	return true
 end
 
-function GridManager.PlaceUnitFromInventory(player, unitName, slotIndex)
+function GridManager.PlaceUnitFromInventory(player, unitName, arg2, arg3)
+	-- Polymorphic Argument Handling to support Legacy and New Clients
+	-- Legacy: (unitName, rarity, slotIndex)
+	-- New: (unitName, slotIndex)
+	
+	local slotIndex
+	if type(arg2) == "number" then
+		slotIndex = arg2
+	elseif type(arg3) == "number" then
+		slotIndex = arg3
+	else
+		return false, "Invalid arguments"
+	end
+
 	-- Logic wrapper for Remote
 	local BrainrotManager = _G.BrainrotManager
-	if not BrainrotManager then return false, "Server not ready" end
+	local InventoryManager = _G.InventoryManager
 	
-	-- This assumes the unit is already SPAWNED (PHYSICAL) and known by BrainrotManager?
-	-- Or we spawn it now.
-	-- Legacy PlaceBrainrot logic usually involved finding the stored unit.
+	if not BrainrotManager or not InventoryManager then return false, "Server not ready" end
 	
+	-- 1. Ownership Check (Critical security fix)
+	local unitData = InventoryManager.GetUnit(player, unitName)
+	if not unitData then
+		return false, "Unit not owned"
+	end
+	
+	-- 2. Find Physical Unit
 	-- We need to find the unit instance.
-	-- Check BrainrotManager cache (if exposed) or find in folder.
 	local plot = findPlayerPlot(player)
 	if not plot then return false, "No plot" end
 	
@@ -415,15 +514,17 @@ function GridManager.PlaceUnitFromInventory(player, unitName, slotIndex)
 		end
 	end
 	
+	-- 3. Recovery if unit missing physically but owned
 	if not unit then
-		-- Spawn it?
+		-- Force Spawn (Fix: UpdateAllUnitStats does not spawn new models, SpawnBrainrot does)
 		unit = BrainrotManager.SpawnBrainrot(player, unitName)
 	end
 	
 	if unit then
 		return GridManager.PlaceUnit(player, unit, slotIndex)
 	end
-	return false, "Unit not found"
+	
+	return false, "Unit model not found (Try rejoining)"
 end
 
 function GridManager.MoveUnit(player, fromSlot, toSlot)
@@ -514,7 +615,8 @@ function GridManager.GetTileAtSlot(player, slotIndex)
 end
 
 function GridManager.PlaceTile(player, slotIndex, tileId)
-	if not TileConfig.GetTile(tileId) then return false end
+	local tc = getTileConfig()
+	if not tc.GetTile(tileId) then return false end
 	local gridData = getPlayerGrid(player)
 	local slot = getSlotData(gridData, slotIndex)
 	

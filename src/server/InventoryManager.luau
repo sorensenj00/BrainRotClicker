@@ -10,8 +10,16 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local RarityConfig = require(Shared:WaitForChild("RarityConfig"))
+-- Lazy Config
+local RarityConfig
+
+local function getRarityConfig()
+	if not RarityConfig then
+		local Shared = ReplicatedStorage:WaitForChild("Shared")
+		RarityConfig = require(Shared:WaitForChild("RarityConfig"))
+	end
+	return RarityConfig
+end
 
 -- DataService for persistence
 local DataService = require(script.Parent.DataService)
@@ -58,6 +66,11 @@ end
 function InventoryManager.Init()
 	print("   InventoryManager (Module) - Initializing")
 	
+	-- Create canonical GetInventory RemoteFunction
+	local GetInventoryRemote = RemoteEvents:FindFirstChild("GetInventory") or Instance.new("RemoteFunction")
+	GetInventoryRemote.Name = "GetInventory"
+	GetInventoryRemote.Parent = RemoteEvents
+	
 	-- Register with DataService
 	DataService.RegisterHandler(COMPONENT_KEY, {
 		DefaultData = {},
@@ -76,6 +89,40 @@ function InventoryManager.Init()
 			return data
 		end
 	})
+	
+	-- Canonical GetInventory handler
+	GetInventoryRemote.OnServerInvoke = function(player)
+		local inventory = { units = {} }
+		local invData = getInventoryData(player) or {}
+		
+		-- Get GridManager to check placement status
+		local GridManager = _G.GridManager
+		local gridPositions = {}
+		if GridManager and GridManager.GetGridPositions then
+			gridPositions = GridManager.GetGridPositions(player) or {}
+		end
+		
+		-- Build placed units set
+		local placedUnits = {}
+		for _, slotData in pairs(gridPositions) do
+			if slotData.Unit and slotData.Unit.unitType then
+				placedUnits[slotData.Unit.unitType] = true
+			end
+		end
+		
+		-- Build response
+		for unitName, unitData in pairs(invData) do
+			if unitData.level and unitData.level > 0 then
+				inventory.units[unitName] = {
+					level = unitData.level or 1,
+					rarity = unitData.rarity or "Normal",
+					status = placedUnits[unitName] and "placed" or "stored"
+				}
+			end
+		end
+		
+		return inventory
+	end
 	
 	-- Backwards compatibility hooks
 	Players.PlayerAdded:Connect(InventoryManager.InitPlayer)
@@ -125,8 +172,9 @@ function InventoryManager.AddUnit(player: Player, unitName: string, rarity: stri
 		end
 		
 		if rarity then
-			local currentRank = RarityConfig.GetRarityValue(currentData.rarity)
-			local newRank = RarityConfig.GetRarityValue(rarity)
+			local rc = getRarityConfig()
+			local currentRank = rc.GetRarityValue(currentData.rarity)
+			local newRank = rc.GetRarityValue(rarity)
 
 			if newRank > currentRank then
 				newRarity = rarity

@@ -23,7 +23,8 @@ local CONFIG = {
 }
 
 -- Configs (Dynamically loaded to avoid cyclic issues if possible, or wait)
-local Shared = ReplicatedStorage:WaitForChild("Shared")
+-- Configs (Dynamically loaded to avoid cyclic issues if possible, or wait)
+-- local Shared = ReplicatedStorage:WaitForChild("Shared") -- Moved to Init/Lazy
 local ItemConfig -- Lazy loaded
 
 -- State
@@ -73,40 +74,7 @@ local function getTotalItemCount(items)
 	return total
 end
 
-local function initializePlayer(player)
-	local data = DataService.GetData(player)
-	local items = {}
-	local capacity = CONFIG.DEFAULT_STORAGE_CAPACITY
-	local backpackItems = {}
-	
-	if data then
-		items = data.ItemStorage or {}
-		capacity = data.storageCapacity or CONFIG.DEFAULT_STORAGE_CAPACITY
-		backpackItems = data.Backpack or {}
-	end
-	
-	PlayerStorage[player] = { items = items, capacity = capacity }
-	PlayerBackpack[player] = { items = backpackItems, capacity = CONFIG.BACKPACK_CAPACITY }
-end
 
-local function syncStorage(player)
-	local storage = PlayerStorage[player]
-	if not storage then return end
-	local data = DataService.GetData(player)
-	if data then
-		data.ItemStorage = storage.items
-		data.storageCapacity = storage.capacity
-	end
-end
-
-local function syncBackpack(player)
-	local backpack = PlayerBackpack[player]
-	if not backpack then return end
-	local data = DataService.GetData(player)
-	if data then
-		data.Backpack = backpack.items
-	end
-end
 
 --------------------------------------------------------------------------------
 -- PUBLIC API
@@ -117,26 +85,65 @@ function ItemStorageManager.Init()
 	
 	-- Load Configs
 	task.spawn(function()
+		local Shared = ReplicatedStorage:WaitForChild("Shared")
 		ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 	end)
 	
-	-- Register Events
-	Players.PlayerAdded:Connect(function(player)
-		-- Wait for Data to be ready
-		task.spawn(function()
-			local attempts = 0
-			while not DataService.IsLoaded(player) and attempts < 100 do
-				task.wait(0.1)
-				attempts += 1
+	-- Register Data Handlers
+	DataService.RegisterHandler("ItemStorage", {
+		DefaultData = {},
+		OnLoad = function(player, data)
+			-- Ensure table exists
+			if not PlayerStorage[player] then
+				PlayerStorage[player] = { items = {}, capacity = CONFIG.DEFAULT_STORAGE_CAPACITY }
 			end
-			initializePlayer(player)
-		end)
-	end)
+			-- Populate items from save
+			PlayerStorage[player].items = data or {}
+			
+			-- Load capacity if saved elsewhere, or we need to sync it.
+			-- Capacity was legacy "storageCapacity" root key.
+			-- We might need a separate handler or just assume default + upgrades?
+			-- UpgradeManager usually handles capacity.
+			-- For now, we trust the defaults/upgrades logic to set capacity later, 
+			-- or we read it if we can.
+			-- Let's stick to items here.
+			
+			-- Try to recover capacity from root data if possible? 
+			-- DataService.GetData(player).storageCapacity? 
+			-- We can't easily access root from component handler unless we cheat.
+			-- We'll assume capacity is set by StorageUpgradeManager or upgrades.
+			-- OR we read it here:
+			local root = DataService.GetData(player)
+			if root and root.storageCapacity then
+				PlayerStorage[player].capacity = root.storageCapacity
+			end
+		end,
+		OnSave = function(player, data)
+			if PlayerStorage[player] then
+				return PlayerStorage[player].items
+			end
+			return {}
+		end
+	})
 	
-	Players.PlayerRemoving:Connect(function(player)
-		PlayerStorage[player] = nil
-		PlayerBackpack[player] = nil
-	end)
+	DataService.RegisterHandler("Backpack", {
+		DefaultData = {},
+		OnLoad = function(player, data)
+			if not PlayerBackpack[player] then
+				PlayerBackpack[player] = { items = {}, capacity = CONFIG.BACKPACK_CAPACITY }
+			end
+			PlayerBackpack[player].items = data or {}
+		end,
+		OnSave = function(player, data)
+			if PlayerBackpack[player] then
+				return PlayerBackpack[player].items
+			end
+			return {}
+		end
+	})
+	
+	-- NOTE: Cleanup removed to prevent race condition with DataService save
+	-- OnSave handlers will read from PlayerStorage/PlayerBackpack, so we must NOT clear before save
 	
 	-- Connect Remotes
 	GetStorageFunction.OnServerInvoke = function(player)
@@ -155,11 +162,6 @@ function ItemStorageManager.Init()
 		ItemStorageManager.TakeFromStorage(player, itemId, count)
 	end)
 	
-	-- Init existing players
-	for _, p in Players:GetPlayers() do
-		initializePlayer(p)
-	end
-	
 	print("✓ ItemStorageManager Initialized")
 end
 
@@ -174,7 +176,6 @@ function ItemStorageManager.AddToStorage(player, itemId, count)
 	if toAdd <= 0 then return 0 end
 	
 	storage.items[itemId] = (storage.items[itemId] or 0) + toAdd
-	syncStorage(player)
 	StorageUpdatedEvent:FireClient(player, storage.items, current + toAdd, storage.capacity)
 	return toAdd
 end
@@ -205,8 +206,8 @@ function ItemStorageManager.TakeFromStorage(player, itemId, count)
 	
 	backpack.items[itemId] = (backpack.items[itemId] or 0) + amount
 	
-	syncStorage(player)
-	syncBackpack(player)
+	backpack.items[itemId] = (backpack.items[itemId] or 0) + amount
+	
 	
 	StorageUpdatedEvent:FireClient(player, storage.items, getTotalItemCount(storage.items), storage.capacity)
 	BackpackUpdatedEvent:FireClient(player, backpack.items, getTotalItemCount(backpack.items), backpack.capacity)

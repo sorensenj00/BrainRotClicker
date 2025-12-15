@@ -14,10 +14,17 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
-local TileConfig = require(Shared:WaitForChild("TileConfig"))
-local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+-- Lazy Configs
+local ItemConfig, TileConfig, ArtifactConfig
+
+local function loadConfigs()
+	if not ItemConfig then
+		local Shared = ReplicatedStorage:WaitForChild("Shared")
+		ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+		TileConfig = require(Shared:WaitForChild("TileConfig"))
+		ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+	end
+end
 
 local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
 if not RemoteEvents then
@@ -38,8 +45,8 @@ StorageFullEvent.Parent = RemoteEvents
 local CONFIG = {
 	PRODUCTION_TICK = 1,
 	STORAGE_FULL_CHECK_INTERVAL = 5,
-	BASE_ARTIFACT_DROP_CHANCE = ArtifactConfig.BaseDropChance,
-	MAX_ARTIFACT_DROP_CHANCE = ArtifactConfig.MaxDropChance,
+	BASE_ARTIFACT_DROP_CHANCE = 0.001, -- Placeholder, updated in Init
+	MAX_ARTIFACT_DROP_CHANCE = 0.05, -- Placeholder
 }
 
 local BRAINROT_TAG = "ActiveBrainrot"
@@ -261,6 +268,10 @@ end
 
 function ItemProductionManager.Init()
 	print("   ItemProductionManager (Module) - Initializing")
+	
+	loadConfigs()
+	CONFIG.BASE_ARTIFACT_DROP_CHANCE = ArtifactConfig.BaseDropChance
+	CONFIG.MAX_ARTIFACT_DROP_CHANCE = ArtifactConfig.MaxDropChance
 	
 	if not InventoryManager then InventoryManager = _G.InventoryManager end
 	if not BrainrotManager then BrainrotManager = _G.BrainrotManager end

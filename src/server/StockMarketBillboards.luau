@@ -64,7 +64,7 @@ local function createBillboard(posData, center)
 	sg.CanvasSize = Vector2.new(1600, 1200)
 	sg.Parent = screen
 	
-	local c = Instance.new("Frame"); c.Size=UDim2.new(1,0,1,0); c.BackgroundColor3=BILLBOARD_CONFIG.SCREEN_COLOR; c.Parent=sg
+	local c = Instance.new("Frame"); c.Name="Container"; c.Size=UDim2.new(1,0,1,0); c.BackgroundColor3=BILLBOARD_CONFIG.SCREEN_COLOR; c.Parent=sg
 	
 	local t = Instance.new("TextLabel"); t.Size=UDim2.new(1,0,0.12,0); t.BackgroundTransparency=1; t.Text="📈 BRAINROT STOCKS"; t.TextColor3=Color3.new(1,1,1); t.TextScaled=true; t.Parent=c
 	
@@ -92,7 +92,6 @@ function StockMarketBillboards.Init()
 	print("   StockMarketBillboards (Module) - Initializing")
 	
 	task.spawn(function()
-		task.wait(2)
 		local mainIsland = Workspace:WaitForChild("MainIsland", 10)
 		local center = Vector3.new(0, 30, 0)
 		

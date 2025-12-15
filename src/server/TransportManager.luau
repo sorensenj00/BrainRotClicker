@@ -8,8 +8,16 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+local Shared -- = ReplicatedStorage:WaitForChild("Shared") -- Moved to lazy
+local ItemConfig -- = require(Shared:WaitForChild("ItemConfig"))
+
+local function getItemConfig()
+	if not ItemConfig then
+		local SharedRef = ReplicatedStorage:WaitForChild("Shared")
+		ItemConfig = require(SharedRef:WaitForChild("ItemConfig"))
+	end
+	return ItemConfig
+end
 
 -- Config
 local CONFIG = {
@@ -178,7 +186,8 @@ function TransportManager.LoadMaxFromStorage(player)
 	local list = {}
 	
 	for id, c in pairs(storage) do
-		local info = ItemConfig.Items[id]
+		local ic = getItemConfig()
+		local info = ic.Items[id]
 		if info and c > 0 then
 			table.insert(list, { id = id, count = c, val = info.basePrice or 1 })
 		end

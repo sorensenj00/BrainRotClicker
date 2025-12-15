@@ -14,9 +14,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
 
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
-local RarityConfig = require(Shared:WaitForChild("RarityConfig"))
+-- Lazy Configs
+local ShopConfig
+local RarityConfig
+
+local function getConfigs()
+	if not ShopConfig then
+		local Shared = ReplicatedStorage:WaitForChild("Shared")
+		ShopConfig = require(Shared:WaitForChild("ShopConfig"))
+		RarityConfig = require(Shared:WaitForChild("RarityConfig"))
+	end
+	return ShopConfig, RarityConfig
+end
 
 -- Configuration
 local CONFIG = {
@@ -31,14 +40,22 @@ local CONFIG = {
 local BRAINROT_TAG = "ActiveBrainrot"
 
 -- References
-local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
-local PlotsFolder = workspace:WaitForChild("Plots")
-local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
+local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
 
 -- Events
 local InventoryChangedEvent = RemoteEvents:FindFirstChild("InventoryChanged") or Instance.new("RemoteEvent")
+InventoryChangedEvent.Name = "InventoryChanged"
+InventoryChangedEvent.Parent = RemoteEvents
+
 local BuyBrainrotRemote = RemoteEvents:FindFirstChild("BuyBrainrot") or Instance.new("RemoteEvent")
-local GetInventoryRemote = RemoteEvents:FindFirstChild("GetInventory") or Instance.new("RemoteFunction")
+BuyBrainrotRemote.Name = "BuyBrainrot"
+BuyBrainrotRemote.Parent = RemoteEvents
+
+-- NOTE: GetInventory RemoteFunction moved to InventoryManager (canonical source)
+
+-- References (Lazy Loaded)
+local BrainrotsFolder
+local PlotsFolder
 
 -- Module Table
 local BrainrotManager = {}
@@ -74,6 +91,9 @@ end
 --------------------------------------------------------------------------------
 
 local function getPlayerPlot(player: Player): Instance?
+	if not PlotsFolder then PlotsFolder = workspace:FindFirstChild("Plots") end
+	if not PlotsFolder then return nil end
+	
 	for _, plot in PlotsFolder:GetChildren() do
 		local ownerId = plot:GetAttribute("OwnerId")
 		if ownerId and ownerId == player.UserId then return plot end
@@ -112,6 +132,7 @@ local function getBrainrotTemplate(unitName: string): Model?
 		if model then return model end
 	end
 	
+	if not BrainrotsFolder then BrainrotsFolder = ReplicatedStorage:FindFirstChild("Brainrots") end
 	if BrainrotsFolder then
 		local model = BrainrotsFolder:FindFirstChild(unitName)
 		if model then return model end
@@ -130,10 +151,11 @@ local function recalculateStats(unit: Instance)
 	local rarity = unit:GetAttribute("Rarity") or "Normal"
 
 	if not unitName then return end
-
-	local effectiveIncome = ShopConfig.CalculateEffectiveIncome(unitName, level)
-	local effectiveCycleTime = ShopConfig.CalculateEffectiveCycleTime(unitName, level)
-	local rarityMult = RarityConfig.GetMultiplier(rarity)
+	
+	local sc, rc = getConfigs()
+	local effectiveIncome = sc.CalculateEffectiveIncome(unitName, level)
+	local effectiveCycleTime = sc.CalculateEffectiveCycleTime(unitName, level)
+	local rarityMult = rc.GetMultiplier(rarity)
 
 	local finalIncome = math.floor(effectiveIncome * rarityMult)
 	local finalInterval = math.max(0.1, effectiveCycleTime / rarityMult)
@@ -231,6 +253,9 @@ end
 function BrainrotManager.Init()
 	print("   BrainrotManager (Module) - Initializing")
 	
+	-- Preload Configs
+	getConfigs()
+	
 	if not InventoryManager then InventoryManager = _G.InventoryManager end
 	
 	-- Connect to Inventory
@@ -268,6 +293,7 @@ function BrainrotManager.AddUnit(player: Player, unitName: string, forceRarity: 
 	end
 	return nil
 end
+
 
 function BrainrotManager.StashBrainrot(player: Player, brainrot: Model)
 	brainrot:SetAttribute("IsStored", true)
@@ -312,10 +338,17 @@ function BrainrotManager.SpawnFromPlacement(player: Player, data: any)
 	local unitType = data.unitType or (data.Unit and data.Unit.unitType)
 	local rarity = data.rarity or (data.Unit and data.Unit.rarity)
 	local level = data.level or (data.Unit and data.Unit.level)
+	local unitId = data.unitId or (data.Unit and data.Unit.unitId)
 	
 	if not unitType then return nil end
 	
-	local unit = BrainrotManager.AddUnit(player, unitType, rarity, level)
+	-- FIX: Use spawnOrUpdateUnit directly to avoid duplicating inventory count
+	local unit = spawnOrUpdateUnit(player, unitType, {
+		level = level,
+		rarity = rarity,
+		unitId = unitId
+	})
+	
 	if unit and GridManager and GridManager.PlaceUnit then
 		GridManager.PlaceUnit(player, unit, data.slotIndex)
 	end
@@ -379,7 +412,7 @@ end
 
 -- Compatibility Exports
 BrainrotManager.SpawnBrainrot = BrainrotManager.AddUnit
-BrainrotManager.RARITY_CONFIG = RarityConfig.CONFIG
+BrainrotManager.RARITY_CONFIG = nil -- RarityConfig.CONFIG (loaded later, might be nil initially)
 
 --------------------------------------------------------------------------------
 -- REMOTE HANDLERS
@@ -390,32 +423,6 @@ BuyBrainrotRemote.OnServerEvent:Connect(function(player, unitName)
 	BrainrotManager.AddUnit(player, unitName)
 end)
 
-GetInventoryRemote.OnServerInvoke = function(player)
-	-- Reconstruct inventory view for client
-	if not InventoryManager then InventoryManager = _G.InventoryManager end
-	if not GridManager then GridManager = _G.GridManager end
-	
-	local inventory = { units = {} }
-	
-	if InventoryManager then
-		local invData = InventoryManager.GetInventory(player)
-		for unitName, unitData in pairs(invData) do
-			local isPlaced = false
-			-- Check if placed
-			local unit = getCachedUnit(player, unitName)
-			if unit and unit:GetAttribute("GridSlot") then
-				isPlaced = true
-			end
-			
-			inventory.units[unitName] = {
-				level = unitData.level or 1,
-				rarity = unitData.rarity or "Normal",
-				status = isPlaced and "placed" or "stored"
-			}
-		end
-	end
-	
-	return inventory
-end
+-- NOTE: GetInventory handler moved to InventoryManager (canonical source)
 
 return BrainrotManager

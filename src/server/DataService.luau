@@ -36,7 +36,7 @@ local Profiles: {[Player]: Profile} = {}
 local Handlers: {[string]: DataHandler} = {}
 
 -- The store used for the new system (V3 - Clean Start)
-local DATA_VERSION = "BrainRotClickerData_v3"
+local DATA_VERSION = "BrainRotClickerData_v4"
 local ProfileStore = ProfileService.GetProfileStore(
 	DATA_VERSION,
 	{
@@ -310,6 +310,9 @@ local function onPlayerAdded(player: Player)
 					handler.OnLoad(player, dataToPass)
 				end)
 			end
+			
+			local PlayerLifecycleManager = require(script.Parent.PlayerLifecycleManager)
+			PlayerLifecycleManager.SetDataLoaded(player)
 
 			print("DataService: Profile loaded for " .. player.Name)
 		else
@@ -375,6 +378,28 @@ function DataService.Init()
 
 	Players.PlayerAdded:Connect(onPlayerAdded)
 	Players.PlayerRemoving:Connect(onPlayerRemoving)
+	
+	game:BindToClose(function()
+		print("DataService: Server closing, releasing profiles...")
+		
+		-- Trigger safe removal for all players
+		for _, player in ipairs(Players:GetPlayers()) do
+			-- Use coroutines to parallelize saving
+			task.spawn(onPlayerRemoving, player)
+		end
+		
+		-- Wait for all profiles to be released (saved)
+		local startTime = os.clock()
+		while next(Profiles) ~= nil do
+			if os.clock() - startTime > 30 then 
+				warn("DataService: BindToClose timed out waiting for saves!")
+				break 
+			end
+			task.wait(0.1)
+		end
+		
+		print("DataService: All profiles released.")
+	end)
 end
 
 return DataService

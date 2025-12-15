@@ -8,8 +8,16 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+-- Lazy Config
+local ArtifactConfig
+
+local function getArtifactConfig()
+	if not ArtifactConfig then
+		local Shared = ReplicatedStorage:WaitForChild("Shared")
+		ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+	end
+	return ArtifactConfig
+end
 local DataService = require(script.Parent.DataService)
 
 local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
@@ -60,21 +68,22 @@ end
 local function generateGUID() return HttpService:GenerateGUID(false) end
 
 local function generateArtifact(rarity, slot)
-	rarity = rarity or ArtifactConfig.RollRarity()
-	slot = slot or ArtifactConfig.EquipmentSlots[math.random(#ArtifactConfig.EquipmentSlots)]
-	local base = ArtifactConfig.GetRandomBase(slot)
+	local ac = getArtifactConfig()
+	rarity = rarity or ac.RollRarity()
+	slot = slot or ac.EquipmentSlots[math.random(#ac.EquipmentSlots)]
+	local base = ac.GetRandomBase(slot)
 	if not base then return nil end
 	
-	local numAffixes = ArtifactConfig.AffixCountByRarity[rarity] or 1
+	local numAffixes = ac.AffixCountByRarity[rarity] or 1
 	local affixes = {}
 	local used = {}
 	
 	for i = 1, math.ceil(numAffixes/2) do
-		local pre = ArtifactConfig.GetRandomPrefix()
+		local pre = ac.GetRandomPrefix()
 		if pre and not used[pre.key] then table.insert(affixes, pre.data); used[pre.key]=true end
 	end
 	for i = 1, math.floor(numAffixes/2) do
-		local suf = ArtifactConfig.GetRandomSuffix()
+		local suf = ac.GetRandomSuffix()
 		if suf and not used[suf.key] then table.insert(affixes, suf.data); used[suf.key]=true end
 	end
 	
@@ -200,9 +209,10 @@ end
 function ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
 	local stats = { CycleTimeMult = 1, LuckBonus = 0, ItemTierBonus = 0, SynergyRangeBonus = 0 }
 	local inv = getPlayerArtifacts(player)
+	local ac = getArtifactConfig()
 	for _, art in pairs(inv) do
 		if art.EquippedTo == unitGUID then
-			local s = ArtifactConfig.CalculateArtifactStats(art)
+			local s = ac.CalculateArtifactStats(art)
 			stats.CycleTimeMult *= s.CycleTimeMult
 			stats.LuckBonus += s.LuckBonus
 			stats.ItemTierBonus += s.ItemTierBonus
@@ -210,8 +220,8 @@ function ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
 		end
 	end
 	-- clamps...
-	stats.CycleTimeMult = math.max(stats.CycleTimeMult, ArtifactConfig.StatLimits.CycleTimeMin)
-	stats.LuckBonus = math.min(stats.LuckBonus, ArtifactConfig.StatLimits.MaxLuckBonus)
+	stats.CycleTimeMult = math.max(stats.CycleTimeMult, ac.StatLimits.CycleTimeMin)
+	stats.LuckBonus = math.min(stats.LuckBonus, ac.StatLimits.MaxLuckBonus)
 	return stats
 end
 

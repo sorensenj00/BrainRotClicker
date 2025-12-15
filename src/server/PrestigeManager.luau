@@ -14,8 +14,16 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local PrestigeConfig = require(Shared:WaitForChild("PrestigeConfig"))
+-- Lazy Config
+local PrestigeConfig
+
+local function getPrestigeConfig()
+	if not PrestigeConfig then
+		local Shared = ReplicatedStorage:WaitForChild("Shared")
+		PrestigeConfig = require(Shared:WaitForChild("PrestigeConfig"))
+	end
+	return PrestigeConfig
+end
 
 local DataService = require(script.Parent.DataService)
 -- We can require DataManager directly now if needed for Reset, but _G works broadly for now.
@@ -61,8 +69,9 @@ local function getPrestigeData(player)
 end
 
 local function calculateTotalMeatballsFromEarnings(lifetimeEarnings)
-	if lifetimeEarnings < PrestigeConfig.MEATBALL_DIVISOR then return 0 end
-	return math.floor(PrestigeConfig.MEATBALL_MULTIPLIER * math.sqrt(lifetimeEarnings / PrestigeConfig.MEATBALL_DIVISOR))
+	local pc = getPrestigeConfig()
+	if lifetimeEarnings < pc.MEATBALL_DIVISOR then return 0 end
+	return math.floor(pc.MEATBALL_MULTIPLIER * math.sqrt(lifetimeEarnings / pc.MEATBALL_DIVISOR))
 end
 
 local function calculatePendingMeatballs(player)
@@ -188,15 +197,17 @@ function PrestigeManager.GetMeatballIncomeMultiplier(player)
 	local data = getPrestigeData(player)
 	if not data then return 1 end
 	local unspent = data.totalMeatballs - data.spentMeatballs
-	return 1 + (unspent * PrestigeConfig.MEATBALL_BONUS_RATE)
+	local pc = getPrestigeConfig()
+	return 1 + (unspent * pc.MEATBALL_BONUS_RATE)
 end
 
 function PrestigeManager.GetShopMultiplier(player)
 	local data = getPrestigeData(player)
 	if not data then return 1 end
 	local m = 1
+	local pc = getPrestigeConfig()
 	for _, id in ipairs(data.meatballUpgrades) do
-		local item = PrestigeConfig.GetItem(id)
+		local item = pc.GetItem(id)
 		if item and item.Effect == "IncomeMultiplier" then m += item.Value end
 	end
 	return m
@@ -210,8 +221,9 @@ function PrestigeManager.GetStartingMoneyBonus(player)
 	local data = getPrestigeData(player)
 	if not data then return 0 end
 	local b = 0
+	local pc = getPrestigeConfig()
 	for _, id in ipairs(data.meatballUpgrades) do
-		local item = PrestigeConfig.GetItem(id)
+		local item = pc.GetItem(id)
 		if item and item.Effect == "StartingMoney" then b += item.Value end
 	end
 	return b
@@ -219,7 +231,8 @@ end
 
 function PrestigeManager.ExecutePrestige(player)
 	local pending = calculatePendingMeatballs(player)
-	if pending < PrestigeConfig.MINIMUM_PRESTIGE_GAIN then return false, "Not enough meatballs" end
+	local pc = getPrestigeConfig()
+	if pending < pc.MINIMUM_PRESTIGE_GAIN then return false, "Not enough meatballs" end
 	
 	local data = getPrestigeData(player)
 	if not data then return false, "No Data" end
@@ -242,7 +255,10 @@ function PrestigeManager.PurchaseUpgrade(player, upgradeId)
 	local data = getPrestigeData(player)
 	if not data then return false end
 	
-	local item = PrestigeConfig.GetItem(upgradeId)
+	if not data then return false end
+	
+	local pc = getPrestigeConfig()
+	local item = pc.GetItem(upgradeId)
 	if not item then return false end
 	
 	for _, id in ipairs(data.meatballUpgrades) do

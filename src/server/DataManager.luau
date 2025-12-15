@@ -9,9 +9,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
--- Wait for shared modules
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
+
 
 -- New Data Service
 local DataService = require(script.Parent.DataService)
@@ -88,14 +86,7 @@ local function gatherPlayerData(player: Player): any
 		end
 	end
 	
-	-- Get maxStorage from player's plot
-	local maxStorage = 500
-	if BrainrotManager and BrainrotManager.GetPlayerPlot then
-		local plot = BrainrotManager.GetPlayerPlot(player)
-		if plot then
-			maxStorage = plot:GetAttribute("MaxStorage") or 500
-		end
-	end
+
 	
 	-- Get tier data from MapSystem
 	local purchasedTiers = 1
@@ -112,11 +103,7 @@ local function gatherPlayerData(player: Player): any
 		convenienceUpgrades = _G.ConvenienceUpgrades.GetPlayerUpgrades(player)
 	end
 	
-	-- Get brainrot placements (for position restoration)
-	local brainrotPlacements = {}
-	if BrainrotManager and BrainrotManager.GetPlacementData then
-		brainrotPlacements = BrainrotManager.GetPlacementData(player) or {}
-	end
+
 	
 	-- Get item storage data
 	local itemStorage = {}
@@ -221,6 +208,24 @@ local function applyLegacyData(player: Player, data: any)
 	-- Spawn logic is async
 	task.spawn(function()
 		task.wait(1) -- Give time for other systems to load
+		
+		-- MIGRATION: Restore Inventory from Legacy ownedUnits if Inventory is empty
+		-- This fixes data loss for existing players moving to V3 architecture
+		if InventoryManager then
+			local currentInv = InventoryManager.GetInventory(player)
+			local isEmpty = true
+			for _ in pairs(currentInv) do isEmpty = false; break end
+			
+			if isEmpty and data.ownedUnits then
+				print("DataManager: Migrating legacy inventory for " .. player.Name)
+				for unitName, count in pairs(data.ownedUnits) do
+					if type(count) == "number" and count > 0 then
+						-- Give 1 level per count (approximation)
+						InventoryManager.AddUnit(player, unitName, "Normal", count)
+					end
+				end
+			end
+		end
 		
 		-- Restore Grid / Brainrot Placements
 		local gridData = data.GridPlacements or data.gridPositions

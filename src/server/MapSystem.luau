@@ -227,6 +227,9 @@ local function assignPlotToPlayer(player, idx)
 		TotalModels = 0
 	}
 	print("✓ Assigned Plot " .. idx .. " to " .. player.Name)
+	
+	local PlayerLifecycleManager = require(script.Parent.PlayerLifecycleManager)
+	PlayerLifecycleManager.SetMapReady(player)
 end
 
 local function teleportPlayer(player)

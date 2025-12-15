@@ -759,9 +759,9 @@ refreshInventoryPanel = function()
 	local scrollFrame = inventoryPanel:FindFirstChild("ItemsList")
 	if not scrollFrame then return end
 	
-	-- Clear old entries
+	-- Clear old entries (destroy everything except UIListLayout)
 	for _, child in scrollFrame:GetChildren() do
-		if child:IsA("Frame") then
+		if not child:IsA("UIListLayout") then
 			child:Destroy()
 		end
 	end

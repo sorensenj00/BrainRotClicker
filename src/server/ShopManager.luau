@@ -9,9 +9,18 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
-local RarityConfig = require(Shared:WaitForChild("RarityConfig"))
+-- Lazy Configs
+local ShopConfig
+local RarityConfig
+
+local function getConfigs()
+	if not ShopConfig then
+		local Shared = ReplicatedStorage:WaitForChild("Shared")
+		ShopConfig = require(Shared:WaitForChild("ShopConfig"))
+		RarityConfig = require(Shared:WaitForChild("RarityConfig"))
+	end
+	return ShopConfig, RarityConfig
+end
 
 -- Remotes
 local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
@@ -110,6 +119,9 @@ function ShopManager.Init()
 	Players.PlayerRemoving:Connect(cleanupPlayerData)
 	
 	for _, p in Players:GetPlayers() do initializePlayerData(p) end
+	
+	-- Preload Configs
+	getConfigs()
 	
 	BuyUnitRemote.OnServerInvoke = ShopManager.HandleBuyUnit
 	GetOwnershipRemote.OnServerInvoke = ShopManager.GetPlayerOwnership

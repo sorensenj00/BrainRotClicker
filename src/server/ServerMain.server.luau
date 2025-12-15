@@ -13,6 +13,21 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerScriptService = game:GetService("ServerScriptService")
 
+-- Ensure Remote Folders Exist (Critical for Client)
+local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
+RemoteEvents.Name = "RemoteEvents"
+RemoteEvents.Parent = ReplicatedStorage
+
+local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions") or Instance.new("Folder")
+RemoteFunctions.Name = "RemoteFunctions"
+RemoteFunctions.Parent = ReplicatedStorage
+
+-- NOTE: GetInventory RemoteFunction is created by InventoryManager (canonical source)
+
+local StockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket") or Instance.new("Folder")
+StockMarketFolder.Name = "StockMarket"
+StockMarketFolder.Parent = ReplicatedStorage
+
 -- Module Storage
 local loadedModules = {}
 
@@ -94,7 +109,7 @@ local IslandShopManager = loadModule("IslandShopManager", script.Parent.IslandSh
 local MewingManager = loadModule("MewingManager", script.Parent.MewingManager, "MewingManager")
 local UnitInteractionManager = loadModule("UnitInteractionManager", script.Parent.UnitInteractionManager, "UnitInteractionManager")
 local AdminService = loadModule("AdminService", script.Parent.AdminService, "AdminService")
-local InventoryService = loadModule("InventoryService", script.Parent.InventoryService, "InventoryService")
+-- NOTE: InventoryService removed - redundant, InventoryManager is canonical
 
 -- 5. Initialize All Systems
 -- Priority 1: Data & Map
@@ -113,7 +128,7 @@ initModule("ShopManager")
 initModule("TransportManager")
 initModule("PrestigeManager")
 initModule("ArtifactManager")
-initModule("InventoryService") -- Service aggregation
+-- NOTE: InventoryService removed - InventoryManager handles this now
 initModule("StockMarketManager")
 initModule("StockMarketBillboards")
 initModule("MarketManager")

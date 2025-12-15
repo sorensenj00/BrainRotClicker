@@ -1,12 +1,8 @@
 --[[
-	BrainrotManager Server Module (Stacking Version)
+	BrainrotManager Server Module (Simplified)
 	
-	Handles:
-	1. Spawning ONE unique unit per type per player.
-	2. Stacking purchases to upgrade Level/Speed.
-	3. Caching units for performance (Fixes O(N) lookup).
-	
-	CONVERTED TO MODULE SCRIPT + PERFORMANCE FIX
+	Handles spawning and visual updates of units.
+	Acts as a listener to InventoryManager and GridManager.
 ]]
 
 local Players = game:GetService("Players")
@@ -51,40 +47,13 @@ local BuyBrainrotRemote = RemoteEvents:FindFirstChild("BuyBrainrot") or Instance
 BuyBrainrotRemote.Name = "BuyBrainrot"
 BuyBrainrotRemote.Parent = RemoteEvents
 
--- NOTE: GetInventory RemoteFunction moved to InventoryManager (canonical source)
-
 -- References (Lazy Loaded)
 local BrainrotsFolder
 local PlotsFolder
 
 -- Module Table
 local BrainrotManager = {}
-
--- Dependencies
-local InventoryManager
-local GridManager
-
---------------------------------------------------------------------------------
--- CACHE STATE (PERFORMANCE FIX)
---------------------------------------------------------------------------------
-
--- Lookup: Player -> UnitType -> Instance
--- Allows O(1) retrieval instead of iterating workspace
-local UnitCache = {} 
-
-local function cacheUnit(player, unitType, instance)
-	if not UnitCache[player] then UnitCache[player] = {} end
-	UnitCache[player][unitType] = instance
-end
-
-local function getCachedUnit(player, unitType)
-	if not UnitCache[player] then return nil end
-	return UnitCache[player][unitType]
-end
-
-local function clearCache(player)
-	UnitCache[player] = nil
-end
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
@@ -169,7 +138,6 @@ end
 
 --[[
 	Spawns or updates the physical model based on authoritative data.
-	Uses Cache for O(1) lookup.
 ]]
 local function spawnOrUpdateUnit(player: Player, unitName: string, data: any): Instance?
 	local plot = getPlayerPlot(player)
@@ -178,17 +146,12 @@ local function spawnOrUpdateUnit(player: Player, unitName: string, data: any): I
 	local brainrotsContainer = plot:FindFirstChild("Brainrots") or Instance.new("Folder", plot)
 	brainrotsContainer.Name = "Brainrots"
 
-	-- PERFORMANCE FIX: Use Cache
-	local existingUnit = getCachedUnit(player, unitName)
-	
-	-- Fallback check if cache missed but object exists (re-sync)
-	if not existingUnit then
-		for _, child in brainrotsContainer:GetChildren() do
-			if child:GetAttribute("UnitType") == unitName then
-				existingUnit = child
-				cacheUnit(player, unitName, child) -- Restore cache
-				break
-			end
+	-- Look for existing unit in the container
+	local existingUnit
+	for _, child in brainrotsContainer:GetChildren() do
+		if child:GetAttribute("UnitType") == unitName then
+			existingUnit = child
+			break
 		end
 	end
 
@@ -239,9 +202,6 @@ local function spawnOrUpdateUnit(player: Player, unitName: string, data: any): I
 			if part:IsA("BasePart") then part.Anchored = true end
 		end
 		
-		-- Update Cache
-		cacheUnit(player, unitName, brainrot)
-		
 		return brainrot
 	end
 end
@@ -250,13 +210,14 @@ end
 -- PUBLIC API
 --------------------------------------------------------------------------------
 
-function BrainrotManager.Init()
+function BrainrotManager.Init(services)
 	print("   BrainrotManager (Module) - Initializing")
+	Services = services or {}
 	
 	-- Preload Configs
 	getConfigs()
 	
-	if not InventoryManager then InventoryManager = _G.InventoryManager end
+	local InventoryManager = Services.InventoryManager
 	
 	-- Connect to Inventory
 	if InventoryManager and InventoryManager.UnitChanged then
@@ -270,20 +231,15 @@ function BrainrotManager.Init()
 			end
 		end)
 	else
-		-- Wait/Retry logic handled by ServerMain order, 
-		-- but we can warn if strictly missing.
+		warn("BrainrotManager: InventoryManager missing or UnitChanged signal not found.")
 	end
-	
-	-- Player Setup
-	Players.PlayerRemoving:Connect(function(player)
-		clearCache(player)
-	end)
 	
 	print("✓ BrainrotManager Initialized")
 end
 
 function BrainrotManager.AddUnit(player: Player, unitName: string, forceRarity: string?, forceLevel: number?): Instance?
-	if not InventoryManager then InventoryManager = _G.InventoryManager end
+	-- Delegate to InventoryManager
+	local InventoryManager = Services.InventoryManager
 	
 	if InventoryManager then
 		local newData = InventoryManager.AddUnit(player, unitName, forceRarity, forceLevel)
@@ -306,7 +262,7 @@ function BrainrotManager.StashBrainrot(player: Player, brainrot: Model)
 end
 
 function BrainrotManager.GetPlacementData(player: Player)
-	if not GridManager then GridManager = _G.GridManager end
+	local GridManager = Services.GridManager
 	local placements = {}
 	
 	if GridManager and GridManager.GetGridPositions then
@@ -333,7 +289,7 @@ function BrainrotManager.GetPlacementData(player: Player)
 end
 
 function BrainrotManager.SpawnFromPlacement(player: Player, data: any)
-	if not GridManager then GridManager = _G.GridManager end
+	local GridManager = Services.GridManager
 	
 	local unitType = data.unitType or (data.Unit and data.Unit.unitType)
 	local rarity = data.rarity or (data.Unit and data.Unit.rarity)
@@ -342,7 +298,6 @@ function BrainrotManager.SpawnFromPlacement(player: Player, data: any)
 	
 	if not unitType then return nil end
 	
-	-- FIX: Use spawnOrUpdateUnit directly to avoid duplicating inventory count
 	local unit = spawnOrUpdateUnit(player, unitType, {
 		level = level,
 		rarity = rarity,
@@ -373,9 +328,6 @@ function BrainrotManager.UpdateAllUnitStats(player: Player)
 	if brainrotsContainer then
 		for _, child in brainrotsContainer:GetChildren() do
 			recalculateStats(child)
-			-- Ensure cache is synced
-			local uType = child:GetAttribute("UnitType")
-			if uType then cacheUnit(player, uType, child) end
 		end
 	end
 end
@@ -386,43 +338,34 @@ end
 
 -- Spawn directly at slot (legacy wrapper)
 function BrainrotManager.SpawnBrainrotAtSlot(player, unitName, slotIndex, rarity, level, unitId)
-	if not GridManager then GridManager = _G.GridManager end
+	local GridManager = Services.GridManager
 	
-	task.spawn(function()
-		local attempts = 0
-		while not GridManager and attempts < 20 do
-			attempts += 1
-			GridManager = _G.GridManager
-			task.wait(0.1)
-		end
+	-- No more retry loop. If GridManager isn't there, we fail.
+	if GridManager then
+		local unit = spawnOrUpdateUnit(player, unitName, {
+			level = level or 1,
+			rarity = rarity or "Normal",
+			unitId = unitId
+		})
 		
-		if GridManager then
-			local unit = spawnOrUpdateUnit(player, unitName, {
-				level = level or 1,
-				rarity = rarity or "Normal",
-				unitId = unitId
-			})
-			
-			if unit then
-				GridManager.PlaceUnit(player, unit, slotIndex)
-			end
+		if unit then
+			GridManager.PlaceUnit(player, unit, slotIndex)
 		end
-	end)
+	end
 end
 
 -- Compatibility Exports
 BrainrotManager.SpawnBrainrot = BrainrotManager.AddUnit
-BrainrotManager.RARITY_CONFIG = nil -- RarityConfig.CONFIG (loaded later, might be nil initially)
+BrainrotManager.RARITY_CONFIG = nil -- RarityConfig.CONFIG
 
 --------------------------------------------------------------------------------
 -- REMOTE HANDLERS
 --------------------------------------------------------------------------------
 
 BuyBrainrotRemote.OnServerEvent:Connect(function(player, unitName)
-	-- TODO: Check money logic here
+	-- Pass to ShopManager properly in future cleanup, for now delegate to internal AddUnit
+	-- Or check money here if logic was embedded
 	BrainrotManager.AddUnit(player, unitName)
 end)
-
--- NOTE: GetInventory handler moved to InventoryManager (canonical source)
 
 return BrainrotManager

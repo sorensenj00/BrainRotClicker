@@ -2,8 +2,6 @@
 	MarketManager Server Module
 	
 	Handles selling items from backpack for money at market prices.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -42,6 +40,7 @@ local CONFIG = {
 }
 
 local MarketManager = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -55,7 +54,7 @@ local function getItemCategory(itemId)
 end
 
 local function getMarketRate(itemId)
-	local SM = _G.StockMarketManager
+	local SM = Services.StockMarketManager
 	if itemId and SM then
 		local cat = getItemCategory(itemId)
 		if cat then return SM.GetCategoryRate(cat) or 1.0 end
@@ -108,8 +107,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function MarketManager.Init()
+function MarketManager.Init(services)
 	print("   MarketManager (Module) - Initializing")
+	Services = services or {}
 	
 	task.spawn(function()
 		task.wait(3)
@@ -124,7 +124,7 @@ function MarketManager.Init()
 end
 
 function MarketManager.SellItem(player, itemId, count)
-	local ISM = _G.ItemStorageManager
+	local ISM = Services.ItemStorageManager
 	if not ISM then return 0, 0 end
 	
 	local bp = ISM.GetBackpackContents(player)
@@ -146,7 +146,7 @@ function MarketManager.SellItem(player, itemId, count)
 end
 
 function MarketManager.SellAll(player)
-	local ISM = _G.ItemStorageManager
+	local ISM = Services.ItemStorageManager
 	if not ISM then return 0,0 end
 	
 	local bp = ISM.GetBackpackContents(player)
@@ -163,7 +163,7 @@ end
 
 function MarketManager.GetAllPrices()
 	local p = {}
-	local SM = _G.StockMarketManager
+	local SM = Services.StockMarketManager
 	for id, info in pairs(ItemConfig.Items) do
 		local bp = info.basePrice or 1
 		local cat = getItemCategory(id)

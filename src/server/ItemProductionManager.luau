@@ -6,8 +6,6 @@
 	PERFORMANCE FIX:
 	- Caches active unit counts to avoid O(N^2) loop.
 	- Uses InventoryManager events to update cache.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -26,12 +24,9 @@ local function loadConfigs()
 	end
 end
 
-local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
-if not RemoteEvents then
-	RemoteEvents = Instance.new("Folder")
-	RemoteEvents.Name = "RemoteEvents"
-	RemoteEvents.Parent = ReplicatedStorage
-end
+local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
+RemoteEvents.Name = "RemoteEvents"
+RemoteEvents.Parent = ReplicatedStorage
 
 local ItemProducedEvent = RemoteEvents:FindFirstChild("ItemProduced") or Instance.new("RemoteEvent")
 ItemProducedEvent.Name = "ItemProduced"
@@ -45,28 +40,17 @@ StorageFullEvent.Parent = RemoteEvents
 local CONFIG = {
 	PRODUCTION_TICK = 1,
 	STORAGE_FULL_CHECK_INTERVAL = 5,
-	BASE_ARTIFACT_DROP_CHANCE = 0.001, -- Placeholder, updated in Init
-	MAX_ARTIFACT_DROP_CHANCE = 0.05, -- Placeholder
+	BASE_ARTIFACT_DROP_CHANCE = 0.001,
+	MAX_ARTIFACT_DROP_CHANCE = 0.05,
 }
 
 local BRAINROT_TAG = "ActiveBrainrot"
 
 -- Module Table
 local ItemProductionManager = {}
-
--- Dependencies
-local InventoryManager
-local ItemStorageManager
-local BrainrotManager
-local GridManager
-local ArtifactManager
+local Services = {}
 
 -- Cache State
--- { [Player] = { 
---     CategoryCounts = { [Category] = number }, 
---     ProductionState = { ... },
---     ActiveUnits = { [UnitGUID] = Instance } (For artifact rolls/bonuses)
--- } }
 local PlayerCache = {}
 
 --------------------------------------------------------------------------------
@@ -77,7 +61,6 @@ local function initPlayerCache(player)
 	PlayerCache[player] = {
 		CategoryCounts = {},
 		ProductionState = {}, -- Per category timing
-		ActiveUnits = {}, -- Track actual instances for bonus calculations
 		lastStorageFullWarning = 0
 	}
 end
@@ -88,14 +71,10 @@ local function updatePlayerCache(player)
 	
 	-- Clear counts
 	cache.CategoryCounts = {}
-	cache.ActiveUnits = {}
 	
 	-- Rebuild from GridManager (Source of Truth for PLACED units)
-	-- We only produce from placed units!
-	if not GridManager then GridManager = _G.GridManager end
-	
-	if GridManager and GridManager.GetGridPositions then
-		local gridPos = GridManager.GetGridPositions(player)
+	if Services.GridManager and Services.GridManager.GetGridPositions then
+		local gridPos = Services.GridManager.GetGridPositions(player)
 		for _, data in pairs(gridPos) do
 			-- Extract unit data
 			local unitType, unitId
@@ -112,15 +91,6 @@ local function updatePlayerCache(player)
 				if category then
 					cache.CategoryCounts[category] = (cache.CategoryCounts[category] or 0) + 1
 				end
-				
-				-- Track Instance for bonuses (Need to find the model)
-				-- Optimally, BrainrotManager.GetUnitByGUID would be fast
-				if unitId and BrainrotManager and BrainrotManager.GetUnitByGUID then
-					local unitModel = BrainrotManager.GetUnitByGUID(player, unitId)
-					if unitModel then
-						cache.ActiveUnits[unitId] = unitModel
-					end
-				end
 			end
 		end
 	end
@@ -130,6 +100,41 @@ end
 -- PRODUCTION LOGIC
 --------------------------------------------------------------------------------
 
+-- Helper to find physical instances for bonus calculation
+-- This avoids caching instance references which can leak or become stale
+local function findUnitInstances(player, category)
+	local units = {}
+	local plot = nil
+	if Services.BrainrotManager then
+		plot = Services.BrainrotManager.GetPlayerPlot(player)
+	end
+
+	if not plot then
+		-- Try legacy find
+		local plotsFolder = workspace:FindFirstChild("Plots")
+		if plotsFolder then
+			for _, p in plotsFolder:GetChildren() do
+				if p:GetAttribute("OwnerId") == player.UserId then plot = p; break end
+			end
+		end
+	end
+
+	if not plot then return units end
+
+	local brainrots = plot:FindFirstChild("Brainrots")
+	if brainrots then
+		for _, unit in brainrots:GetChildren() do
+			local uType = unit:GetAttribute("UnitType")
+			if uType and ItemConfig.GetBrainrotCategory(uType) == category then
+				table.insert(units, unit)
+			end
+		end
+	end
+
+	return units
+end
+
+
 local function calculateUnitBonuses(player, brainrot)
 	local bonuses = {
 		speedMult = 1,
@@ -137,17 +142,16 @@ local function calculateUnitBonuses(player, brainrot)
 		tierBonus = 0,
 	}
 	
-	if not GridManager then GridManager = _G.GridManager end
-	if not ArtifactManager then ArtifactManager = _G.ArtifactManager end
-	
+	if not brainrot then return bonuses end
+
 	local slotIndex = brainrot:GetAttribute("GridSlot")
 	local unitGUID = brainrot:GetAttribute("UnitId")
 	local unitType = brainrot:GetAttribute("UnitType")
 	local category = ItemConfig.GetBrainrotCategory(unitType)
 	
 	-- Tile Bonus
-	if slotIndex and GridManager and GridManager.GetTileAtSlot then
-		local tileId = GridManager.GetTileAtSlot(player, slotIndex)
+	if slotIndex and Services.GridManager and Services.GridManager.GetTileAtSlot then
+		local tileId = Services.GridManager.GetTileAtSlot(player, slotIndex)
 		if tileId and category then
 			local tileBonus = TileConfig.GetBonus(tileId, category)
 			bonuses.speedMult = bonuses.speedMult * tileBonus.SpeedMult
@@ -156,8 +160,8 @@ local function calculateUnitBonuses(player, brainrot)
 	end
 	
 	-- Artifact Bonus
-	if unitGUID and ArtifactManager and ArtifactManager.CalculateUnitArtifactStats then
-		local artifactStats = ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
+	if unitGUID and Services.ArtifactManager and Services.ArtifactManager.CalculateUnitArtifactStats then
+		local artifactStats = Services.ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
 		bonuses.speedMult = bonuses.speedMult * artifactStats.CycleTimeMult
 		bonuses.luckMult = bonuses.luckMult + artifactStats.LuckBonus
 		bonuses.tierBonus = bonuses.tierBonus + artifactStats.ItemTierBonus
@@ -167,44 +171,38 @@ local function calculateUnitBonuses(player, brainrot)
 	return bonuses
 end
 
-local function tryArtifactDrop(player, brainrot, bonuses)
-	if not ArtifactManager then ArtifactManager = _G.ArtifactManager end
-	if not ArtifactManager then return end
+local function tryArtifactDrop(player, bonuses)
+	if not Services.ArtifactManager then return end
 	
 	local dropChance = CONFIG.BASE_ARTIFACT_DROP_CHANCE * bonuses.luckMult
 	dropChance = math.min(dropChance, CONFIG.MAX_ARTIFACT_DROP_CHANCE)
 	
 	if math.random() < dropChance then
-		local artifact = ArtifactManager.GenerateArtifact()
+		local artifact = Services.ArtifactManager.GenerateArtifact()
 		if artifact then
-			ArtifactManager.AddArtifact(player, artifact)
+			Services.ArtifactManager.AddArtifact(player, artifact)
 		end
 	end
 end
 
-local function updateSleepingState(player, isSleeping)
-	-- (Keep existing logic, omitted for brevity but should be included in full implementation)
-end
-
 local function produceItems(player)
-	if not ItemStorageManager then ItemStorageManager = _G.ItemStorageManager end
-	if not ItemStorageManager then return end
+	local ISM = Services.ItemStorageManager
+	if not ISM then return end
 	
 	-- 1. Check Storage
-	if ItemStorageManager.IsStorageFull(player) then
+	if ISM.IsStorageFull(player) then
 		local cache = PlayerCache[player]
 		if cache then
 			local now = tick()
 			if now - cache.lastStorageFullWarning > CONFIG.STORAGE_FULL_CHECK_INTERVAL then
 				cache.lastStorageFullWarning = now
 				StorageFullEvent:FireClient(player)
-				-- updateSleepingState(player, true) -- TODO: Re-implement
 			end
 		end
 		return
 	end
 	
-	-- 2. Use Cached Counts (O(1) access)
+	-- 2. Use Cached Counts
 	local cache = PlayerCache[player]
 	if not cache then return end
 	
@@ -214,20 +212,15 @@ local function produceItems(player)
 		if ownedCount > 0 then
 			local productions = ItemConfig.GetProductions(category, ownedCount)
 			
-			-- Calculate Combined Category Bonus
-			-- We iterate CACHED ActiveUnits for this category only
+			-- Re-enable bonuses by scanning actual units
+			local activeUnits = findUnitInstances(player, category)
 			local categoryBonus = { speedMult = 1, luckMult = 1, tierBonus = 0 }
 			
-			-- Optimization: Only iterate active units if we have complex bonuses enabled
-			-- For now, we iterate the small subset of ActiveUnits in cache
-			for _, unitModel in pairs(cache.ActiveUnits) do
-				local uType = unitModel:GetAttribute("UnitType")
-				if uType and ItemConfig.GetBrainrotCategory(uType) == category then
-					local b = calculateUnitBonuses(player, unitModel)
-					categoryBonus.speedMult = math.min(categoryBonus.speedMult, b.speedMult)
-					categoryBonus.luckMult = categoryBonus.luckMult + (b.luckMult - 1)
-					categoryBonus.tierBonus = math.max(categoryBonus.tierBonus, b.tierBonus)
-				end
+			for _, unitModel in ipairs(activeUnits) do
+				local b = calculateUnitBonuses(player, unitModel)
+				categoryBonus.speedMult = math.min(categoryBonus.speedMult, b.speedMult)
+				categoryBonus.luckMult = categoryBonus.luckMult + (b.luckMult - 1)
+				categoryBonus.tierBonus = math.max(categoryBonus.tierBonus, b.tierBonus)
 			end
 			
 			-- Production Timing
@@ -235,26 +228,18 @@ local function produceItems(player)
 			
 			for _, prod in ipairs(productions) do
 				local tier = (ItemConfig.Items[prod.itemId] and ItemConfig.Items[prod.itemId].tier or 1) + math.floor(categoryBonus.tierBonus)
-				-- Clamp tier logic if needed
 				
 				local lastProd = cache.ProductionState[category][tier] or 0
 				local adjustedRate = math.max(0.1, prod.rate * categoryBonus.speedMult)
 				
 				if now - lastProd >= adjustedRate then
-					local added = ItemStorageManager.AddToStorage(player, prod.itemId, 1)
+					local added = ISM.AddToStorage(player, prod.itemId, 1)
 					if added > 0 then
 						cache.ProductionState[category][tier] = now
 						ItemProducedEvent:FireClient(player, prod.itemId, 1)
 						
-						-- Artifact Drop Roll (Once per production)
-						-- Pick a random active unit in this category to attribute the drop to
-						for _, unitModel in pairs(cache.ActiveUnits) do
-							local uType = unitModel:GetAttribute("UnitType")
-							if uType and ItemConfig.GetBrainrotCategory(uType) == category then
-								tryArtifactDrop(player, unitModel, categoryBonus)
-								break
-							end
-						end
+						-- Artifact Drop Roll
+						tryArtifactDrop(player, categoryBonus)
 					end
 				end
 			end
@@ -266,31 +251,21 @@ end
 -- PUBLIC API
 --------------------------------------------------------------------------------
 
-function ItemProductionManager.Init()
+function ItemProductionManager.Init(services)
 	print("   ItemProductionManager (Module) - Initializing")
+	Services = services or {}
 	
 	loadConfigs()
 	CONFIG.BASE_ARTIFACT_DROP_CHANCE = ArtifactConfig.BaseDropChance
 	CONFIG.MAX_ARTIFACT_DROP_CHANCE = ArtifactConfig.MaxDropChance
 	
-	if not InventoryManager then InventoryManager = _G.InventoryManager end
-	if not BrainrotManager then BrainrotManager = _G.BrainrotManager end
-	
-	-- Listen for Inventory Changes to update cache
-	-- NOTE: We need to listen for GRID changes primarily, since production depends on PLACED units
-	-- But GridManager might not have a signal? 
-	-- Strategy: Listen to UnitChanged from Inventory, and rebuild cache. 
-	-- Ideally GridManager exposes a "GridChanged" event.
-	-- For now, we rebuild cache on every tick? NO.
-	-- We'll poll cache update less frequently OR add a GridChanged signal later.
-	
-	-- Polling fallback for cache update (Low frequency)
+	-- Polling fallback for cache update
 	task.spawn(function()
 		while true do
 			for _, player in Players:GetPlayers() do
 				updatePlayerCache(player)
 			end
-			task.wait(5) -- Update cache every 5s (catches grid changes)
+			task.wait(5) -- Update cache every 5s
 		end
 	end)
 	

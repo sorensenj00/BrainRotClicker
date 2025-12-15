@@ -2,8 +2,6 @@
 	ShopManager Server Module
 	
 	Handles all purchase logic for the shop system.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -23,12 +21,9 @@ local function getConfigs()
 end
 
 -- Remotes
-local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
-if not RemoteEvents then
-	RemoteEvents = Instance.new("Folder")
-	RemoteEvents.Name = "RemoteEvents"
-	RemoteEvents.Parent = ReplicatedStorage
-end
+local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
+RemoteEvents.Name = "RemoteEvents"
+RemoteEvents.Parent = ReplicatedStorage
 
 local BuyUnitRemote = RemoteEvents:FindFirstChild("BuyUnit") or Instance.new("RemoteFunction")
 BuyUnitRemote.Name = "BuyUnit"
@@ -48,6 +43,7 @@ GetOwnershipRemote.Parent = RemoteEvents
 
 -- Module
 local ShopManager = {}
+local Services = {}
 
 -- State
 local PlayerUnlockProgress = {} 
@@ -55,10 +51,6 @@ local PlayerUnlockProgress = {}
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
 --------------------------------------------------------------------------------
-
-local function getInventoryManager()
-	return _G.InventoryManager
-end
 
 local function initializePlayerData(player)
 	PlayerUnlockProgress[player] = ShopConfig.INITIAL_UNLOCKED
@@ -112,17 +104,18 @@ end
 -- PUBLIC API & CORE LOGIC
 --------------------------------------------------------------------------------
 
-function ShopManager.Init()
+function ShopManager.Init(services)
 	print("   ShopManager (Module) - Initializing")
+	Services = services or {}
 	
 	Players.PlayerAdded:Connect(initializePlayerData)
 	Players.PlayerRemoving:Connect(cleanupPlayerData)
 	
-	for _, p in Players:GetPlayers() do initializePlayerData(p) end
-	
 	-- Preload Configs
 	getConfigs()
 	
+	for _, p in Players:GetPlayers() do initializePlayerData(p) end
+
 	BuyUnitRemote.OnServerInvoke = ShopManager.HandleBuyUnit
 	GetOwnershipRemote.OnServerInvoke = ShopManager.GetPlayerOwnership
 	
@@ -130,7 +123,7 @@ function ShopManager.Init()
 end
 
 function ShopManager.GetOwnedCount(player, unitName)
-	local InvMgr = getInventoryManager()
+	local InvMgr = Services.InventoryManager
 	if InvMgr then return InvMgr.GetUnitLevel(player, unitName) end
 	return 0
 end
@@ -150,7 +143,6 @@ function ShopManager.HandleBuyUnit(player, unitName)
 		end
 	end
 	
-	-- logic...
 	if not ShopConfig.GetConfig(unitName) then return false, "Unknown Unit" end
 	
 	local progress = ShopManager.GetUnlockProgress(player)
@@ -162,7 +154,7 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	if getMoney(player) < price then return false, "Not enough cash" end
 	if not deductMoney(player, price) then return false, "Transaction failed" end
 	
-	local InvMgr = getInventoryManager()
+	local InvMgr = Services.InventoryManager
 	if not InvMgr then return false, "Inventory System Offline" end
 	
 	local rarity = RarityConfig.RollRarity()

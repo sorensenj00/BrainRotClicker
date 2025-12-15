@@ -2,8 +2,6 @@
 	UnitInteractionManager Server Module
 	
 	Handles ProximityPrompts on brainrot units.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -30,6 +28,7 @@ local CONFIG = {
 }
 
 local UnitInteractionManager = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- LOGIC
@@ -87,8 +86,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function UnitInteractionManager.Init()
+function UnitInteractionManager.Init(services)
 	print("   UnitInteractionManager (Module) - Initializing")
+	Services = services or {}
 	
 	for _, unit in CollectionService:GetTagged(BRAINROT_TAG) do
 		task.spawn(function()

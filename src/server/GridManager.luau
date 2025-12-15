@@ -2,8 +2,6 @@
 	GridManager Server Module
 	
 	Manages grid-based brainrot placement on player plots.
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 -- Services
@@ -39,23 +37,17 @@ local CONFIG = {
 	},
 	DEFAULT_GRID = "starter",
 	GRID_OFFSET_Y = 0,
-	TILE_THICKNESS = 1, -- Default, updated from config later if needed
+	TILE_THICKNESS = 1,
 }
 
--- Remote Objects (created if missing)
-local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
-if not RemoteEvents then
-	RemoteEvents = Instance.new("Folder")
-	RemoteEvents.Name = "RemoteEvents"
-	RemoteEvents.Parent = ReplicatedStorage
-end
+-- Remote Objects
+local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
+RemoteEvents.Name = "RemoteEvents"
+RemoteEvents.Parent = ReplicatedStorage
 
-local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions")
-if not RemoteFunctions then
-	RemoteFunctions = Instance.new("Folder")
-	RemoteFunctions.Name = "RemoteFunctions"
-	RemoteFunctions.Parent = ReplicatedStorage
-end
+local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions") or Instance.new("Folder")
+RemoteFunctions.Name = "RemoteFunctions"
+RemoteFunctions.Parent = ReplicatedStorage
 
 local GridUpdatedEvent = RemoteEvents:FindFirstChild("GridUpdated") or Instance.new("RemoteEvent")
 GridUpdatedEvent.Name = "GridUpdated"
@@ -104,6 +96,7 @@ RemoveTileFunction.Parent = RemoteFunctions
 
 -- Module Table
 local GridManager = {}
+local Services = {}
 
 -- Player Grid Data
 local PlayerGrids = {}
@@ -226,36 +219,9 @@ local function getSlotCFrame(player, slotIndex)
 	return CFrame.lookAt(unitPos, unitPos + lookDirection)
 end
 
-local function getGroundedCFrame(baseCFrame, model, floorTopY)
-	if not model or not model:IsA("Model") then return baseCFrame end
-	local success, _, boundsSize = pcall(function() return model:GetBoundingBox() end)
-	if not success or not boundsSize then
-		return CFrame.new(Vector3.new(baseCFrame.Position.X, floorTopY + 3, baseCFrame.Position.Z)) * (baseCFrame - baseCFrame.Position)
-	end
-	local pivotPos = model:GetPivot().Position
-	local modelBottomY = pivotPos.Y - (boundsSize.Y / 2) -- Approximation if Pivot is Center
-	-- Better approximation:
-	local _, size = model:GetBoundingBox()
-	-- If pivot is at center, bottom is pivot.y - size.y/2
-	-- If pivot is at bottom, bottom is pivot.y
-	-- We'll assume standard model setup (pivot at center or bottom).
-	-- Let's just blindly trust the original logic's intent but simplify:
-	-- The original logic used bounds center to pivot distance.
-	-- We will standardly anchor at floor Y.
-	
-	local groundedPos = Vector3.new(baseCFrame.Position.X, floorTopY, baseCFrame.Position.Z)
-	-- To make the model sit ON the floor, we need to know where its bottom is relative to its PrimaryPart/Pivot.
-	-- We'll manually adjust up by half height for now as safe default if we assume pivot is center.
-	-- Or just use the passed in baseCFrame Y if it was calculated correctly.
-	-- The getSlotCFrame calculates Y based on plot surface.
-	return baseCFrame
-end
-
 local function repositionUnitOnTile(player, brainrot, slotIndex)
 	if not brainrot then return end
 	local baseCFrame = getSlotCFrame(player, slotIndex)
-	-- getSlotCFrame already accounts for tile height in its Y calculation!
-	-- We just need to apply it.
 	brainrot:PivotTo(baseCFrame)
 end
 
@@ -266,8 +232,7 @@ local function createTileVisual(player, slotIndex, tileId)
 	local plot = findPlayerPlot(player)
 	if not plot then return nil end
 	
-	local baseCFrame = getSlotCFrame(player, slotIndex) -- Includes Tile Y offset
-	-- But the tile itself needs to be BELOW that unit surface
+	local baseCFrame = getSlotCFrame(player, slotIndex)
 	local floorTopY = getFloorTopY(player)
 	local tileY = floorTopY + (tc.TileHeight / 2)
 	
@@ -328,8 +293,9 @@ end
 -- PUBLIC API
 --------------------------------------------------------------------------------
 
-function GridManager.Init()
+function GridManager.Init(services)
 	print("   GridManager (Module) - Initializing")
+	Services = services or {}
 	
 	-- Register Data Handler
 	DataService.RegisterHandler("GridPlacements", {
@@ -343,9 +309,8 @@ function GridManager.Init()
 			end
 			
 			task.spawn(function()
-				-- Lazy load dependencies if needed
-				local BrainrotManager = _G.BrainrotManager
-				local MapSystem = _G.MapSystem
+				local BrainrotManager = Services.BrainrotManager
+				local MapSystem = Services.MapSystem
 				
 				-- WAIT FOR PLOT (Fix Race Condition)
 				local plot = nil
@@ -360,8 +325,6 @@ function GridManager.Init()
 					if not plot then
 						task.wait(0.1)
 						attempts += 1
-						BrainrotManager = _G.BrainrotManager
-						MapSystem = _G.MapSystem
 					end
 				end
 				
@@ -404,9 +367,6 @@ function GridManager.Init()
 			return GridManager.GetGridPositions(player)
 		end
 	})
-	
-	-- NOTE: PlayerGrids cleanup removed to prevent race condition with DataService save
-	-- DataService OnSave will read from PlayerGrids, so we must NOT clear it before save completes
 	
 	-- Connect Remotes
 	PlaceUnitFunction.OnServerInvoke = GridManager.PlaceUnitFromInventory
@@ -473,10 +433,7 @@ function GridManager.PlaceUnit(player, brainrot, slotIndex)
 end
 
 function GridManager.PlaceUnitFromInventory(player, unitName, arg2, arg3)
-	-- Polymorphic Argument Handling to support Legacy and New Clients
-	-- Legacy: (unitName, rarity, slotIndex)
-	-- New: (unitName, slotIndex)
-	
+	-- Polymorphic Argument Handling
 	local slotIndex
 	if type(arg2) == "number" then
 		slotIndex = arg2
@@ -487,19 +444,18 @@ function GridManager.PlaceUnitFromInventory(player, unitName, arg2, arg3)
 	end
 
 	-- Logic wrapper for Remote
-	local BrainrotManager = _G.BrainrotManager
-	local InventoryManager = _G.InventoryManager
+	local BrainrotManager = Services.BrainrotManager
+	local InventoryManager = Services.InventoryManager
 	
 	if not BrainrotManager or not InventoryManager then return false, "Server not ready" end
 	
-	-- 1. Ownership Check (Critical security fix)
+	-- 1. Ownership Check
 	local unitData = InventoryManager.GetUnit(player, unitName)
 	if not unitData then
 		return false, "Unit not owned"
 	end
 	
 	-- 2. Find Physical Unit
-	-- We need to find the unit instance.
 	local plot = findPlayerPlot(player)
 	if not plot then return false, "No plot" end
 	
@@ -516,7 +472,7 @@ function GridManager.PlaceUnitFromInventory(player, unitName, arg2, arg3)
 	
 	-- 3. Recovery if unit missing physically but owned
 	if not unit then
-		-- Force Spawn (Fix: UpdateAllUnitStats does not spawn new models, SpawnBrainrot does)
+		-- Force Spawn
 		unit = BrainrotManager.SpawnBrainrot(player, unitName)
 	end
 	
@@ -579,8 +535,9 @@ function GridManager.StashUnit(player, slotIndex)
 	local brainrot = slot.Unit
 	slot.Unit = nil
 	
-	if _G.BrainrotManager then
-		_G.BrainrotManager.StashBrainrot(player, brainrot)
+	local BrainrotManager = Services.BrainrotManager
+	if BrainrotManager then
+		BrainrotManager.StashBrainrot(player, brainrot)
 	end
 	
 	syncToProfile(player)

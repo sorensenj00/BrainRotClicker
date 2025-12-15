@@ -4,8 +4,6 @@
 	Handles the Island Shop on the main island where players can:
 	1. Purchase tier unlocks early
 	2. View their current tier status
-	
-	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -32,6 +30,7 @@ local SHOP_CONFIG = {
 }
 
 local IslandShopManager = {}
+local Services = {}
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -94,8 +93,9 @@ end
 -- API
 --------------------------------------------------------------------------------
 
-function IslandShopManager.Init()
+function IslandShopManager.Init(services)
 	print("   IslandShopManager (Module) - Initializing")
+	Services = services or {}
 	
 	task.spawn(function()
 		task.wait(2)
@@ -115,13 +115,13 @@ function IslandShopManager.Init()
 end
 
 function IslandShopManager.HandleTierPurchase(player)
-	if not _G.MapSystem then return false, "Shop system not ready" end
-	local ts = _G.MapSystem.GetPlayerTierSystem(player)
+	if not Services.MapSystem then return false, "Shop system not ready" end
+	local ts = Services.MapSystem.GetPlayerTierSystem(player)
 	if not ts then return false, "No plot assigned" end
 	
 	local currentCount = #ts.Tiers
 	local nextNum = currentCount + 1
-	local CONF = _G.MapSystem.TIER_CONFIG
+	local CONF = Services.MapSystem.TIER_CONFIG
 	if nextNum > CONF.MAX_TIERS then return false, "Max islands reached" end
 	
 	local price = getTierPrice(nextNum)
@@ -137,7 +137,7 @@ function IslandShopManager.HandleTierPurchase(player)
 	if not parentTier then return false, "No space for new island" end
 	
 	m.Value -= price
-	local newTier = _G.MapSystem.SpawnTierPlot(player, parentTier)
+	local newTier = Services.MapSystem.SpawnTierPlot(player, parentTier)
 	if not newTier then
 		m.Value += price
 		return false, "Spawn failed"
@@ -147,11 +147,11 @@ function IslandShopManager.HandleTierPurchase(player)
 end
 
 function IslandShopManager.GetTierInfo(player)
-	if not _G.MapSystem then return nil end
-	local ts = _G.MapSystem.GetPlayerTierSystem(player)
+	if not Services.MapSystem then return nil end
+	local ts = Services.MapSystem.GetPlayerTierSystem(player)
 	if not ts then return nil end
 	local cnt = #ts.Tiers
-	local Conf = _G.MapSystem.TIER_CONFIG
+	local Conf = Services.MapSystem.TIER_CONFIG
 	return {
 		CurrentTiers = cnt,
 		MaxTiers = Conf.MAX_TIERS,

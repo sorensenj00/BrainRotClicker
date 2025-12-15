@@ -317,8 +317,15 @@ local function createHoverTooltip(item, slotPosition)
 		vp.Parent = previewFrame
 		spawn3DPreviewForTooltip(vp, item.UUID)
 	else
+		-- Fallback icon logic if item.Icon is missing
+		local displayIcon = item.Icon
+		if not displayIcon or displayIcon == "" then
+			-- Try to look up based on base ID/Name if possible, or use generic
+			displayIcon = "⚔️" -- Generic artifact icon
+		end
+		
 		local iconLabel = Instance.new("TextLabel")
-		iconLabel.Text = item.Icon or "🎁"
+		iconLabel.Text = displayIcon
 		iconLabel.Size = UDim2.new(1, 0, 1, 0)
 		iconLabel.BackgroundTransparency = 1
 		iconLabel.TextSize = 60
@@ -511,7 +518,14 @@ local function openDetailPopup(item)
 		local icon = Instance.new("TextLabel") -- Using TextLabel for emoji icons?
 		-- If Icon is an asset ID, use ImageLabel. If emoji, use TextLabel.
 		-- Artifact system uses generic Image/Emoji.
-		icon.Text = item.Icon
+		
+		-- FALLBACK LOGIC
+		local displayIcon = item.Icon
+		if not displayIcon or displayIcon == "" then
+			displayIcon = "⚔️" -- Generic fallback
+		end
+		
+		icon.Text = displayIcon
 		icon.Size = UDim2.new(1,0,1,0)
 		icon.BackgroundTransparency = 1
 		icon.TextSize = 100
@@ -828,7 +842,19 @@ local function refreshGrid()
 		
 		-- Icon
 		local icon = Instance.new("TextLabel")
-		icon.Text = item.Icon
+		
+		-- robust fallback for icon
+		local displayIcon = item.Icon
+		if not displayIcon or displayIcon == "" then
+			displayIcon = "❓"
+			if item.Type == "Artifact" then
+				displayIcon = "⚔️"
+			elseif item.Type == "Unit" then
+				displayIcon = "👤"
+			end
+		end
+		
+		icon.Text = displayIcon
 		icon.Size = UDim2.new(1,0,1,0)
 		icon.BackgroundTransparency = 1
 		icon.TextSize = 24

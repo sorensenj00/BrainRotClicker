@@ -1,8 +1,10 @@
 --[[
-	InventoryService Server Script
+	InventoryService Server Module
 	
 	Aggregates Brainrot (Unit) and Artifact data into a unified "Item" format.
 	Serves as the single source of truth for the Unified Inventory UI.
+	
+	CONVERTED TO MODULE SCRIPT
 ]]
 
 local Players = game:GetService("Players")
@@ -17,21 +19,20 @@ local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 
--- Create RemoteFunction for fetching unified inventory
 local GetUnifiedInventoryFunc = RemoteFunctions:FindFirstChild("GetUnifiedInventory") or Instance.new("RemoteFunction")
 GetUnifiedInventoryFunc.Name = "GetUnifiedInventory"
 GetUnifiedInventoryFunc.Parent = RemoteFunctions
 
--- Create Event for updates
 local UnifiedInventoryChangedEvent = RemoteEvents:FindFirstChild("UnifiedInventoryChanged") or Instance.new("RemoteEvent")
 UnifiedInventoryChangedEvent.Name = "UnifiedInventoryChanged"
 UnifiedInventoryChangedEvent.Parent = RemoteEvents
+
+local InventoryService = {}
 
 --------------------------------------------------------------------------------
 -- DATA AGGREGATION
 --------------------------------------------------------------------------------
 
--- Helper to wait for BrainrotManager
 local function waitForBrainrotManager()
 	local attempts = 0
 	while not (_G.BrainrotManager and _G.BrainrotManager.GetInventoryData) and attempts < 50 do
@@ -41,30 +42,23 @@ local function waitForBrainrotManager()
 	return _G.BrainrotManager
 end
 
-local function getUnifiedInventory(player: Player)
-	local items: {ItemTypes.Item} = {}
-	
-	-- Ensure BrainrotManager is ready
+local function getUnifiedInventory(player)
+	local items = {}
 	local BrainrotManager = waitForBrainrotManager()
 	
-	-- 1. Get Units from BrainrotManager
+	-- 1. Units
 	if BrainrotManager and BrainrotManager.GetInventoryData then
 		local inventoryData = BrainrotManager.GetInventoryData(player)
-		-- inventoryData: { units = { [unitName]: {level, rarity, status} } }
-		
 		if inventoryData and inventoryData.units then
 			for unitName, data in pairs(inventoryData.units) do
-				-- Only include units the player actually owns (level >= 1)
 				local level = data.level or 0
-				if level < 1 then
-					continue
-				end
+				if level < 1 then continue end
 				
 				local config = ShopConfig.GetConfig(unitName)
-				local icon = config and config.Icon or "🧠" -- Fallback icon
+				local icon = config and config.Icon or "🧠"
 				
-				local newItem: ItemTypes.Item = {
-					UUID = unitName, -- Unit names are unique keys in the current system
+				local newItem = {
+					UUID = unitName,
 					Type = "Unit",
 					Id = unitName,
 					Name = config and config.Name or unitName,
@@ -74,7 +68,7 @@ local function getUnifiedInventory(player: Player)
 					IsPlaced = (data.status == "placed"),
 					Data = {
 						Level = level,
-						Equipment = {}, -- TODO: Fetch actual equipment if available
+						Equipment = {},
 						Stats = nil,
 						EquippedTo = nil,
 					}
@@ -84,14 +78,12 @@ local function getUnifiedInventory(player: Player)
 		end
 	end
 	
-	-- 2. Get Artifacts from ArtifactManager
+	-- 2. Artifacts
 	if _G.ArtifactManager and _G.ArtifactManager.GetPlayerArtifacts then
 		local artifactsData = _G.ArtifactManager.GetPlayerArtifacts(player)
-		-- artifactsData: {[GUID]: artifactData}
-		
 		if artifactsData then
 			for guid, data in pairs(artifactsData) do
-				local newItem: ItemTypes.Item = {
+				local newItem = {
 					UUID = guid,
 					Type = "Artifact",
 					Id = data.BaseId or "Artifact",
@@ -116,33 +108,17 @@ local function getUnifiedInventory(player: Player)
 end
 
 --------------------------------------------------------------------------------
--- EVENT LISTENERS
+-- API
 --------------------------------------------------------------------------------
 
--- Listen to existing events to trigger unified updates
-local InventoryChangedEvent = RemoteEvents:FindFirstChild("InventoryChanged")
-if InventoryChangedEvent then
-	-- We can't listen to RemoteEvent.OnServerEvent for server-side fires? 
-	-- Actually, BrainrotManager fires Client. We need to know when it happens on Server? 
-	-- BrainrotManager logic is Server -> Client.
-	-- We can wrap the BrainrotManager functions if we want real-time server updates,
-	-- OR we can just rely on the existing Client events and have the Client re-fetch from here.
-	-- BUT the plan was "Listens to changes in both managers".
-	-- Since Managers are global, we can hook into them or just let the Client request updates.
-	-- For simplicity and robustness, we'll let the Client decide when to fetch, 
-	-- aka the Client listens to "InventoryChanged" (Units) and "ArtifactDropped" (Artifacts)
-	-- and calls "GetUnifiedInventory".
+function InventoryService.Init()
+	print("   InventoryService (Module) - Initializing")
 	
-	-- However, to be "Unified", maybe we should emit one event?
-	-- For now, let's keep it simple: Client fetches.
+	GetUnifiedInventoryFunc.OnServerInvoke = function(player)
+		return getUnifiedInventory(player)
+	end
+	
+	print("✓ InventoryService Initialized")
 end
 
---------------------------------------------------------------------------------
--- HANDLERS
---------------------------------------------------------------------------------
-
-GetUnifiedInventoryFunc.OnServerInvoke = function(player)
-	return getUnifiedInventory(player)
-end
-
-print("✓ InventoryService Initialized")
+return InventoryService

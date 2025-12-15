@@ -35,19 +35,46 @@ local DataService = {}
 local Profiles: {[Player]: Profile} = {}
 local Handlers: {[string]: DataHandler} = {}
 
--- The store used for the new system
-local DATA_VERSION = "BrainRotClickerData_v2"
+-- The store used for the new system (V3 - Clean Start)
+local DATA_VERSION = "BrainRotClickerData_v3"
 local ProfileStore = ProfileService.GetProfileStore(
 	DATA_VERSION,
 	{
-		-- Initial Template
-		-- We use a flag to detect new profiles for migration
-		__IsNew = true
+		-- V3 Clean Schema - No legacy migration needed
+		money = 0,
+		lifetimeEarnings = 0,
+		
+		-- Brainrot Inventory (owned but not placed)
+		Inventory = {},
+		
+		-- Grid Placements (units on islands with tier info)
+		GridPlacements = {},
+		
+		-- Artifacts (all owned, with equipment links)
+		Artifacts = {},
+		
+		-- Item Storage & Backpack
+		ItemStorage = {},
+		Backpack = {},
+		
+		-- Prestige System
+		Prestige = {
+			totalMeatballs = 0,
+			spentMeatballs = 0,
+			prestigeCount = 0,
+			meatballUpgrades = {}
+		},
+		
+		-- Upgrades & Progress
+		storageCapacity = 2000,
+		purchasedTiers = 1,
+		unlockProgress = 5,
+		selectedVehicle = "Sneakers",
+		vehicleCapacities = {},
+		convenienceUpgrades = {},
+		discoveredSynergies = {}
 	}
 )
-
--- Legacy store for migration
-local LegacyStore = DataStoreService:GetDataStore("BrainRotClickerData_v1")
 
 --------------------------------------------------------------------------------
 -- PUBLIC API
@@ -151,44 +178,34 @@ function DataService.IsLoaded(player: Player): boolean
 	return Profiles[player] ~= nil
 end
 
---------------------------------------------------------------------------------
--- MIGRATION LOGIC
---------------------------------------------------------------------------------
-
-local function migrateLegacyData(player: Player, profile: Profile)
-	print("DataService: Checking for legacy data to migrate...")
-
-	local success, result = pcall(function()
-		return LegacyStore:GetAsync("Player_" .. player.UserId)
-	end)
-
-	if success and result then
-		print("DataService: Found legacy data, migrating...")
-
-		-- Deep copy legacy data into profile data
-		-- We assume the legacy data structure is compatible with what the game expects
-		for k, v in pairs(result) do
-			profile.Data[k] = v
-		end
-
-		-- Mark as migrated
-		profile.Data.__IsNew = nil
-		print("DataService: Migration successful.")
-	elseif success then
-		-- Success was true, but result was nil -> No legacy data existed. Safe to start fresh.
-		print("DataService: No legacy data found, starting fresh.")
-		profile.Data.__IsNew = nil
-	else
-		-- Success was false -> DataStore error.
-		-- CRITICAL: Do NOT mark as migrated or new. Kick player to prevent data loss.
-		warn("DataService: Failed to check legacy data (DataStore Error): " .. tostring(result))
-		player:Kick("Data Load Error: Failed to retrieve legacy data. Please rejoin.")
-
-		-- Return false to signal migration failure
-		return false
+--[[
+	COMPLETELY WIPES a player's profile from the DataStore.
+	Use this to fix corrupted data. The player will start fresh on next join.
+	@param player Player
+	@return boolean - Whether the wipe was successful
+]]
+function DataService.WipePlayerData(player: Player): boolean
+	-- First release the current profile if loaded
+	local profile = Profiles[player]
+	if profile then
+		profile:Release()
+		Profiles[player] = nil
 	end
-	return true
+	
+	-- Wipe the profile from DataStore
+	local success = ProfileStore:WipeProfileAsync("Player_" .. player.UserId)
+	if success then
+		print("DataService: WIPED all data for " .. player.Name .. " (UserId: " .. player.UserId .. ")")
+	else
+		warn("DataService: Failed to wipe data for " .. player.Name)
+	end
+	
+	return success
 end
+
+--------------------------------------------------------------------------------
+-- V3: No migration needed - fresh start
+--------------------------------------------------------------------------------
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -203,6 +220,43 @@ local function deepCopy(original)
 		copy[k] = v
 	end
 	return copy
+end
+
+--[[
+	Sanitizes strings to only contain valid ASCII characters (DataStore safe).
+	Removes any characters outside the printable ASCII range (32-126) except newlines.
+	@param str string - The string to sanitize
+	@return string - The sanitized string
+]]
+local function sanitizeString(str: string): string
+	-- Remove any characters that are not printable ASCII (32-126) or newlines/tabs
+	local sanitized = string.gsub(str, "[^%w%s%p]", "")
+	return sanitized
+end
+
+--[[
+	Recursively sanitizes all data for DataStore safety.
+	Removes non-ASCII characters from strings and skips unsaveable types.
+	@param data any - The data to sanitize
+	@return any - The sanitized data
+]]
+local function sanitizeData(data: any): any
+	if type(data) == "string" then
+		return sanitizeString(data)
+	elseif type(data) == "table" then
+		local clean = {}
+		for k, v in pairs(data) do
+			-- Sanitize key if it's a string
+			local cleanKey = type(k) == "string" and sanitizeString(k) or k
+			clean[cleanKey] = sanitizeData(v)
+		end
+		return clean
+	elseif type(data) == "number" or type(data) == "boolean" then
+		return data
+	else
+		-- Skip userdata, functions, threads, etc.
+		return nil
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -225,16 +279,7 @@ local function onPlayerAdded(player: Player)
 		if player:IsDescendantOf(Players) then
 			Profiles[player] = profile
 
-			-- Migration Check
-			local migrationSuccess = true
-			if profile.Data.__IsNew then
-				migrationSuccess = migrateLegacyData(player, profile)
-			end
-
-			if not migrationSuccess then
-				profile:Release()
-				return
-			end
+			-- V3: No migration needed - ProfileService Reconcile() applies defaults from template
 
 			-- Notify Handlers
 			for key, handler in pairs(Handlers) do
@@ -300,6 +345,20 @@ local function onPlayerRemoving(player: Player)
 				end
 			end
 		end
+
+		-- SANITIZE strings in-place before release to prevent UTF-8 errors
+		-- Use in-place sanitization to avoid breaking ProfileService internal structures
+		local function sanitizeInPlace(tbl)
+			for k, v in pairs(tbl) do
+				if type(v) == "string" then
+					-- Remove non-ASCII characters
+					tbl[k] = string.gsub(v, "[^%w%s%p]", "")
+				elseif type(v) == "table" then
+					sanitizeInPlace(v)
+				end
+			end
+		end
+		sanitizeInPlace(profile.Data)
 
 		profile:Release()
 	end

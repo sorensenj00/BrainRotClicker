@@ -2303,7 +2303,8 @@ if IsStudio == true then
 	task.spawn(function()
 		local status, message = pcall(function()
 			-- This will error if current instance has no Studio API access:
-			DataStoreService:GetDataStore("____PS"):SetAsync("____PS", os.time())
+			-- Using GetAsync instead of SetAsync to avoid "deleted datastore" errors
+			DataStoreService:GetDataStore("____PS"):GetAsync("____PS")
 		end)
 		local no_internet_access = status == false and string.find(message, "ConnectFail", 1, true) ~= nil
 		if no_internet_access == true then

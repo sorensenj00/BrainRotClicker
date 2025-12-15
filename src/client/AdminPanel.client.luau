@@ -23,7 +23,7 @@ local AdminAction = RemoteEvents:WaitForChild("AdminAction")
 -- Configuration
 local UI_CONFIG = {
 	BUTTON_SIZE = UDim2.new(0, 50, 0, 50),
-	PANEL_SIZE = UDim2.new(0, 200, 0, 250),
+	PANEL_SIZE = UDim2.new(0, 200, 0, 320), -- Increased for 4 buttons
 	COLOR_PRIMARY = Color3.fromRGB(40, 40, 50),
 	COLOR_ACCENT = Color3.fromRGB(255, 100, 100), -- Red for dev
 	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
@@ -123,6 +123,14 @@ end)
 createButton("🕊️ Toggle Fly", function()
 	local success, msg = AdminAction:InvokeServer("ToggleFly")
 	print(msg)
+end)
+
+createButton("💀 WIPE DATA", function()
+	local success, msg = AdminAction:InvokeServer("WipeProfile")
+	print(msg)
+	if success then
+		game.Players.LocalPlayer:Kick("Data wiped! Rejoin for fresh start.")
+	end
 end)
 
 -- Toggle Logic

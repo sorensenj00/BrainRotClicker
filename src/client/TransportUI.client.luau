@@ -64,6 +64,7 @@ local storageCapacity = 2000
 local storageUsage = 0
 local backpackCapacity = 100
 local backpackUsage = 0
+local selectedVehicle = "Sneakers"
 
 -- UI References
 local screenGui = nil
@@ -258,7 +259,7 @@ local function createBackpackPanel(parent)
 	title.Size = UDim2.new(1, -20, 0, 30)
 	title.Position = UDim2.new(0, 10, 0, 10)
 	title.BackgroundTransparency = 1
-	title.Text = "🎒 BACKPACK"
+	title.Text = "🛵 TRANSPORT MODE"
 	title.TextColor3 = COLORS.success
 	title.TextSize = 16
 	title.Font = Enum.Font.GothamBold
@@ -534,6 +535,12 @@ local function updateBackpackPanel()
 			text.Text = string.format("%d / %d", backpackUsage, backpackCapacity)
 		end
 	end
+	
+	-- Update title with vehicle name
+	local title = panel:FindFirstChild("Title")
+	if title then
+		title.Text = "🛵 TRANSPORT: " .. string.upper(selectedVehicle)
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -554,6 +561,13 @@ local function openUI()
 	currentBackpack = backpackItems or {}
 	backpackUsage = backpackTotal or 0
 	backpackCapacity = backpackCap or 100
+	
+	-- Fetch vehicle info
+	local vehicleInfo = GetVehicleInfoFunction:InvokeServer()
+	if vehicleInfo then
+		selectedVehicle = vehicleInfo.selectedVehicle or "Sneakers"
+		backpackCapacity = vehicleInfo.capacity or backpackCapacity
+	end
 	
 	-- Update UI
 	updateStoragePanel()
@@ -604,6 +618,7 @@ BackpackUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
 end)
 
 VehicleUpdatedEvent.OnClientEvent:Connect(function(vehicleId, newCapacity)
+	selectedVehicle = vehicleId or selectedVehicle
 	backpackCapacity = newCapacity or 100
 	if isOpen then
 		updateBackpackPanel()

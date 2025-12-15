@@ -212,20 +212,22 @@ local function createMoneyHUD(): ScreenGui
 	itemsBarFill.Parent = itemsBarBg
 	addCorner(itemsBarFill, 4)
 	
-	-- Action Icons Container
+	-- Action Icons Container (2x2 grid)
 	local actionsFrame = Instance.new("Frame")
 	actionsFrame.Name = "ActionsFrame"
-	actionsFrame.Size = UDim2.new(1, 0, 0, 50)
-	actionsFrame.Position = UDim2.new(0, 0, 0, 125)
+	actionsFrame.Size = UDim2.new(1, 0, 0, 115)  -- Height for 2 rows of buttons + padding
+	actionsFrame.Position = UDim2.new(0, 0, 0, 120)
 	actionsFrame.BackgroundTransparency = 1
 	actionsFrame.Parent = hudPanel
 	
-	local uiLayout = Instance.new("UIListLayout")
-	uiLayout.FillDirection = Enum.FillDirection.Horizontal
-	uiLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	uiLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	uiLayout.Padding = UDim.new(0, 15)
-	uiLayout.Parent = actionsFrame
+	local uiGrid = Instance.new("UIGridLayout")
+	uiGrid.CellSize = UDim2.new(0, 48, 0, 48)
+	uiGrid.CellPadding = UDim2.new(0, 15, 0, 15)
+	uiGrid.FillDirection = Enum.FillDirection.Horizontal
+	uiGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	uiGrid.VerticalAlignment = Enum.VerticalAlignment.Center
+	uiGrid.SortOrder = Enum.SortOrder.LayoutOrder
+	uiGrid.Parent = actionsFrame
 	
 	-- Helper to create icon buttons
 	local function createIconButton(name, textIcon, color, order)

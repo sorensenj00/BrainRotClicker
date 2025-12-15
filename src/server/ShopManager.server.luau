@@ -67,24 +67,10 @@ local PlayerUnlockProgress: {[Player]: number} = {}
 
 --[[
 	Initializes ownership tracking for a player.
+	NOTE: Leaderstats are created by DataManager, not here.
 ]]
 local function initializePlayerData(player: Player)
 	PlayerUnlockProgress[player] = ShopConfig.INITIAL_UNLOCKED
-	
-	-- Create leaderstats folder with Money (CRITICAL for economy system)
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then
-		leaderstats = Instance.new("Folder")
-		leaderstats.Name = "leaderstats"
-		leaderstats.Parent = player
-		
-		local money = Instance.new("IntValue")
-		money.Name = "Money"
-		money.Value = 100 -- Default starting money
-		money.Parent = leaderstats
-		
-		print(string.format("✓ Created leaderstats for %s with $%d", player.Name, money.Value))
-	end
 	
 	-- Create an "OwnedUnits" folder under player for easy inspection (Legacy/Visual)
 	local ownedFolder = Instance.new("Folder")

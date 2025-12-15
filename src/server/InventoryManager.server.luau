@@ -188,9 +188,11 @@ DataService.RegisterHandler(COMPONENT_KEY, {
 	OnLoad = function(player: Player, data: any)
 		-- Data is already in Profile.Data.Inventory
 		-- Just fire the change signal to notify BrainrotManager
-		print(string.format("InventoryManager: Loaded %d units for %s", 
-			data and #(function() local c=0; for _ in pairs(data) do c+=1 end; return c end)() or 0,
-			player.Name))
+		local unitCount = 0
+		if data and type(data) == "table" then
+			for _ in pairs(data) do unitCount += 1 end
+		end
+		print(string.format("InventoryManager: Loaded %d units for %s", unitCount, player.Name))
 		
 		-- Fire reload signal so BrainrotManager can spawn units
 		task.defer(function()

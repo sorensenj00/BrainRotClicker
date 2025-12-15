@@ -34,8 +34,8 @@ local StorageUpgradedEvent = Instance.new("RemoteEvent")
 StorageUpgradedEvent.Name = "StorageUpgraded"
 StorageUpgradedEvent.Parent = RemoteEvents
 
--- Wait for BrainrotManager API
-local function waitForBrainrotManager()
+-- Wait for BrainrotManager API (legacy, kept for compatibility)
+local function _waitForBrainrotManager()
 	local attempts = 0
 	while not _G.BrainrotManager and attempts < 50 do
 		attempts += 1
@@ -84,11 +84,22 @@ local function getNewMaxStorage(currentMax: number): number
 end
 
 --------------------------------------------------------------------------------
--- PURCHASE LOGIC
+-- PURCHASE LOGIC (DELEGATES TO ItemStorageManager)
 --------------------------------------------------------------------------------
+
+-- Wait for ItemStorageManager API
+local function waitForItemStorageManager()
+	local attempts = 0
+	while not _G.ItemStorageManager and attempts < 50 do
+		attempts += 1
+		task.wait(0.1)
+	end
+	return _G.ItemStorageManager
+end
 
 --[[
 	Handles a storage upgrade request from a client.
+	Now delegates to ItemStorageManager for the actual upgrade.
 	
 	@param player Player - The player making the purchase
 	@return boolean, string? - Success status and optional message
@@ -108,80 +119,38 @@ local function handleUpgradeStorage(player: Player): (boolean, string?)
 		end
 	end
 	
-	-- Get player's plot
-	local BrainrotManager = waitForBrainrotManager()
-	if not BrainrotManager then
-		return false, "Server error: BrainrotManager not available"
+	-- Delegate to ItemStorageManager
+	local ItemStorageManager = waitForItemStorageManager()
+	if not ItemStorageManager then
+		return false, "Server error: ItemStorageManager not available"
 	end
 	
-	local plot = BrainrotManager.GetPlayerPlot(player)
-	if not plot then
-		return false, "You don't have a plot!"
+	local success, message = ItemStorageManager.UpgradeStorage(player)
+	
+	if success then
+		-- Get updated info to notify client
+		local info = ItemStorageManager.GetStorageUpgradeInfo(player)
+		StorageUpgradedEvent:FireClient(player, {
+			currentMax = info.currentCapacity,
+			upgradeLevel = info.upgradeLevel,
+			nextPrice = info.nextPrice,
+			nextMaxStorage = info.nextCapacity,
+		})
 	end
 	
-	-- Get current storage info
-	local currentMax = plot:GetAttribute("MaxStorage") or CONFIG.BASE_STORAGE
-	local upgradeLevel = getUpgradeLevel(currentMax)
-	local upgradePrice = getUpgradePrice(upgradeLevel)
-	
-	-- Check if player has enough money
-	local leaderstats = player:FindFirstChild("leaderstats")
-	if not leaderstats then
-		return false, "No leaderstats found"
-	end
-	
-	local money = leaderstats:FindFirstChild("Money")
-	if not money then
-		return false, "No money found"
-	end
-	
-	if money.Value < upgradePrice then
-		return false, string.format("Not enough money! Need $%d, have $%d", upgradePrice, money.Value)
-	end
-	
-	-- Deduct money
-	money.Value = money.Value - upgradePrice
-	
-	-- Calculate new max storage (doubles)
-	local newMaxStorage = getNewMaxStorage(currentMax)
-	
-	-- Update plot attribute
-	plot:SetAttribute("MaxStorage", newMaxStorage)
-	
-	-- Update visual display
-	local currentStorage = plot:GetAttribute("CurrentStorage") or 0
-	if BrainrotManager.UpdateStorageVisual then
-		BrainrotManager.UpdateStorageVisual(plot, currentStorage, newMaxStorage)
-	end
-	
-	-- Calculate next upgrade info
-	local newUpgradeLevel = upgradeLevel + 1
-	local nextPrice = getUpgradePrice(newUpgradeLevel)
-	local nextMaxStorage = getNewMaxStorage(newMaxStorage)
-	
-	-- Notify client of upgrade
-	StorageUpgradedEvent:FireClient(player, {
-		currentMax = newMaxStorage,
-		upgradeLevel = newUpgradeLevel,
-		nextPrice = nextPrice,
-		nextMaxStorage = nextMaxStorage,
-	})
-	
-	print(string.format("✓ %s upgraded storage: $%d → %d capacity (Level %d)", 
-		player.Name, upgradePrice, newMaxStorage, newUpgradeLevel))
-	
-	return true, "Storage upgraded!"
+	return success, message
 end
 
 --[[
 	Gets storage info for a player (for UI).
+	Now delegates to ItemStorageManager.
 	
 	@param player Player - The player to get info for
 	@return table - Storage upgrade info
 ]]
 local function handleGetStorageInfo(player: Player)
-	local BrainrotManager = waitForBrainrotManager()
-	if not BrainrotManager then
+	local ItemStorageManager = waitForItemStorageManager()
+	if not ItemStorageManager then
 		return {
 			currentMax = CONFIG.BASE_STORAGE,
 			upgradeLevel = 0,
@@ -190,26 +159,14 @@ local function handleGetStorageInfo(player: Player)
 		}
 	end
 	
-	local plot = BrainrotManager.GetPlayerPlot(player)
-	if not plot then
-		return {
-			currentMax = CONFIG.BASE_STORAGE,
-			upgradeLevel = 0,
-			nextPrice = CONFIG.BASE_PRICE,
-			nextMaxStorage = CONFIG.BASE_STORAGE * 2,
-		}
-	end
+	local info = ItemStorageManager.GetStorageUpgradeInfo(player)
 	
-	local currentMax = plot:GetAttribute("MaxStorage") or CONFIG.BASE_STORAGE
-	local upgradeLevel = getUpgradeLevel(currentMax)
-	local nextPrice = getUpgradePrice(upgradeLevel)
-	local nextMaxStorage = getNewMaxStorage(currentMax)
-	
+	-- Map to expected format for UI compatibility
 	return {
-		currentMax = currentMax,
-		upgradeLevel = upgradeLevel,
-		nextPrice = nextPrice,
-		nextMaxStorage = nextMaxStorage,
+		currentMax = info.currentCapacity,
+		upgradeLevel = info.upgradeLevel,
+		nextPrice = info.nextPrice,
+		nextMaxStorage = info.nextCapacity,
 	}
 end
 

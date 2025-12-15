@@ -21,27 +21,38 @@ local Player = Players.LocalPlayer
 local ShopConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ShopConfig"))
 local ItemConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ItemConfig"))
 
+-- Wait for RarityConfig to get colors
+local RarityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RarityConfig"))
+
 -- Configuration
 local HUD_CONFIG = {
-	-- Billboard settings
-	BILLBOARD_SIZE = UDim2.new(0, 80, 0, 30),
-	BILLBOARD_OFFSET = Vector3.new(0, 4, 0), -- Above the model
+	-- Billboard settings (bigger to fit all info)
+	BILLBOARD_SIZE = UDim2.new(0, 120, 0, 50),
 	MAX_DISTANCE = 100,
 	
+	-- Card styling (dark theme)
+	CARD_BACKGROUND = Color3.fromRGB(25, 25, 35),
+	CARD_STROKE_COLOR = Color3.fromRGB(80, 80, 100),
+	CARD_STROKE_THICKNESS = 1,
+	CORNER_RADIUS = 8,
+	
 	-- Progress bar
-	BAR_HEIGHT = 8,
+	BAR_HEIGHT = 6,
 	BAR_BACKGROUND_COLOR = Color3.fromRGB(40, 40, 50),
 	BAR_FILL_COLOR = Color3.fromRGB(100, 220, 100),
 	BAR_COMPLETE_COLOR = Color3.fromRGB(255, 215, 0),
-	CORNER_RADIUS = 4,
+	
+	-- Text
+	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
+	SUBTEXT_COLOR = Color3.fromRGB(180, 180, 200),
 	
 	-- Floating text
 	FLOAT_DISTANCE = 40,
 	FLOAT_DURATION = 1.2,
-	TEXT_COLOR = Color3.fromRGB(100, 200, 255),  -- Blue for items
+	FLOAT_TEXT_COLOR = Color3.fromRGB(100, 200, 255),
 	
 	-- Item tier emojis
-	TIER_EMOJI = {"⚪", "🟡", "🟠", "💎"},
+	TIER_EMOJI = {"⚪", "🟡", "🟠", "💎", "💠"},
 }
 
 -- Tag
@@ -55,13 +66,47 @@ local ActiveHUDs: {[Instance]: {billboard: BillboardGui, startTime: number}} = {
 --------------------------------------------------------------------------------
 
 --[[
-	Creates a BillboardGui with progress bar for a brainrot unit.
+	Calculates the height offset needed to position HUD above model's top.
+	Uses bounding box calculation similar to GridManager grounding approach.
+]]
+local function calculateHUDOffset(brainrot: Instance): Vector3
+	local HUD_PADDING = 4 -- Extra studs above the model's top
+	
+	if brainrot:IsA("Model") then
+		local success, boundsCF, boundsSize = pcall(function()
+			return brainrot:GetBoundingBox()
+		end)
+		
+		if success and boundsSize then
+			-- Get model's pivot position and bounds center
+			local pivotPos = brainrot:GetPivot().Position
+			local boundsCenter = boundsCF.Position
+			
+			-- Model's top Y in world space
+			local modelTopY = boundsCenter.Y + (boundsSize.Y / 2)
+			
+			-- How far above the pivot is the top of the model
+			local pivotToTop = modelTopY - pivotPos.Y
+			
+			-- HUD should be at top + padding
+			local offsetY = pivotToTop + HUD_PADDING
+			
+			return Vector3.new(0, offsetY, 0)
+		end
+	end
+	
+	-- Fallback for non-models or if bounding box fails
+	return Vector3.new(0, 4.5, 0)
+end
+
+--[[
+	Creates a unified BillboardGui with stats and progress bar for a brainrot unit.
 ]]
 local function createProgressHUD(brainrot: Instance): BillboardGui
 	local billboard = Instance.new("BillboardGui")
-	billboard.Name = "ProgressHUD"
+	billboard.Name = "UnitHUD"
 	billboard.Size = HUD_CONFIG.BILLBOARD_SIZE
-	billboard.StudsOffset = HUD_CONFIG.BILLBOARD_OFFSET
+	billboard.StudsOffset = calculateHUDOffset(brainrot) -- Dynamic offset based on model height
 	billboard.AlwaysOnTop = false
 	billboard.MaxDistance = HUD_CONFIG.MAX_DISTANCE
 	billboard.LightInfluence = 0
@@ -73,24 +118,79 @@ local function createProgressHUD(brainrot: Instance): BillboardGui
 		billboard.Adornee = brainrot
 	end
 	
-	-- Container frame
+	-- Main card container with dark background
+	local card = Instance.new("Frame")
+	card.Name = "Card"
+	card.Size = UDim2.new(1, 0, 1, 0)
+	card.BackgroundColor3 = HUD_CONFIG.CARD_BACKGROUND
+	card.BackgroundTransparency = 0.15
+	card.BorderSizePixel = 0
+	card.Parent = billboard
+	
+	-- Card rounded corners
+	local cardCorner = Instance.new("UICorner")
+	cardCorner.CornerRadius = UDim.new(0, HUD_CONFIG.CORNER_RADIUS)
+	cardCorner.Parent = card
+	
+	-- Card stroke
+	local cardStroke = Instance.new("UIStroke")
+	cardStroke.Color = HUD_CONFIG.CARD_STROKE_COLOR
+	cardStroke.Thickness = HUD_CONFIG.CARD_STROKE_THICKNESS
+	cardStroke.Transparency = 0.3
+	cardStroke.Parent = card
+	
+	-- Padding inside card
+	local cardPadding = Instance.new("UIPadding")
+	cardPadding.PaddingLeft = UDim.new(0, 6)
+	cardPadding.PaddingRight = UDim.new(0, 6)
+	cardPadding.PaddingTop = UDim.new(0, 4)
+	cardPadding.PaddingBottom = UDim.new(0, 6)
+	cardPadding.Parent = card
+	
+	-- Content container (transparent, for layout)
 	local container = Instance.new("Frame")
 	container.Name = "Container"
 	container.Size = UDim2.new(1, 0, 1, 0)
 	container.BackgroundTransparency = 1
-	container.Parent = billboard
+	container.Parent = card
 	
-	-- Progress bar background
+	-- Stats row (Level | Tier)
+	local statsLabel = Instance.new("TextLabel")
+	statsLabel.Name = "StatsLabel"
+	statsLabel.Size = UDim2.new(1, 0, 0, 14)
+	statsLabel.Position = UDim2.new(0, 0, 0, 0)
+	statsLabel.BackgroundTransparency = 1
+	statsLabel.Text = "Lvl 1 | Tier 1"
+	statsLabel.TextColor3 = HUD_CONFIG.TEXT_COLOR
+	statsLabel.TextSize = 12
+	statsLabel.Font = Enum.Font.GothamBold
+	statsLabel.TextXAlignment = Enum.TextXAlignment.Center
+	statsLabel.Parent = container
+	
+	-- Rarity label
+	local rarityLabel = Instance.new("TextLabel")
+	rarityLabel.Name = "RarityLabel"
+	rarityLabel.Size = UDim2.new(1, 0, 0, 12)
+	rarityLabel.Position = UDim2.new(0, 0, 0, 14)
+	rarityLabel.BackgroundTransparency = 1
+	rarityLabel.Text = "Normal"
+	rarityLabel.TextColor3 = HUD_CONFIG.SUBTEXT_COLOR
+	rarityLabel.TextSize = 10
+	rarityLabel.Font = Enum.Font.Gotham
+	rarityLabel.TextXAlignment = Enum.TextXAlignment.Center
+	rarityLabel.Parent = container
+	
+	-- Progress bar background (at bottom of card)
 	local barBg = Instance.new("Frame")
 	barBg.Name = "BarBackground"
 	barBg.Size = UDim2.new(1, 0, 0, HUD_CONFIG.BAR_HEIGHT)
-	barBg.Position = UDim2.new(0, 0, 1, -HUD_CONFIG.BAR_HEIGHT - 5)
+	barBg.Position = UDim2.new(0, 0, 1, -HUD_CONFIG.BAR_HEIGHT)
 	barBg.BackgroundColor3 = HUD_CONFIG.BAR_BACKGROUND_COLOR
 	barBg.BorderSizePixel = 0
 	barBg.Parent = container
 	
 	local bgCorner = Instance.new("UICorner")
-	bgCorner.CornerRadius = UDim.new(0, HUD_CONFIG.CORNER_RADIUS)
+	bgCorner.CornerRadius = UDim.new(0, 3)
 	bgCorner.Parent = barBg
 	
 	-- Progress bar fill
@@ -102,22 +202,8 @@ local function createProgressHUD(brainrot: Instance): BillboardGui
 	barFill.Parent = barBg
 	
 	local fillCorner = Instance.new("UICorner")
-	fillCorner.CornerRadius = UDim.new(0, HUD_CONFIG.CORNER_RADIUS)
+	fillCorner.CornerRadius = UDim.new(0, 3)
 	fillCorner.Parent = barFill
-	
-	-- Item type label (shows item name)
-	local incomeLabel = Instance.new("TextLabel")
-	incomeLabel.Name = "ItemLabel"
-	incomeLabel.Size = UDim2.new(1, 0, 0, 16)
-	incomeLabel.Position = UDim2.new(0, 0, 0, 0)
-	incomeLabel.BackgroundTransparency = 1
-	incomeLabel.Text = ""
-	incomeLabel.TextColor3 = HUD_CONFIG.TEXT_COLOR
-	incomeLabel.TextSize = 12
-	incomeLabel.Font = Enum.Font.GothamBold
-	incomeLabel.TextStrokeTransparency = 0.5
-	incomeLabel.TextStrokeColor3 = Color3.new(0, 0, 0)
-	incomeLabel.Parent = container
 	
 	-- Parent to brainrot
 	billboard.Parent = brainrot
@@ -129,7 +215,10 @@ end
 	Creates a floating item text that rises and fades.
 ]]
 local function createFloatingText(billboard: BillboardGui, itemId: string)
-	local container = billboard:FindFirstChild("Container")
+	-- Navigate through new Card hierarchy
+	local card = billboard:FindFirstChild("Card")
+	if not card then return end
+	local container = card:FindFirstChild("Container")
 	if not container then return end
 	
 	-- Get item info for display
@@ -143,7 +232,7 @@ local function createFloatingText(billboard: BillboardGui, itemId: string)
 	floatText.Position = UDim2.new(0, 0, 0.5, -10)
 	floatText.BackgroundTransparency = 1
 	floatText.Text = emoji .. " +1"
-	floatText.TextColor3 = HUD_CONFIG.TEXT_COLOR
+	floatText.TextColor3 = HUD_CONFIG.FLOAT_TEXT_COLOR
 	floatText.TextSize = 16
 	floatText.Font = Enum.Font.GothamBold
 	floatText.TextStrokeTransparency = 0
@@ -232,7 +321,34 @@ local function isOwnedByPlayer(brainrot: Instance): boolean
 end
 
 --[[
-	Sets up a progress HUD for a brainrot.
+	Updates HUD labels from brainrot attributes.
+]]
+local function updateHUDLabels(brainrot: Instance, billboard: BillboardGui)
+	local card = billboard:FindFirstChild("Card")
+	if not card then return end
+	local container = card:FindFirstChild("Container")
+	if not container then return end
+	
+	local level = brainrot:GetAttribute("Level") or 1
+	local tier = brainrot:GetAttribute("ItemTier") or 1
+	local rarity = brainrot:GetAttribute("Rarity") or "Normal"
+	
+	-- Update stats label
+	local statsLabel = container:FindFirstChild("StatsLabel")
+	if statsLabel then
+		statsLabel.Text = string.format("Lvl %d | Tier %d", level, tier)
+	end
+	
+	-- Update rarity label with color
+	local rarityLabel = container:FindFirstChild("RarityLabel")
+	if rarityLabel then
+		rarityLabel.Text = rarity
+		rarityLabel.TextColor3 = RarityConfig.GetColor(rarity)
+	end
+end
+
+--[[
+	Sets up a unified HUD for a brainrot.
 ]]
 local function setupBrainrotHUD(brainrot: Instance)
 	-- Only show HUD for player's own units
@@ -243,6 +359,15 @@ local function setupBrainrotHUD(brainrot: Instance)
 	-- Skip if already has HUD
 	if ActiveHUDs[brainrot] then
 		return
+	end
+	
+	-- Remove any server-created StatsDisplay to avoid duplicates
+	local head = brainrot:FindFirstChild("Head") or (brainrot :: Model).PrimaryPart
+	if head then
+		local oldDisplay = head:FindFirstChild("StatsDisplay")
+		if oldDisplay then
+			oldDisplay:Destroy()
+		end
 	end
 	
 	local billboard = createProgressHUD(brainrot)
@@ -261,14 +386,21 @@ local function setupBrainrotHUD(brainrot: Instance)
 		lastCycle = 0,
 	}
 	
-	-- Update item label
-	local itemLabel = billboard.Container:FindFirstChild("ItemLabel")
-	if itemLabel then
-		local itemInfo = ItemConfig.Items[producedItem]
-		local tier = itemInfo and itemInfo.tier or 1
-		local emoji = HUD_CONFIG.TIER_EMOJI[tier] or "⚪"
-		itemLabel.Text = emoji .. " " .. producedItem
-	end
+	-- Update stats/rarity labels from attributes
+	updateHUDLabels(brainrot, billboard)
+	
+	-- Listen for attribute changes to keep HUD in sync
+	brainrot.AttributeChanged:Connect(function(attributeName)
+		if attributeName == "Level" or attributeName == "ItemTier" or attributeName == "Rarity" then
+			updateHUDLabels(brainrot, billboard)
+		end
+		if attributeName == "IncomeInterval" then
+			local hudData = ActiveHUDs[brainrot]
+			if hudData then
+				hudData.cycleTime = getCycleTime(brainrot)
+			end
+		end
+	end)
 end
 
 --[[
@@ -302,7 +434,9 @@ local function updateProgressBars()
 			continue
 		end
 		
-		local container = billboard:FindFirstChild("Container")
+		local card = billboard:FindFirstChild("Card")
+		if not card then continue end
+		local container = card:FindFirstChild("Container")
 		if not container then continue end
 		
 		local barBg = container:FindFirstChild("BarBackground")

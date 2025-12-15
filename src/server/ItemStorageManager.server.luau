@@ -214,6 +214,108 @@ local function setStorageCapacity(player, capacity)
 end
 
 --[[
+	Gets the current upgrade level for a player based on their capacity.
+	@param player Player - The player
+	@return number - Upgrade level (0-based index into STORAGE_UPGRADES)
+]]
+local function getUpgradeLevel(player)
+	local capacity = getStorageCapacity(player)
+	
+	-- Find which tier matches current capacity
+	for i, tier in ipairs(CONFIG.STORAGE_UPGRADES) do
+		if capacity <= tier.capacity then
+			return i - 1 -- 0-based level
+		end
+	end
+	
+	return #CONFIG.STORAGE_UPGRADES - 1 -- Max level
+end
+
+--[[
+	Gets the price for the next storage upgrade.
+	@param player Player - The player
+	@return number, number - Price for next upgrade, new capacity after upgrade
+]]
+local function getUpgradePrice(player)
+	local level = getUpgradeLevel(player)
+	local nextLevel = level + 1
+	
+	-- Check if max level
+	if nextLevel >= #CONFIG.STORAGE_UPGRADES then
+		return 0, math.huge -- Already maxed
+	end
+	
+	local nextTier = CONFIG.STORAGE_UPGRADES[nextLevel + 1]
+	return nextTier.cost, nextTier.capacity
+end
+
+--[[
+	Gets storage upgrade info for UI.
+	@param player Player - The player
+	@return table - { currentCapacity, upgradeLevel, nextPrice, nextCapacity }
+]]
+local function getStorageUpgradeInfo(player)
+	local currentCapacity = getStorageCapacity(player)
+	local level = getUpgradeLevel(player)
+	local nextPrice, nextCapacity = getUpgradePrice(player)
+	
+	return {
+		currentCapacity = currentCapacity,
+		upgradeLevel = level,
+		nextPrice = nextPrice,
+		nextCapacity = nextCapacity,
+	}
+end
+
+--[[
+	Attempts to upgrade storage for a player.
+	Deducts money and increases capacity.
+	@param player Player - The player
+	@return boolean, string - Success, message
+]]
+local function upgradeStorage(player)
+	local storage = PlayerStorage[player]
+	if not storage then
+		return false, "Storage not initialized"
+	end
+	
+	local level = getUpgradeLevel(player)
+	local nextLevel = level + 1
+	
+	-- Check if already maxed
+	if nextLevel >= #CONFIG.STORAGE_UPGRADES then
+		return false, "Storage already at maximum!"
+	end
+	
+	local nextTier = CONFIG.STORAGE_UPGRADES[nextLevel + 1]
+	local cost = nextTier.cost
+	
+	-- Check money
+	local leaderstats = player:FindFirstChild("leaderstats")
+	local money = leaderstats and leaderstats:FindFirstChild("Money")
+	
+	if not money then
+		return false, "No money found"
+	end
+	
+	if money.Value < cost then
+		return false, string.format("Not enough money! Need $%d, have $%d", cost, money.Value)
+	end
+	
+	-- Deduct money
+	money.Value = money.Value - cost
+	
+	-- Upgrade capacity
+	local newCapacity = nextTier.capacity
+	setStorageCapacity(player, newCapacity)
+	
+	print(string.format("✓ %s upgraded storage: $%d → %d capacity (Level %d)", 
+		player.Name, cost, newCapacity, nextLevel))
+	
+	return true, string.format("Storage upgraded to %d!", newCapacity)
+end
+
+--[[
 	Checks if storage is full.
 	@param player Player - The player
 	@return boolean - True if storage is at capacity
@@ -459,6 +561,83 @@ GetBackpackFunction.OnServerInvoke = function(player)
 end
 
 --------------------------------------------------------------------------------
+-- TAKE FROM STORAGE (WITH ISLAND VERIFICATION)
+--------------------------------------------------------------------------------
+
+-- Create the TakeFromStorage RemoteEvent
+local TakeFromStorageEvent = RemoteEvents:FindFirstChild("TakeFromStorage") or Instance.new("RemoteEvent")
+TakeFromStorageEvent.Name = "TakeFromStorage"
+TakeFromStorageEvent.Parent = RemoteEvents
+
+--[[
+	Checks if player is currently on their own island.
+	@param player Player - The player to check
+	@return boolean - True if on own island
+]]
+local function isPlayerOnOwnIsland(player)
+	local character = player.Character
+	if not character then return false end
+	
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return false end
+	
+	local playerPos = hrp.Position
+	local plotsFolder = workspace:FindFirstChild("Plots")
+	if not plotsFolder then return false end
+	
+	for _, plot in plotsFolder:GetChildren() do
+		local ownerId = plot:GetAttribute("OwnerId")
+		if ownerId == player.UserId then
+			-- Find the floor part
+			local floor = plot:FindFirstChild("Island")
+				or plot:FindFirstChild("PlotFloor")
+				or plot:FindFirstChild("Floor")
+				or plot:FindFirstChildWhichIsA("BasePart")
+			
+			if floor then
+				local floorPos = floor.Position
+				local floorSize = floor.Size
+				
+				-- Check if player is within plot bounds (XZ)
+				local dx = math.abs(playerPos.X - floorPos.X)
+				local dz = math.abs(playerPos.Z - floorPos.Z)
+				
+				if dx <= floorSize.X / 2 + 10 and dz <= floorSize.Z / 2 + 10 then
+					return true
+				end
+			end
+		end
+	end
+	
+	return false
+end
+
+--[[
+	Handle TakeFromStorage request from client.
+	Verifies player is on their own island before allowing transfer.
+]]
+TakeFromStorageEvent.OnServerEvent:Connect(function(player, itemId, count)
+	-- Security check: verify player is on their own island
+	if not isPlayerOnOwnIsland(player) then
+		warn(string.format("TakeFromStorage denied: %s is not on their island", player.Name))
+		return
+	end
+	
+	-- Validate inputs
+	if type(itemId) ~= "string" or type(count) ~= "number" then
+		return
+	end
+	count = math.floor(math.max(1, count)) -- Ensure positive integer
+	
+	-- Perform the transfer using existing function
+	local transferred = takeFromStorage(player, itemId, count)
+	
+	if transferred > 0 then
+		print(string.format("✓ %s took %d %s from storage", player.Name, transferred, itemId))
+	end
+end)
+
+--------------------------------------------------------------------------------
 -- PLAYER EVENTS
 --------------------------------------------------------------------------------
 
@@ -515,6 +694,12 @@ _G.ItemStorageManager = {
 	GetStorageCapacity = getStorageCapacity,
 	SetStorageCapacity = setStorageCapacity,
 	IsStorageFull = isStorageFull,
+	
+	-- Storage upgrades
+	GetUpgradeLevel = getUpgradeLevel,
+	GetUpgradePrice = getUpgradePrice,
+	GetStorageUpgradeInfo = getStorageUpgradeInfo,
+	UpgradeStorage = upgradeStorage,
 	
 	-- Backpack operations
 	AddToBackpack = addToBackpack,

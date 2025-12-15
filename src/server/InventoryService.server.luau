@@ -31,16 +31,35 @@ UnifiedInventoryChangedEvent.Parent = RemoteEvents
 -- DATA AGGREGATION
 --------------------------------------------------------------------------------
 
+-- Helper to wait for BrainrotManager
+local function waitForBrainrotManager()
+	local attempts = 0
+	while not (_G.BrainrotManager and _G.BrainrotManager.GetInventoryData) and attempts < 50 do
+		attempts += 1
+		task.wait(0.1)
+	end
+	return _G.BrainrotManager
+end
+
 local function getUnifiedInventory(player: Player)
 	local items: {ItemTypes.Item} = {}
 	
+	-- Ensure BrainrotManager is ready
+	local BrainrotManager = waitForBrainrotManager()
+	
 	-- 1. Get Units from BrainrotManager
-	if _G.BrainrotManager and _G.BrainrotManager.GetInventoryData then
-		local unitsData = _G.BrainrotManager.GetInventoryData(player)
-		-- unitsData: {[unitName]: {level, rarity, status}}
+	if BrainrotManager and BrainrotManager.GetInventoryData then
+		local inventoryData = BrainrotManager.GetInventoryData(player)
+		-- inventoryData: { units = { [unitName]: {level, rarity, status} } }
 		
-		if unitsData then
-			for unitName, data in pairs(unitsData) do
+		if inventoryData and inventoryData.units then
+			for unitName, data in pairs(inventoryData.units) do
+				-- Only include units the player actually owns (level >= 1)
+				local level = data.level or 0
+				if level < 1 then
+					continue
+				end
+				
 				local config = ShopConfig.GetConfig(unitName)
 				local icon = config and config.Icon or "🧠" -- Fallback icon
 				
@@ -54,7 +73,7 @@ local function getUnifiedInventory(player: Player)
 					IsEquipped = false,
 					IsPlaced = (data.status == "placed"),
 					Data = {
-						Level = data.level or 1,
+						Level = level,
 						Equipment = {}, -- TODO: Fetch actual equipment if available
 						Stats = nil,
 						EquippedTo = nil,

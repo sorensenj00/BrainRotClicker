@@ -953,15 +953,24 @@ local function getGridPositions(player)
 	for slotIndex, slotData in pairs(gridData.slots) do
 		local entry = { Unit = nil, Tile = slotData.Tile }
 		
-		if slotData.Unit then
+	if slotData.Unit then
 			local brainrot = slotData.Unit
-			entry.Unit = {
-				unitType = brainrot:GetAttribute("UnitType"),
-				rarity = brainrot:GetAttribute("Rarity") or "Normal",
-				level = brainrot:GetAttribute("Level") or 1,
-				unitId = brainrot:GetAttribute("UnitId"),
-				equippedArtifacts = brainrot:GetAttribute("EquippedArtifacts") or {},
-			}
+			-- Only save primitive values that can be serialized to DataStore
+			local unitType = brainrot:GetAttribute("UnitType")
+			local rarity = brainrot:GetAttribute("Rarity")
+			local level = brainrot:GetAttribute("Level")
+			local unitId = brainrot:GetAttribute("UnitId")
+			
+			-- Only create entry if we have valid unit data
+			if unitType and typeof(unitType) == "string" then
+				entry.Unit = {
+					unitType = unitType,
+					rarity = (typeof(rarity) == "string") and rarity or "Normal",
+					level = (typeof(level) == "number") and level or 1,
+					unitId = (typeof(unitId) == "string") and unitId or nil,
+					-- NOTE: equippedArtifacts removed - can contain non-serializable Instance data
+				}
+			end
 		end
 		
 		-- Only save slots that have content
@@ -1090,7 +1099,12 @@ end
 --------------------------------------------------------------------------------
 
 Players.PlayerRemoving:Connect(function(player)
-	PlayerGrids[player.UserId] = nil
+	-- IMPORTANT: Delay cleanup to ensure DataService.OnSave has time to gather placement data first.
+	-- DataService also listens to PlayerRemoving, and event handler order is not guaranteed.
+	-- The 2-second delay ensures gatherPlayerData() can read PlayerGrids before it's cleared.
+	task.delay(2, function()
+		PlayerGrids[player.UserId] = nil
+	end)
 end)
 
 print("═══════════════════════════════════════════")

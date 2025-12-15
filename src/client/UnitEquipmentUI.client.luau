@@ -427,12 +427,13 @@ local function createEquipmentUI()
 		slotCorner.CornerRadius = UDim.new(0, 8)
 		slotCorner.Parent = slotFrame
 		
-		-- Slot icon
+		-- Slot icon (empty by default, shows artifact icon when equipped)
 		local icon = Instance.new("TextLabel")
 		icon.Name = "Icon"
 		icon.Size = UDim2.new(0, 40, 1, 0)
 		icon.BackgroundTransparency = 1
-		icon.Text = slotIcons[slotName] or "?"
+		icon.Text = "—"  -- Empty placeholder
+		icon.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
 		icon.TextSize = 24
 		icon.Parent = slotFrame
 		
@@ -591,15 +592,26 @@ local function refreshEquipmentSlots()
 	for _, slotName in ipairs({"Head", "Body", "Accessory"}) do
 		local slotFrame = slotsContainer:FindFirstChild("Slot_" .. slotName)
 		if slotFrame then
+			local slotIcon = slotFrame:FindFirstChild("Icon")
 			local artifactLabel = slotFrame:FindFirstChild("ArtifactLabel")
 			local unequipBtn = slotFrame:FindFirstChild("UnequipButton")
 			
 			local artifact = equippedToUnit[slotName]
 			if artifact then
+				-- Show artifact icon and name
+				if slotIcon then
+					slotIcon.Text = artifact.BaseIcon or ArtifactConfig.SlotIcons[slotName] or "📿"
+					slotIcon.TextColor3 = getRarityColor(artifact.Rarity)
+				end
 				artifactLabel.Text = artifact.Name
 				artifactLabel.TextColor3 = getRarityColor(artifact.Rarity)
 				unequipBtn.Visible = true
 			else
+				-- Show empty state
+				if slotIcon then
+					slotIcon.Text = "—"
+					slotIcon.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+				end
 				artifactLabel.Text = "Empty"
 				artifactLabel.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
 				unequipBtn.Visible = false

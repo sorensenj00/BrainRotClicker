@@ -192,9 +192,13 @@ local function gatherPlayerData(player: Player): {money: number, ownedUnits: {[s
 		end
 	end
 	
+	local slotCount = 0
 	if _G.GridManager then
 		if _G.GridManager.GetGridPositions then
 			gridPositions = _G.GridManager.GetGridPositions(player) or {}
+			-- DEBUG: Log what's being saved
+			for _ in pairs(gridPositions) do slotCount += 1 end
+			print(string.format("[DEBUG] gatherPlayerData: %s has %d grid slots to save", player.Name, slotCount))
 		end
 	end
 	
@@ -207,7 +211,7 @@ local function gatherPlayerData(player: Player): {money: number, ownedUnits: {[s
 	-- NOTE: Artifact data is now managed by ArtifactManager's own DataService handler
 	-- (stored in Profile.Data.Artifacts)
 	
-	return {
+	local result = {
 		-- Core data still managed by Legacy handler
 		money = money,
 		ownedUnits = ownedUnits,
@@ -226,6 +230,11 @@ local function gatherPlayerData(player: Player): {money: number, ownedUnits: {[s
 		discoveredSynergies = discoveredSynergies,
 		-- Inventory, Prestige, Artifacts are now in their own Profile.Data keys
 	}
+	
+	print(string.format("[DEBUG] gatherPlayerData: Saving data for %s (gridPositions has %d slots)", 
+		player.Name, slotCount or 0))
+	
+	return result
 end
 
 --------------------------------------------------------------------------------
@@ -381,9 +390,48 @@ local function applyLegacyData(player: Player, data: any)
 			InventoryManager.SetInventory(player, finalInventory)
 		end
 		
-		-- Spawn brainrots from saved placements (preserves rarities and attributes)
+		-- Restore grid positions - spawn brainrots at their saved slot positions
 		local spawnedCount = 0
-		if data.brainrotPlacements and #data.brainrotPlacements > 0 then
+		print(string.format("[DEBUG] applyLegacyData: Checking gridPositions for %s", player.Name))
+		print(string.format("[DEBUG] gridPositions exists: %s, is table: %s", 
+			tostring(data.gridPositions ~= nil), 
+			tostring(type(data.gridPositions) == "table")))
+		
+		if data.gridPositions and next(data.gridPositions) ~= nil then
+			local slotCountToRestore = 0
+			for _ in pairs(data.gridPositions) do slotCountToRestore += 1 end
+			print(string.format("[DEBUG] DataManager: Restoring %d grid slots for %s", slotCountToRestore, player.Name))
+			
+			for slotIndexStr, slotData in pairs(data.gridPositions) do
+				local slotIndex = tonumber(slotIndexStr)
+				if slotIndex and slotData.Unit then
+					local unitInfo = slotData.Unit
+					if unitInfo.unitType and BrainrotManager.SpawnBrainrotAtSlot then
+						-- Spawn brainrot at specific slot
+						local spawnedUnit = BrainrotManager.SpawnBrainrotAtSlot(
+							player, 
+							unitInfo.unitType, 
+							slotIndex,
+							unitInfo.rarity or "Normal",
+							unitInfo.level or 1
+						)
+						if spawnedUnit then
+							spawnedCount += 1
+						end
+					end
+				end
+				
+				-- Restore tile if present
+				if slotData.Tile and _G.GridManager and _G.GridManager.PlaceTile then
+					_G.GridManager.PlaceTile(player, slotIndex, slotData.Tile)
+				end
+			end
+			
+			if spawnedCount > 0 then
+				print(string.format("✓ Restored %d brainrots from grid positions for %s", spawnedCount, player.Name))
+			end
+		elseif data.brainrotPlacements and #data.brainrotPlacements > 0 then
+		-- Spawn brainrots from saved placements (preserves rarities and attributes)
 			for _, placementData in ipairs(data.brainrotPlacements) do
 				if BrainrotManager.SpawnFromPlacement then
 					local spawnedUnit = BrainrotManager.SpawnFromPlacement(player, placementData)

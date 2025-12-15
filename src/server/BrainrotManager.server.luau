@@ -73,38 +73,14 @@ local function _calculateItemTier(level: number): number
 end
 
 -- Update the visual stats overhead (BillboardGui)
+-- NOTE: HUD is now handled client-side in UnitHUD.client.luau
+-- This function only sets attributes that the client reads
 local function updateVisuals(brainrot: Model)
-	local level = brainrot:GetAttribute("Level") or 1
-	local tier = brainrot:GetAttribute("ItemTier") or 1
-	local rarity = brainrot:GetAttribute("Rarity") or "Normal"
+	-- Attributes are already set by recalculateStats
+	-- The client-side UnitHUD.client.luau listens for attribute changes
+	-- and updates the unified HUD display accordingly
 	
-	-- Look for a BillboardGui named "StatsDisplay" inside the model
-	local head = brainrot:FindFirstChild("Head") or brainrot.PrimaryPart
-	if head then
-		local gui = head:FindFirstChild("StatsDisplay")
-		if not gui then
-			-- Create GUI if missing
-			gui = Instance.new("BillboardGui")
-			gui.Name = "StatsDisplay"
-			gui.Size = UDim2.new(4,0, 2,0)
-			gui.StudsOffset = Vector3.new(0, 3, 0)
-			gui.Parent = head
-			
-			local label = Instance.new("TextLabel")
-			label.Size = UDim2.new(1,0,1,0)
-			label.BackgroundTransparency = 1
-			label.TextScaled = true
-			label.Font = Enum.Font.FredokaOne
-			label.Parent = gui
-		end
-		
-		local label = gui:FindFirstChild("TextLabel")
-		if label then
-			local rarityColor = RarityConfig.GetColor(rarity)
-			label.TextColor3 = rarityColor
-			label.Text = string.format("Lvl %d | Tier %d\n%s", level, tier, rarity)
-		end
-	end
+	-- Keep this function for compatibility, but no server-side GUI creation
 end
 
 --------------------------------------------------------------------------------
@@ -426,15 +402,15 @@ local function getInventoryData(player: Player)
 		units = {}
 	}
 	
-	-- 1. Get Owned Units (Levels) from ShopManager
+	-- 1. Get Owned Units from InventoryManager (Single Source of Truth)
 	local ownedUnits = {}
-	if _G.ShopManager and _G.ShopManager.GetPlayerOwnership then
-		local data = _G.ShopManager.GetPlayerOwnership(player)
-		if data and data.units then
-			for unitName, unitData in pairs(data.units) do
+	if _G.InventoryManager and _G.InventoryManager.GetInventory then
+		local invData = _G.InventoryManager.GetInventory(player)
+		if invData then
+			for unitName, unitData in pairs(invData) do
 				ownedUnits[unitName] = {
-					level = unitData.count, -- count is level now
-					rarity = "Normal" -- Default, will update from actual instance if exists
+					level = unitData.level or 1,
+					rarity = unitData.rarity or "Normal"
 				}
 			end
 		end
@@ -536,6 +512,34 @@ _G.BrainrotManager = {
 	UpdateAllUnitStats = updateAllUnitStats,
 	RARITY_CONFIG = RarityConfig.CONFIG, -- Export config for compatibility
 	
+	-- Spawn a unit directly at a grid slot (used for data restoration)
+	SpawnBrainrotAtSlot = function(player, unitName, slotIndex, rarity, level)
+		-- First spawn the unit (will be stored/hidden)
+		local unit = spawnOrUpdateUnit(player, unitName, {
+			level = level or 1,
+			rarity = rarity or "Normal"
+		})
+		
+		if not unit then
+			warn("BrainrotManager.SpawnBrainrotAtSlot: Failed to spawn unit:", unitName)
+			return nil
+		end
+		
+		-- Place at the slot via GridManager
+		if _G.GridManager and _G.GridManager.PlaceUnit then
+			local success, err = _G.GridManager.PlaceUnit(player, unit, slotIndex)
+			if not success then
+				warn("BrainrotManager.SpawnBrainrotAtSlot: Failed to place at slot:", err)
+				-- Keep the unit stored instead of deleting it
+				return unit
+			end
+		else
+			warn("BrainrotManager.SpawnBrainrotAtSlot: GridManager not available")
+		end
+		
+		return unit
+	end,
+	
 	GetUnitLevel = function(player, unitName)
 		local plot = getPlayerPlot(player)
 		if not plot then return 0 end
@@ -552,7 +556,7 @@ _G.BrainrotManager = {
 	end,
 	
 	GetInventoryData = function(player)
-		return getInventoryData(player).units -- Return just the units table for DataManager compatibility
+		return getInventoryData(player) -- Returns {units = {...}} structure expected by InventoryService
 	end,
 	
 	-- Get a unit by its GUID (used by ArtifactManager)

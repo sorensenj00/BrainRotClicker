@@ -445,13 +445,32 @@ end
 local function updateUI()
 	if not mainFrame then return end
 	
-	-- Update market rate display (Average of all sectors?)
+	-- Update market rate display
 	local header = mainFrame:FindFirstChild("Header")
 	if header then
 		local rateLabel = header:FindFirstChild("RateLabel")
 		if rateLabel then
-			rateLabel.Text = "📊 Market open and active"
-			rateLabel.TextColor3 = COLORS.success
+			local globalActive = stockMarketFolder:GetAttribute("GlobalPricingActive")
+			local rateName = stockMarketFolder:GetAttribute("RateName") or "NORMAL"
+			
+			-- Check if any price data tells us we're endgame
+			local isEndgame = false
+			for _, pd in pairs(marketPrices) do
+				if pd.isEndgame then isEndgame = true; break end
+			end
+			
+			if globalActive then
+				if isEndgame then
+					rateLabel.Text = "📊 " .. rateName .. " — True Market Rates"
+					rateLabel.TextColor3 = COLORS.accent
+				else
+					rateLabel.Text = "🛡️ " .. rateName .. " — Welfare-Protected Prices"
+					rateLabel.TextColor3 = COLORS.success
+				end
+			else
+				rateLabel.Text = "📊 " .. rateName .. " — Local Market"
+				rateLabel.TextColor3 = COLORS.success
+			end
 		end
 	end
 	

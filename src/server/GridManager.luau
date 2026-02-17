@@ -12,6 +12,7 @@ local _CollectionService = game:GetService("CollectionService")
 -- Shared configs
 -- Shared configs (Lazy Loaded)
 local TileConfig
+local ItemConfig
 
 local function getTileConfig()
 	if not TileConfig then
@@ -19,6 +20,14 @@ local function getTileConfig()
 		TileConfig = require(Shared:WaitForChild("TileConfig"))
 	end
 	return TileConfig
+end
+
+local function getItemConfig()
+	if not ItemConfig then
+		local Shared = ReplicatedStorage:WaitForChild("Shared")
+		ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+	end
+	return ItemConfig
 end
 
 -- DataService (Lazy Loaded via Services)
@@ -94,6 +103,14 @@ local RemoveTileFunction = RemoteFunctions:FindFirstChild("RemoveTile") or Insta
 RemoveTileFunction.Name = "RemoveTile"
 RemoveTileFunction.Parent = RemoteFunctions
 
+local SetUnitModeFunction = RemoteFunctions:FindFirstChild("SetUnitMode") or Instance.new("RemoteFunction")
+SetUnitModeFunction.Name = "SetUnitMode"
+SetUnitModeFunction.Parent = RemoteFunctions
+
+local ModeChangedEvent = RemoteEvents:FindFirstChild("ModeChanged") or Instance.new("RemoteEvent")
+ModeChangedEvent.Name = "ModeChanged"
+ModeChangedEvent.Parent = RemoteEvents
+
 -- Module Table
 local GridManager = {}
 local Services = {}
@@ -126,7 +143,11 @@ end
 
 local function getSlotData(gridData, slotIndex)
 	if not gridData.slots[slotIndex] then
-		gridData.slots[slotIndex] = { Unit = nil, Tile = nil }
+		gridData.slots[slotIndex] = { Unit = nil, Tile = nil, CurrentMode = 1 }
+	end
+	-- Migration: ensure CurrentMode exists for legacy data
+	if gridData.slots[slotIndex].CurrentMode == nil then
+		gridData.slots[slotIndex].CurrentMode = 1
 	end
 	return gridData.slots[slotIndex]
 end
@@ -283,7 +304,7 @@ local function syncToProfile(player)
 		local positions = {}
 		for idx, slotInfo in pairs(gridData.slots) do
 			if slotInfo.Unit or slotInfo.Tile then
-				local entry = { Unit = nil, Tile = slotInfo.Tile }
+				local entry = { Unit = nil, Tile = slotInfo.Tile, CurrentMode = slotInfo.CurrentMode or 1 }
 				if slotInfo.Unit then
 					local u = slotInfo.Unit
 					local uType = u:GetAttribute("UnitType")
@@ -356,6 +377,7 @@ function GridManager.Init(services)
 				end
 				
 				-- Proceed with restoration
+				local gridData = getPlayerGrid(player)
 				for slotIndexStr, slotData in pairs(data) do
 					local slotIndex = tonumber(slotIndexStr)
 					if slotIndex then
@@ -363,6 +385,10 @@ function GridManager.Init(services)
 						if slotData.Tile then
 							GridManager.PlaceTile(player, slotIndex, slotData.Tile)
 						end
+						
+						-- Restore CurrentMode (default to 1 for migration)
+						local slot = getSlotData(gridData, slotIndex)
+						slot.CurrentMode = slotData.CurrentMode or 1
 						
 						-- Restore Unit
 						if slotData.Unit and BrainrotManager then
@@ -397,6 +423,7 @@ function GridManager.Init(services)
 	MoveUnitFunction.OnServerInvoke = GridManager.MoveUnit
 	SwapUnitsFunction.OnServerInvoke = GridManager.SwapUnits
 	StashUnitFunction.OnServerInvoke = GridManager.StashUnit
+	SetUnitModeFunction.OnServerInvoke = GridManager.SetUnitMode
 	
 	-- Legacy Connections
 	PlaceBrainrotFunction.OnServerInvoke = GridManager.PlaceUnitFromInventory
@@ -590,12 +617,11 @@ function GridManager.StashUnit(player, slotIndex)
 end
 
 function GridManager.GetGridPositions(player)
-	-- Returns legacy grid format for other managers
+	-- Returns grid format for other managers (V3: includes CurrentMode)
 	local gridData = getPlayerGrid(player)
 	local export = {}
 	for k, v in pairs(gridData.slots) do
 		if v.Unit then
-			-- Reconstruct the full unit data obj if needed
 			export[tostring(k)] = {
 				Unit = {
 					unitType = v.Unit:GetAttribute("UnitType"),
@@ -603,13 +629,57 @@ function GridManager.GetGridPositions(player)
 					level = v.Unit:GetAttribute("Level"),
 					unitId = v.Unit:GetAttribute("UnitId")
 				},
-				Tile = v.Tile
+				Tile = v.Tile,
+				CurrentMode = v.CurrentMode or 1,
 			}
 		elseif v.Tile then
-			export[tostring(k)] = { Tile = v.Tile }
+			export[tostring(k)] = { Tile = v.Tile, CurrentMode = v.CurrentMode or 1 }
 		end
 	end
 	return export
+end
+
+function GridManager.GetClusterSlots(slotIndex)
+	local clusterIdx = math.floor((slotIndex - 1) / 4)
+	local baseSlot = clusterIdx * 4 + 1
+	return { baseSlot, baseSlot + 1, baseSlot + 2, baseSlot + 3 }
+end
+
+function GridManager.SetUnitMode(player, slotIndex, modeIndex)
+	if type(slotIndex) ~= "number" or type(modeIndex) ~= "number" then
+		return false, "Invalid arguments"
+	end
+	
+	local gridData = getPlayerGrid(player)
+	local slot = getSlotData(gridData, slotIndex)
+	
+	if not slot.Unit then return false, "No unit in slot" end
+	
+	local unitType = slot.Unit:GetAttribute("UnitType")
+	if not unitType then return false, "Invalid unit" end
+	
+	-- Validate mode exists and is unlocked
+	local ic = getItemConfig()
+	local modes = ic.BrainrotModes[unitType]
+	if not modes then return false, "No modes for this unit" end
+	
+	if modeIndex < 1 or modeIndex > #modes then return false, "Invalid mode index" end
+	
+	local targetMode = modes[modeIndex]
+	local unitLevel = slot.Unit:GetAttribute("Level") or 1
+	if unitLevel < targetMode.unlockLevel then
+		return false, string.format("Requires level %d (current: %d)", targetMode.unlockLevel, unitLevel)
+	end
+	
+	-- Apply mode
+	slot.CurrentMode = modeIndex
+	slot.Unit:SetAttribute("CurrentMode", modeIndex)
+	
+	-- Notify client for UI updates (overhead icon, etc.)
+	ModeChangedEvent:FireClient(player, slotIndex, modeIndex, targetMode.itemId)
+	
+	syncToProfile(player)
+	return true
 end
 
 function GridManager.GetTileAtSlot(player, slotIndex)

@@ -10,6 +10,8 @@
 	- Glassmorphism theme matching existing UI
 ]]
 
+--[[ SCRIPT DISABLED BY USER REQUEST
+
 -- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -978,3 +980,5 @@ UserInputService.InputEnded:Connect(function(input)
 		end
 	end
 end)
+
+]]

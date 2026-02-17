@@ -20,6 +20,7 @@ export type UnitConfig = {
 	Description: string?,
 	CostMultiplier: number?, -- Optional: overrides default 1.15 multiplier
 	ProjectileColor: Color3?, -- Optional: color of income projectile (defaults to white)
+	ItemCost: {[string]: number}?, -- Optional: items required to purchase (burned on buy)
 }
 
 export type MilestoneInfo = {
@@ -266,6 +267,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Dynamic duo!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { Guac1 = 100, Toast1 = 80 },
 	},
 	["Gattatino Neonino"] = {
 		BasePrice = 25000000,
@@ -293,6 +295,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Heavenly giraffe!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { Cap1 = 150, Dance1 = 100 },
 	},
 	["Glorbo_Fruttodrillo"] = {
 		BasePrice = 100000000,
@@ -311,6 +314,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Watermelon gorilla!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { Taco1 = 200, BerryOcto1 = 120 },
 	},
 	["Graipuss_Medussi"] = {
 		BasePrice = 225000000,
@@ -329,6 +333,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "The grand combination!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { CrocBomb1 = 250, Goose1 = 200, Doll1 = 150 },
 	},
 	["La_Vacca_Saturno_Saturnita"] = {
 		BasePrice = 500000000,
@@ -347,6 +352,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "The little tralala girls!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { Brr1 = 300, Bicus1 = 200 },
 	},
 	["Las Vaquitas Saturnitas"] = {
 		BasePrice = 1100000000,
@@ -365,6 +371,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Cactus lion legend!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { Cact1 = 400, KillerCoffee1 = 250, Horse1 = 200 },
 	},
 	
 	-- Tier 5: Late Game ($2.5B - $175B) - CostMultiplier: 1.22
@@ -495,6 +502,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Hot pot spot!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Guac2 = 100, Crab2 = 80, Elephant2 = 60 },
 	},
 	["Rhino_Toasterino"] = {
 		BasePrice = 850000000000,
@@ -522,6 +530,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Sammy the spider!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { ChimpSpy2 = 100, Spy2 = 80, Gang2 = 60 },
 	},
 	["Spioniro Golubiro"] = {
 		BasePrice = 4000000000000,
@@ -558,6 +567,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Bomber pig!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { CrocBomb2 = 120, PigBomb2 = 100, Boom2 = 80 },
 	},
 	["Ta_Ta_Ta_Ta_Sahur"] = {
 		BasePrice = 22500000000000,
@@ -612,6 +622,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Dragonfruit turtle!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Dragon2 = 150, Melon2 = 120, Glorbo2 = 100 },
 	},
 	["Tralalero_Tralala"] = {
 		BasePrice = 225000000000000,
@@ -648,6 +659,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Trippy toppy!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Odin3 = 50, Liri3 = 40, Trip2 = 200 },
 	},
 	
 	-- Tier 7: Legendary ($1Qa - $10Qa) - CostMultiplier: 1.30
@@ -659,6 +671,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Trulli power!",
 		CostMultiplier = 1.30,
 		ProjectileColor = Color3.fromRGB(148, 0, 211),
+		ItemCost = { Truli3 = 60, Bicus3 = 40, Combo3 = 30 },
 	},
 	["Tung_Tung_Tung_Sahur"] = {
 		BasePrice = 2500000000000000,
@@ -677,6 +690,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Uncle Sam power!",
 		CostMultiplier = 1.30,
 		ProjectileColor = Color3.fromRGB(148, 0, 211),
+		ItemCost = { Sam3 = 80, Lib3 = 60, Spion3 = 50 },
 	},
 	["Zibra Zubra Zibralini"] = {
 		BasePrice = 10000000000000000,
@@ -697,6 +711,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Secret lucky power!",
 		CostMultiplier = 1.45,
 		ProjectileColor = Color3.fromRGB(0, 255, 255),
+		ItemCost = { SecLuck3 = 30, MythLuck3 = 20, NukeDino3 = 15 },
 	},
 	["Mythic Lucky Block"] = {
 		BasePrice = 250000000000000000,
@@ -715,6 +730,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "The ultimate brainrot deity!",
 		CostMultiplier = 1.45,
 		ProjectileColor = Color3.fromRGB(0, 255, 255),
+		ItemCost = { GodLuck3 = 50, NukeDino4 = 20, Odin4 = 10 },
 	},
 }
 
@@ -924,6 +940,18 @@ local function GetTotalUnits(): number
 	return #GetAllUnitsSorted()
 end
 
+--[[
+	Gets the item cost for a unit (items burned on purchase).
+	
+	@param unitName string - The name of the unit
+	@return {[string]: number}? - Table of { itemId = count } or nil if no item cost
+]]
+local function GetItemCost(unitName: string): {[string]: number}?
+	local config = Units[unitName]
+	if not config then return nil end
+	return config.ItemCost
+end
+
 -- Return module with both data and functions
 return {
 	Units = Units,
@@ -933,6 +961,7 @@ return {
 	GetNextMilestone = GetNextMilestone,
 	GetMilestonesReached = GetMilestonesReached,
 	GetConfig = GetConfig,
+	GetItemCost = GetItemCost,
 	GetAllUnitsSorted = GetAllUnitsSorted,
 	GetVisibleUnits = GetVisibleUnits,
 	IsUnitUnlocked = IsUnitUnlocked,

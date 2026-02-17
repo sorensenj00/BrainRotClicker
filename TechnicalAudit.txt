@@ -1,0 +1,38 @@
+# Technical Audit: Brainrot Clicker
+
+## 1. The "Source of Truth" for Prices
+**Answer: C**
+The current prices (sector rates) live in a **ModuleScript variable** (`sectorRates`) within `src/server/StockMarketManager.luau`. 
+*   **Replication:** These values are synchronized to the client by setting **Attributes** on `ReplicatedStorage.StockMarket` (e.g., `SectorRates`).
+*   **Logic:** The server is the authoritative source, and it pushes updates to the attributes periodically.
+
+## 2. The Loop Logic
+**Answer: A**
+There is **one Server Script** (`StockMarketManager.luau`) that runs a single loop connected to `RunService.Heartbeat`.
+*   **Frequency:** It updates all items at once every 20 seconds (defined by `CONFIG.UPDATE_INTERVAL`).
+*   **Efficiency:** This is much more efficient than having 50+ individual scripts.
+
+## 3. Inventory System (The "Backpack")
+**Answer: C**
+Items produced by Brainrots are stored in **Lua Tables/Dictionaries** on the server.
+*   **Managers:** `ItemStorageManager.luau` manages `PlayerStorage` (Silos) and `PlayerBackpack`.
+*   **Persistence:** These tables are serialized and saved via the data service.
+*   **UI Sync:** Updates are sent to the client via RemoteEvents (`StorageUpdated`, `BackpackUpdated`) and Attributes for simple capacity checks.
+
+## 4. The "Production" Mechanism
+**Answer: B**
+You have one central **"Tycoon Manager" script** (`src/server/ItemProductionManager.luau`) that handles the production math for all players.
+*   **Mechanism:** It runs a `while true` loop with a 1-second tick. It iterates through all players, checks their placed units (via `GridManager`), calculates bonuses, and adds items to their storage.
+*   **Note:** While units have physical models in the workspace for visual purposes, the actual production logic is decoupled from individual scripts inside those models.
+
+## 5. Shop System Capabilities
+**Current State:** The shop (`ShopManager.luau`) currently only checks for Cash.
+**Feasibility:** It is **very easy** to change. 
+*   Because you already have a centralized `ItemStorageManager`, we can simply add a check like `ItemStorageManager.GetStorageContents(player)["Avocado"] >= ItemCost` and then call `ItemStorageManager.RemoveFromStorage` upon purchase.
+*   The logic is clean enough that adding multi-currency support would only require modifying `ShopManager.HandleBuyUnit`.
+
+## 6. Data Saving
+**Answer: B**
+You are using **ProfileService (MadStudio)**.
+*   The file `src/server/ProfileService.luau` is used by `src/server/DataService.luau` and `src/server/DataManager.luau`.
+*   This is the "Gold Standard" for Roblox data saving, making it very safe to implement global or complex economy features.

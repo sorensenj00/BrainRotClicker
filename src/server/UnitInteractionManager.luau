@@ -19,8 +19,8 @@ OpenUnitUIEvent.Name = "OpenUnitUI"
 OpenUnitUIEvent.Parent = RemoteEvents
 
 local CONFIG = {
-	PROMPT_ACTION_TEXT = "Inspect",
-	PROMPT_OBJECT_TEXT = "Equipment",
+	PROMPT_ACTION_TEXT = "Configure",
+	PROMPT_OBJECT_TEXT = "Production",
 	PROMPT_KEY = Enum.KeyCode.E,
 	PROMPT_HOLD_DURATION = 0,
 	PROMPT_MAX_DISTANCE = 15,
@@ -70,7 +70,7 @@ local function createPromptForUnit(unit)
 			level = unit:GetAttribute("Level") or 1,
 			rarity = unit:GetAttribute("Rarity") or "Normal",
 			gridSlot = unit:GetAttribute("GridSlot"),
-			itemTier = unit:GetAttribute("ItemTier") or 1,
+			currentMode = unit:GetAttribute("CurrentMode") or 1,
 		}
 		
 		OpenUnitUIEvent:FireClient(player, data)

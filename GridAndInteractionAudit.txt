@@ -1,0 +1,24 @@
+# Technical Audit: Grid & Interaction
+
+## 1. Grid Topology (For Synergy)
+**Answer: Flat List with Cluster Logic**
+Your `GridManager` data is structured as a **flat list** (`slots` table indexed 1 to 16+).
+*   **Coordinate Math:** While the data is a flat list, the physical positioning in `getSlotCFrame` uses a "Corner Cluster" logic. It splits the 16 slots into 4 groups of 4, placing a 2x2 cluster in each corner of the island.
+*   **Adjacency Recommendation:** Since it's not a single contiguous 4x4 grid, "Adjacency" is not universal. Slot 1 is next to Slot 2/3 (in corner A), but "Slot 4" is physically very far from "Slot 5" (Corner B). 
+*   **Math Tip:** If you implement spatial synergy, you should either:
+    1.  Only allow synergy within the same corner (Cluster 1, slots 1-4).
+    2.  Define a lookup table mapping Slot IDs to virtual X,Y for easier math.
+
+## 2. Input/Click Handling
+**Answer: ProximityPrompts**
+Currently, Brainrot units do **not** have ClickDetectors or a custom Raycast selection system.
+*   **Mechanism:** `UnitInteractionManager.luau` dynamically creates a `ProximityPrompt` on every unit tagged with `ActiveBrainrot`.
+*   **Advantage:** This works naturally for Console/Mobile and requires zero screen-space UI logic.
+*   **Raycast Note:** Your `BuildModeUI.client.luau` *already* uses a Raycast system for placing units, so the logic is there if you want to transition to a "Click to Config" style for the Machine UI.
+
+## 3. Data Schema Migration
+**Recommendation: Force to Tier 1 (Safe)**
+When migrating existing `{Name="Avocadini", Level=50}` units to the new "Machine Config" mode:
+*   **The Problem:** If you default to High Tier (Risky) and the Market is crashed, a returning player will see $0 income and a full storage immediately—it feels like a bug.
+*   **The Opportunity:** If you default to **Tier 1 (Safe)**, they get consistent (if lower) income. When they click the unit to "Upgrade Mode," it acts as a tutorial for your new system.
+*   **Current Code behavior:** Note that right now, `ItemProductionManager` actually produces **all** unlocked tiers simultaneously (e.g., if you have 100 units, it makes Tier 1, 2, 3, and 4 items at the same time). Transitioning to a "Single Mode" selection will be a significant balance change.

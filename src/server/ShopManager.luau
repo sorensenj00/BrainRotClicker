@@ -152,7 +152,36 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	local price = ShopConfig.CalculatePrice(unitName, owned)
 	
 	if getMoney(player) < price then return false, "Not enough cash" end
+	
+	-- Check item costs BEFORE deducting cash (avoid partial transactions)
+	local itemCost = ShopConfig.GetItemCost(unitName)
+	local ISM = rawget(Services, "ItemStorageManager")
+	if itemCost then
+		if not ISM then return false, "Storage System Offline" end
+		local storageItems = ISM.GetStorageContents(player)
+		local backpackItems = ISM.GetBackpackContents(player)
+		for itemId, needed in pairs(itemCost) do
+			local available = (storageItems[itemId] or 0) + (backpackItems[itemId] or 0)
+			if available < needed then
+				return false, "Need " .. needed .. "x " .. itemId .. " (have " .. available .. ")"
+			end
+		end
+	end
+	
 	if not deductMoney(player, price) then return false, "Transaction failed" end
+	
+	-- Deduct items (burn them — NOT reported as sales to market)
+	if itemCost and ISM then
+		for itemId, needed in pairs(itemCost) do
+			local remaining = needed
+			-- Take from storage first, then backpack
+			local fromStorage = ISM.RemoveFromStorage(player, itemId, remaining)
+			remaining -= fromStorage
+			if remaining > 0 then
+				ISM.RemoveFromBackpack(player, itemId, remaining)
+			end
+		end
+	end
 	
 	local InvMgr = rawget(Services, "InventoryManager")
 	if not InvMgr then return false, "Inventory System Offline" end

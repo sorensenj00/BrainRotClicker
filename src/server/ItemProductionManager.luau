@@ -1,16 +1,17 @@
 --[[
-	ItemProductionManager Server Module
+	ItemProductionManager Server Module (V3)
 	
 	Handles item production for the Sell a Brainrot system.
 	
-	PERFORMANCE FIX:
-	- Caches active unit counts to avoid O(N^2) loop.
-	- Uses InventoryManager events to update cache.
+	V3 CHANGES:
+	- Per-slot production (not per-unit-type)
+	- Single mode selection per unit (exclusive production)
+	- Cluster synergy overrides when specific pairs share a 2x2 corner
+	- Speed scales smoothly with level via SpeedExponent
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CollectionService = game:GetService("CollectionService")
 
 -- Lazy Configs
 local ItemConfig, TileConfig, ArtifactConfig
@@ -44,105 +45,30 @@ local CONFIG = {
 	MAX_ARTIFACT_DROP_CHANCE = 0.05,
 }
 
-local BRAINROT_TAG = "ActiveBrainrot"
-
 -- Module Table
 local ItemProductionManager = {}
 local Services = {}
 
--- Cache State
+-- Cache State (V3: keyed by slot index instead of unit type)
 local PlayerCache = {}
 
 --------------------------------------------------------------------------------
 -- CACHE MANAGEMENT
 --------------------------------------------------------------------------------
 
--- Helper for debug
-local function getKeys(t)
-	local keys = {}
-	for k in pairs(t) do table.insert(keys, tostring(k)) end
-	return keys
-end
-
 local function initPlayerCache(player)
 	PlayerCache[player] = {
-		UnitTypeCounts = {},
-		ProductionState = {}, -- Per unit type timing
-		lastStorageFullWarning = 0
+		SlotProduction = {},  -- [slotIndex] = { lastProd = timestamp }
+		lastStorageFullWarning = 0,
 	}
 end
 
-local function updatePlayerCache(player)
-	if not PlayerCache[player] then initPlayerCache(player) end
-	local cache = PlayerCache[player]
-	
-	-- Clear counts
-	cache.UnitTypeCounts = {}
-	
-	-- Rebuild from GridManager (Source of Truth for PLACED units)
-	local GridManager = rawget(Services, "GridManager")
-	if not GridManager then
-		warn("[DEBUG] ItemProductionManager: GridManager not found in Services!")
-		return
-	end
-	
-	if not GridManager.GetGridPositions then
-		warn("[DEBUG] ItemProductionManager: GridManager.GetGridPositions is nil!")
-		return
-	end
-	
-	local gridPos = GridManager.GetGridPositions(player)
-	
-	-- DEBUG: Log what we got
-	local slotCount = 0
-	for _ in pairs(gridPos) do slotCount += 1 end
-	-- if slotCount > 0 then
-	-- 	print(string.format("[DEBUG] ItemProductionManager: Player %s has %d grid slots with data", player.Name, slotCount))
-	-- end
-	
-	for slotKey, data in pairs(gridPos) do
-		-- Extract unit data
-		local unitType, _unitId
-		if data.Unit then
-			unitType = data.Unit.unitType
-			_unitId = data.Unit.unitId
-		elseif data.unitType then
-			unitType = data.unitType -- Legacy fallback
-		end
-		
-		if unitType then
-			-- Update Unit Type Count
-			cache.UnitTypeCounts[unitType] = (cache.UnitTypeCounts[unitType] or 0) + 1
-			-- print(string.format("[DEBUG] ItemProductionManager: Slot %s has unit '%s' (count now: %d)", 
-			-- 	tostring(slotKey), unitType, cache.UnitTypeCounts[unitType]))
-		else
-			-- DEBUG: Log slots without unitType
-			if data.Unit then
-				local unitKeys = getKeys(data.Unit)
-				warn(string.format("[DEBUG] ItemProductionManager: Slot %s has Unit table but NO unitType field! Keys: %s", 
-					tostring(slotKey), table.concat(unitKeys, ", ")))
-			end
-		end
-	end
-	
-	-- DEBUG: Summary
-	local modelCount = 0
-	for _, _ in pairs(cache.UnitTypeCounts) do
-		modelCount += 1
-	end
-	if modelCount == 0 and slotCount > 0 then
-		warn("[DEBUG] ItemProductionManager: Grid has slots but NO unit types were extracted!")
-	end
-end
-
 --------------------------------------------------------------------------------
--- PRODUCTION LOGIC
+-- PRODUCTION HELPERS
 --------------------------------------------------------------------------------
 
--- Helper to find physical instances for bonus calculation
--- This avoids caching instance references which can leak or become stale
-local function findUnitInstances(player, unitType)
-	local units = {}
+-- Find the physical brainrot model for a given slot
+local function findUnitInSlot(player, slotIndex)
 	local plot = nil
 	local BrainrotManager = rawget(Services, "BrainrotManager")
 	if BrainrotManager then
@@ -150,7 +76,6 @@ local function findUnitInstances(player, unitType)
 	end
 
 	if not plot then
-		-- Try legacy find
 		local plotsFolder = workspace:FindFirstChild("Plots")
 		if plotsFolder then
 			for _, p in plotsFolder:GetChildren() do
@@ -159,21 +84,18 @@ local function findUnitInstances(player, unitType)
 		end
 	end
 
-	if not plot then return units end
+	if not plot then return nil end
 
 	local brainrots = plot:FindFirstChild("Brainrots")
 	if brainrots then
 		for _, unit in brainrots:GetChildren() do
-			local uType = unit:GetAttribute("UnitType")
-			if uType == unitType then
-				table.insert(units, unit)
+			if unit:GetAttribute("GridSlot") == slotIndex then
+				return unit
 			end
 		end
 	end
-
-	return units
+	return nil
 end
-
 
 local function calculateUnitBonuses(player, brainrot)
 	local bonuses = {
@@ -193,7 +115,6 @@ local function calculateUnitBonuses(player, brainrot)
 	if slotIndex and GridManager and GridManager.GetTileAtSlot then
 		local tileId = GridManager.GetTileAtSlot(player, slotIndex)
 		if tileId and unitType then
-			-- Pass unitType as "category" for legacy tile support
 			local tileBonus = TileConfig.GetBonus(tileId, unitType)
 			bonuses.speedMult = bonuses.speedMult * tileBonus.SpeedMult
 			bonuses.luckMult = bonuses.luckMult * tileBonus.LuckMult
@@ -228,6 +149,29 @@ local function tryArtifactDrop(player, bonuses)
 	end
 end
 
+-- V3: Check if this slot has a synergy partner in the same cluster
+local function checkClusterSynergy(gridPositions, slotIndex, unitType)
+	local GridManager = rawget(Services, "GridManager")
+	if not GridManager or not GridManager.GetClusterSlots then return nil end
+	
+	local clusterSlots = GridManager.GetClusterSlots(slotIndex)
+	
+	for _, neighborSlot in ipairs(clusterSlots) do
+		if neighborSlot ~= slotIndex then
+			local neighborData = gridPositions[tostring(neighborSlot)]
+			if neighborData and neighborData.Unit then
+				local synergy = ItemConfig.GetSynergyOverride(unitType, neighborData.Unit.unitType)
+				if synergy then return synergy end
+			end
+		end
+	end
+	return nil
+end
+
+--------------------------------------------------------------------------------
+-- V3: PER-SLOT PRODUCTION LOOP
+--------------------------------------------------------------------------------
+
 local function produceItems(player)
 	local ISM = rawget(Services, "ItemStorageManager")
 	if not ISM then return end
@@ -240,63 +184,86 @@ local function produceItems(player)
 			if now - cache.lastStorageFullWarning > CONFIG.STORAGE_FULL_CHECK_INTERVAL then
 				cache.lastStorageFullWarning = now
 				StorageFullEvent:FireClient(player)
-				-- DEBUG: Storage Full
-				print("[DEBUG] Production paused: Storage Full")
 			end
 		end
 		return
 	end
 	
-	-- 2. Use Cached Counts
+	-- 2. Get grid state
+	local GridManager = rawget(Services, "GridManager")
+	if not GridManager then return end
+	
+	local gridPositions = GridManager.GetGridPositions(player)
+	if not gridPositions then return end
+	
 	local cache = PlayerCache[player]
 	if not cache then return end
 	
 	local now = tick()
 	
-	-- DEBUG: Trace loop (throttle to avoid spam, e.g. every 5s)
-	-- if now % 5 < 1 then
-	-- 	print("[DEBUG] Running produceItems for " .. player.Name)
-	-- end
-	
-	for unitType, ownedCount in pairs(cache.UnitTypeCounts) do
-		if ownedCount > 0 then
-			local productions = ItemConfig.GetProductions(unitType, ownedCount)
+	-- 3. Iterate each occupied slot
+	for slotKey, slotData in pairs(gridPositions) do
+		if slotData.Unit then
+			local slotIndex = tonumber(slotKey)
+			if not slotIndex then continue end
 			
-			-- Re-enable bonuses by scanning actual units
-			local activeUnits = findUnitInstances(player, unitType)
-			local unitBonus = { speedMult = 1, luckMult = 1, tierBonus = 0 }
+			local unitType = slotData.Unit.unitType
+			local level = slotData.Unit.level or 1
+			local currentMode = slotData.CurrentMode or 1
 			
-			for _, unitModel in ipairs(activeUnits) do
-				local b = calculateUnitBonuses(player, unitModel)
-				unitBonus.speedMult = math.min(unitBonus.speedMult, b.speedMult)
-				unitBonus.luckMult = unitBonus.luckMult + (b.luckMult - 1)
-				unitBonus.tierBonus = math.max(unitBonus.tierBonus, b.tierBonus)
+			if not unitType then continue end
+			
+			-- Determine what to produce
+			local outputItemId, outputRate
+			
+			-- Check synergy override first
+			local synergy = checkClusterSynergy(gridPositions, slotIndex, unitType)
+			
+			if synergy then
+				-- Synergy active: produce composite item with bonus rate
+				local baseProd = ItemConfig.GetModeProduction(unitType, currentMode, level)
+				if baseProd then
+					outputItemId = synergy.synergyItem
+					outputRate = baseProd.rate / synergy.bonus -- Faster with synergy bonus
+				end
+			else
+				-- Normal: produce selected mode item
+				local prod = ItemConfig.GetModeProduction(unitType, currentMode, level)
+				if prod then
+					outputItemId = prod.itemId
+					outputRate = prod.rate
+				end
 			end
 			
-			-- Production Timing
-			if not cache.ProductionState[unitType] then cache.ProductionState[unitType] = {} end
+			if not outputItemId or not outputRate then continue end
 			
-			for _, prod in ipairs(productions) do
-				local tier = (ItemConfig.Items[prod.itemId] and ItemConfig.Items[prod.itemId].tier or 1) + math.floor(unitBonus.tierBonus)
-				
-				local lastProd = cache.ProductionState[unitType][tier] or 0
-				local adjustedRate = math.max(0.1, prod.rate * unitBonus.speedMult)
-				
-				if now - lastProd >= adjustedRate then
-					local added = ISM.AddToStorage(player, prod.itemId, 1)
-					if added > 0 then
-						cache.ProductionState[unitType][tier] = now
-						ItemProducedEvent:FireClient(player, prod.itemId, 1)
-						
-						-- Update physical units with production timestamp for HUD sync
-						for _, unitModel in ipairs(activeUnits) do
-							unitModel:SetAttribute("LastProductionTime", now)
-							unitModel:SetAttribute("IncomeInterval", adjustedRate)
-						end
-						
-						-- Artifact Drop Roll
-						tryArtifactDrop(player, unitBonus)
+			-- Apply tile/artifact bonuses
+			local unitModel = findUnitInSlot(player, slotIndex)
+			local bonuses = calculateUnitBonuses(player, unitModel)
+			local adjustedRate = math.max(0.1, outputRate * bonuses.speedMult)
+			
+			-- Production timing (keyed by slot)
+			if not cache.SlotProduction[slotIndex] then
+				cache.SlotProduction[slotIndex] = { lastProd = 0 }
+			end
+			
+			local slotState = cache.SlotProduction[slotIndex]
+			
+			if now - slotState.lastProd >= adjustedRate then
+				local added = ISM.AddToStorage(player, outputItemId, 1)
+				if added > 0 then
+					slotState.lastProd = now
+					ItemProducedEvent:FireClient(player, outputItemId, 1)
+					
+					-- Update physical unit with production timestamp
+					if unitModel then
+						unitModel:SetAttribute("LastProductionTime", now)
+						unitModel:SetAttribute("IncomeInterval", adjustedRate)
+						unitModel:SetAttribute("CurrentProducing", outputItemId)
 					end
+					
+					-- Artifact Drop Roll
+					tryArtifactDrop(player, bonuses)
 				end
 			end
 		end
@@ -308,24 +275,14 @@ end
 --------------------------------------------------------------------------------
 
 function ItemProductionManager.Init(services)
-	print("   ItemProductionManager (Module) - Initializing")
+	print("   ItemProductionManager (Module) - Initializing [V3: Mode-Based]")
 	Services = services or {}
 	
 	loadConfigs()
 	CONFIG.BASE_ARTIFACT_DROP_CHANCE = ArtifactConfig.BaseDropChance
 	CONFIG.MAX_ARTIFACT_DROP_CHANCE = ArtifactConfig.MaxDropChance
 	
-	-- Polling fallback for cache update
-	task.spawn(function()
-		while true do
-			for _, player in Players:GetPlayers() do
-				updatePlayerCache(player)
-			end
-			task.wait(5) -- Update cache every 5s
-		end
-	end)
-	
-	-- Production Loop
+	-- Production Loop (no longer needs cache polling — reads grid directly)
 	task.spawn(function()
 		while true do
 			task.wait(CONFIG.PRODUCTION_TICK)
@@ -343,13 +300,23 @@ function ItemProductionManager.Init(services)
 	
 	for _, p in Players:GetPlayers() do initPlayerCache(p) end
 	
-	print("✓ ItemProductionManager Initialized")
+	print("✓ ItemProductionManager Initialized [V3]")
 end
 
 -- Export for compatibility
 ItemProductionManager.ProduceItems = produceItems
 ItemProductionManager.GetCategoryCounts = function(player)
-	return PlayerCache[player] and PlayerCache[player].UnitTypeCounts or {}
+	-- Legacy compatibility: build counts from grid positions
+	local GridManager = rawget(Services, "GridManager")
+	if not GridManager then return {} end
+	local gridPos = GridManager.GetGridPositions(player)
+	local counts = {}
+	for _, data in pairs(gridPos) do
+		if data.Unit and data.Unit.unitType then
+			counts[data.Unit.unitType] = (counts[data.Unit.unitType] or 0) + 1
+		end
+	end
+	return counts
 end
 
 return ItemProductionManager

@@ -37,6 +37,7 @@ GetMarketPricesFunction.Parent = RemoteFunctions
 local CONFIG = {
 	MARKET_POSITION = Vector3.new(0, 32, -60),
 	MARKET_SIZE = Vector3.new(20, 15, 20),
+	ENDGAME_EARNINGS_THRESHOLD = 1000000000, -- $1B total money to lose welfare protection
 }
 
 local MarketManager = {}
@@ -59,6 +60,44 @@ local function getItemSector(itemId)
 	return "Neutral"
 end
 
+--[[
+	Determines if a player is "endgame" (no welfare protection).
+	Endgame = total money exceeds threshold.
+	Simple check — can be replaced with a more nuanced metric later.
+]]
+local function isEndgame(player)
+	local ls = player:FindFirstChild("leaderstats")
+	local m = ls and ls:FindFirstChild("Money")
+	if m and m.Value >= CONFIG.ENDGAME_EARNINGS_THRESHOLD then
+		return true
+	end
+	return false
+end
+
+--[[
+	Gets the appropriate market rate for a player+item combo.
+	- Endgame players get the true MarketRate (can be very low)
+	- New players get the BailoutRate (welfare-protected floor)
+]]
+local function getPlayerRate(player, itemId)
+	local SM = rawget(Services, "StockMarketManager")
+	if not SM then
+		return stockMarketFolder:GetAttribute("CurrentRate") or 1.0
+	end
+	
+	local sector = getItemSector(itemId)
+	if not sector or sector == "Neutral" then
+		return SM.GetSectorRate("Food") or 1.0
+	end
+	
+	if isEndgame(player) then
+		return SM.GetSectorRate(sector) or 1.0
+	else
+		return SM.GetBailoutRate(sector) or 1.0
+	end
+end
+
+-- Legacy compat: returns MarketRate (endgame/true rate)
 local function getMarketRate(itemId)
 	local SM = rawget(Services, "StockMarketManager")
 	if itemId and SM then
@@ -74,6 +113,24 @@ local function getItemPrice(itemId)
 	local info = ItemConfig.Items[itemId]
 	if not info then return 0 end
 	return math.floor((info.basePrice or 1) * getMarketRate(itemId))
+end
+
+-- Player-specific price (uses welfare check)
+local function getPlayerItemPrice(player, itemId)
+	local info = ItemConfig.Items[itemId]
+	if not info then return 0 end
+	return math.floor((info.basePrice or 1) * getPlayerRate(player, itemId))
+end
+
+-- Report sold volume to StockMarketManager for global price influence
+local function reportSalesVolume(itemId, count)
+	local SM = rawget(Services, "StockMarketManager")
+	if SM and SM.AddSalesVolume then
+		local sector = getItemSector(itemId)
+		if sector and sector ~= "Neutral" then
+			SM.AddSalesVolume(sector, count)
+		end
+	end
 end
 
 local function createMarketBuilding()
@@ -126,7 +183,7 @@ function MarketManager.Init(services)
 	
 	SellItemFunction.OnServerInvoke = function(p, id, c) return MarketManager.SellItem(p, id, c) end
 	SellAllFunction.OnServerInvoke = function(p) return MarketManager.SellAll(p) end
-	GetMarketPricesFunction.OnServerInvoke = function(p) return MarketManager.GetAllPrices(), getMarketRate() end
+	GetMarketPricesFunction.OnServerInvoke = function(p) return MarketManager.GetAllPrices(p), getMarketRate() end
 
 	print("✓ MarketManager Initialized")
 end
@@ -140,7 +197,8 @@ function MarketManager.SellItem(player, itemId, count)
 	if avail <= 0 then return 0,0 end
 	
 	local toSell = math.min(count or 1, avail)
-	local total = toSell * getItemPrice(itemId)
+	local price = getPlayerItemPrice(player, itemId) -- Welfare-aware price
+	local total = toSell * price
 	
 	local removed = ISM.RemoveFromBackpack(player, itemId, toSell)
 	if removed <= 0 then return 0,0 end
@@ -148,6 +206,9 @@ function MarketManager.SellItem(player, itemId, count)
 	local ls = player:FindFirstChild("leaderstats")
 	local m = ls and ls:FindFirstChild("Money")
 	if m then m.Value += total end
+	
+	-- Report to global market (influences prices across all servers)
+	reportSalesVolume(itemId, removed)
 	
 	ItemSoldEvent:FireClient(player, itemId, removed, total)
 	return removed, total
@@ -175,11 +236,14 @@ function MarketManager.SellCartContents(player, cartInventory)
 	
 	for itemId, count in pairs(cartInventory) do
 		if count > 0 then
-			local price = getItemPrice(itemId)
+			local price = getPlayerItemPrice(player, itemId) -- Welfare-aware price
 			local total = count * price
 			
 			sold += count
 			earned += total
+			
+			-- Report to global market
+			reportSalesVolume(itemId, count)
 		end
 	end
 	
@@ -188,15 +252,9 @@ function MarketManager.SellCartContents(player, cartInventory)
 		local m = ls and ls:FindFirstChild("Money")
 		if m then m.Value += earned end
 		
-		-- Notify client (using generic sold event or maybe a summary?)
-		-- Let's just fire ItemSoldEvent for the aggregate?
-		-- ItemSoldEvent takes (player, itemId, count, total)
-		-- We can fire it once per item type, or once total?
-		-- Client expects itemId. Let's fire per item type to keep notifications working.
-		
 		for itemId, count in pairs(cartInventory) do
 			if count > 0 then
-				local price = getItemPrice(itemId)
+				local price = getPlayerItemPrice(player, itemId)
 				ItemSoldEvent:FireClient(player, itemId, count, count * price)
 			end
 		end
@@ -205,26 +263,39 @@ function MarketManager.SellCartContents(player, cartInventory)
 	return sold, earned
 end
 
-function MarketManager.GetAllPrices()
+function MarketManager.GetAllPrices(player)
 	local p = {}
 	local SM = rawget(Services, "StockMarketManager")
+	local endgame = player and isEndgame(player)
+	
 	for id, info in pairs(ItemConfig.Items) do
 		local bp = info.basePrice or 1
 		local sector = getItemSector(id)
-		local rate = 1.0
-		if sector and SM then rate = SM.GetSectorRate(sector) or 1.0 end
+		local marketRate = 1.0
+		local bailoutRate = 1.0
+		if sector and SM then 
+			marketRate = SM.GetSectorRate(sector) or 1.0 
+			bailoutRate = SM.GetBailoutRate(sector) or 1.0
+		end
+		local effectiveRate = (endgame == true) and marketRate or bailoutRate
 		p[id] = {
 			basePrice = bp,
-			currentPrice = math.floor(bp * rate),
+			currentPrice = math.floor(bp * effectiveRate),
+			marketPrice = math.floor(bp * marketRate),
+			bailoutPrice = math.floor(bp * bailoutRate),
 			tier = info.tier or 1,
 			sector = sector,
-			sectorRate = rate
+			sectorRate = effectiveRate,
+			isEndgame = endgame or false,
 		}
 	end
 	return p
 end
 
+-- Public helpers
 MarketManager.GetItemPrice = getItemPrice
+MarketManager.GetPlayerItemPrice = getPlayerItemPrice
 MarketManager.GetMarketRate = getMarketRate
+MarketManager.IsEndgame = isEndgame
 
 return MarketManager

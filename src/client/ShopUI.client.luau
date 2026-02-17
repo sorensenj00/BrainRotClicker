@@ -42,7 +42,7 @@ local UI_CONFIG = {
 	SHOP_PADDING = 10,
 	
 	-- Button styling
-	BUTTON_HEIGHT = 110, -- Increased to fit milestone progress
+	BUTTON_HEIGHT = 130, -- Increased to fit milestone + item cost
 	BUTTON_SPACING = 8,
 	CORNER_RADIUS = 12,
 	
@@ -59,6 +59,7 @@ local UI_CONFIG = {
 	SECONDARY_TEXT_COLOR = Color3.fromRGB(180, 180, 180),
 	LOCKED_TEXT_COLOR = Color3.fromRGB(100, 100, 100),
 	PRICE_COLOR = Color3.fromRGB(255, 215, 0),
+	ITEM_COST_COLOR = Color3.fromRGB(255, 170, 60), -- Orange for item requirements
 	
 	-- Animation
 	TWEEN_TIME = 0.15,
@@ -326,7 +327,7 @@ local function createShopButton(unitName: string, config: any, layoutOrder: numb
 	local priceLabel = Instance.new("TextLabel")
 	priceLabel.Name = "Price"
 	priceLabel.Size = UDim2.new(1, -80, 0, 24)
-	priceLabel.Position = UDim2.new(0, 70, 1, -32)
+	priceLabel.Position = UDim2.new(0, 70, 1, -48)
 	priceLabel.BackgroundTransparency = 1
 	priceLabel.Text = isLocked and "LOCKED" or formatMoney(config.BasePrice)
 	priceLabel.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or UI_CONFIG.PRICE_COLOR
@@ -334,6 +335,34 @@ local function createShopButton(unitName: string, config: any, layoutOrder: numb
 	priceLabel.Font = Enum.Font.GothamBold
 	priceLabel.TextXAlignment = Enum.TextXAlignment.Left
 	priceLabel.Parent = button
+	
+	-- Item cost display (shows required items for high-tier units)
+	local itemCostLabel = Instance.new("TextLabel")
+	itemCostLabel.Name = "ItemCost"
+	itemCostLabel.Size = UDim2.new(1, -80, 0, 16)
+	itemCostLabel.Position = UDim2.new(0, 70, 1, -22)
+	itemCostLabel.BackgroundTransparency = 1
+	itemCostLabel.Text = ""
+	itemCostLabel.TextColor3 = UI_CONFIG.ITEM_COST_COLOR
+	itemCostLabel.TextSize = 11
+	itemCostLabel.Font = Enum.Font.Gotham
+	itemCostLabel.TextXAlignment = Enum.TextXAlignment.Left
+	itemCostLabel.TextTruncate = Enum.TextTruncate.AtEnd
+	itemCostLabel.Visible = false
+	itemCostLabel.Parent = button
+	
+	-- Populate item cost text if unit has item requirements
+	if not isLocked then
+		local itemCost = ShopConfig.GetItemCost(unitName)
+		if itemCost then
+			local parts = {}
+			for itemId, qty in pairs(itemCost) do
+				table.insert(parts, qty .. "x " .. itemId)
+			end
+			itemCostLabel.Text = "📦 " .. table.concat(parts, " + ")
+			itemCostLabel.Visible = true
+		end
+	end
 	
 	-- Buy indicator (only for unlocked)
 	local buyIndicator = Instance.new("TextLabel")
@@ -412,6 +441,22 @@ local function updateButtonPrice(unitName: string, newCount: number)
 		else
 			milestoneLabel.Text = "✅ All milestones reached!"
 			milestoneLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
+		end
+	end
+	
+	-- Update item cost display
+	local itemCostLabel = button:FindFirstChild("ItemCost")
+	if itemCostLabel then
+		local itemCost = ShopConfig.GetItemCost(unitName)
+		if itemCost then
+			local parts = {}
+			for itemId, qty in pairs(itemCost) do
+				table.insert(parts, qty .. "x " .. itemId)
+			end
+			itemCostLabel.Text = "📦 " .. table.concat(parts, " + ")
+			itemCostLabel.Visible = true
+		else
+			itemCostLabel.Visible = false
 		end
 	end
 	

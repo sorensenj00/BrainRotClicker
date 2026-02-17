@@ -33,6 +33,9 @@ ItemConfig.MilestoneThresholds = {
     tier4 = 100,
 }
 
+-- V3: Selective Mode speed scaling (+2% per level)
+ItemConfig.SpeedExponent = 1.02
+
 --------------------------------------------------------------------------------
 -- ITEM DEFINITIONS (The massive list of 4 tiers per model)
 --------------------------------------------------------------------------------
@@ -487,6 +490,13 @@ ItemConfig.Items = {
     Zebra2 = { id = "Zebra2", displayName = "White Stripe", icon = "⚪", tier = 2, basePrice = 30, volatility = 0.2 },
     Zebra3 = { id = "Zebra3", displayName = "Savannah Grass", icon = "🌾", tier = 3, basePrice = 170, volatility = 0.5 },
     Zebra4 = { id = "Zebra4", displayName = "The Prism Zebra", icon = "🌈", tier = 4, basePrice = 1300, volatility = 0.8 },
+
+    -- V3: Synergy composite items (produced when specific pairs are in the same cluster)
+    AvocadoToast = { id = "AvocadoToast", displayName = "Avocado Toast", icon = "🥑🍞", tier = 3, basePrice = 320, volatility = 0.6 },
+    PizzaCoffee = { id = "PizzaCoffee", displayName = "Pizza Latte", icon = "🍕☕", tier = 3, basePrice = 280, volatility = 0.5 },
+    NukeCroc = { id = "NukeCroc", displayName = "Nuclear Crocodile", icon = "☢️🐊", tier = 4, basePrice = 2500, volatility = 0.9 },
+    BananaSplit = { id = "BananaSplit", displayName = "Banana Split Deluxe", icon = "🍌🍨", tier = 3, basePrice = 300, volatility = 0.5 },
+    GrandChoir = { id = "GrandChoir", displayName = "Grand Tralala Choir", icon = "🎵🎶", tier = 4, basePrice = 1800, volatility = 0.7 },
 }
 
 --------------------------------------------------------------------------------
@@ -572,6 +582,43 @@ ItemConfig.BrainrotItems = {
 }
 
 --------------------------------------------------------------------------------
+-- V3: AUTO-GENERATED MODES TABLE (from BrainrotItems)
+-- Each model gets 4 selectable modes with level-based unlock thresholds
+--------------------------------------------------------------------------------
+
+ItemConfig.BrainrotModes = {}
+for modelName, tiers in pairs(ItemConfig.BrainrotItems) do
+    ItemConfig.BrainrotModes[modelName] = {
+        { itemId = tiers.tier1, unlockLevel = ItemConfig.MilestoneThresholds.tier1, rate = ItemConfig.ProductionRates.tier1 },
+        { itemId = tiers.tier2, unlockLevel = ItemConfig.MilestoneThresholds.tier2, rate = ItemConfig.ProductionRates.tier2 },
+        { itemId = tiers.tier3, unlockLevel = ItemConfig.MilestoneThresholds.tier3, rate = ItemConfig.ProductionRates.tier3 },
+        { itemId = tiers.tier4, unlockLevel = ItemConfig.MilestoneThresholds.tier4, rate = ItemConfig.ProductionRates.tier4 },
+    }
+end
+
+--------------------------------------------------------------------------------
+-- V3: SYNERGY DEFINITIONS
+-- Pairs of unit types that produce special composite items when in the same cluster
+--------------------------------------------------------------------------------
+
+ItemConfig.Synergies = {
+    { unitA = "Avocadini Guffo",       unitB = "Bambini_Crostini",       synergyItem = "AvocadoToast", bonus = 1.5 },
+    { unitA = "Ballerina_Cappuccina",   unitB = "Noobini_Pizzanini",     synergyItem = "PizzaCoffee",  bonus = 1.3 },
+    { unitA = "Bombardiro_Crocodilo",   unitB = "Nuclearo Dinossauro",   synergyItem = "NukeCroc",     bonus = 2.0 },
+    { unitA = "Chimpanzini_Bananini",   unitB = "Bananita_Dolphinita",   synergyItem = "BananaSplit",  bonus = 1.4 },
+    { unitA = "Tralalero_Tralala",      unitB = "Las Tralaleritas",      synergyItem = "GrandChoir",   bonus = 1.6 },
+}
+
+-- Pre-build lookup for O(1) synergy checks
+ItemConfig._SynergyLookup = {}
+for _, syn in ipairs(ItemConfig.Synergies) do
+    if not ItemConfig._SynergyLookup[syn.unitA] then ItemConfig._SynergyLookup[syn.unitA] = {} end
+    if not ItemConfig._SynergyLookup[syn.unitB] then ItemConfig._SynergyLookup[syn.unitB] = {} end
+    ItemConfig._SynergyLookup[syn.unitA][syn.unitB] = syn
+    ItemConfig._SynergyLookup[syn.unitB][syn.unitA] = syn
+end
+
+--------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
 --------------------------------------------------------------------------------
 
@@ -594,6 +641,61 @@ function ItemConfig.GetProductions(modelName: string, ownedCount: number): {{ite
     if ownedCount >= thresholds.tier4 then table.insert(productions, {itemId = mapping.tier4, rate = rates.tier4}) end
     
     return productions
+end
+
+--[[
+    V3: Get production info for a single selected mode.
+    Returns { itemId, rate } adjusted by level-based speed scaling.
+]]
+function ItemConfig.GetModeProduction(modelName: string, modeIndex: number, level: number): {itemId: string, rate: number}?
+    local modes = ItemConfig.BrainrotModes[modelName]
+    if not modes then return nil end
+    
+    local mode = modes[math.clamp(modeIndex, 1, #modes)]
+    if not mode then return nil end
+    
+    -- Speed scales with level: rate / (SpeedExponent ^ (level - 1))
+    local speedMult = ItemConfig.SpeedExponent ^ (level - 1)
+    local adjustedRate = mode.rate / speedMult
+    adjustedRate = math.max(adjustedRate, 0.1) -- Floor at 0.1s
+    
+    return { itemId = mode.itemId, rate = adjustedRate }
+end
+
+--[[
+    V3: Check if two unit types form a synergy pair.
+    Returns synergy config { unitA, unitB, synergyItem, bonus } or nil.
+]]
+function ItemConfig.GetSynergyOverride(unitTypeA: string, unitTypeB: string)
+    local lookup = ItemConfig._SynergyLookup[unitTypeA]
+    if not lookup then return nil end
+    return lookup[unitTypeB]
+end
+
+--[[
+    V3: Get all modes available to a unit at a given level.
+    Returns array of { modeIndex, itemId, unlockLevel, isUnlocked, rate }.
+]]
+function ItemConfig.GetAvailableModes(modelName: string, level: number): {{modeIndex: number, itemId: string, unlockLevel: number, isUnlocked: boolean, rate: number}}
+    local modes = ItemConfig.BrainrotModes[modelName]
+    if not modes then return {} end
+    
+    local result = {}
+    for i, mode in ipairs(modes) do
+        local isUnlocked = level >= mode.unlockLevel
+        local speedMult = ItemConfig.SpeedExponent ^ (level - 1)
+        local adjustedRate = mode.rate / speedMult
+        adjustedRate = math.max(adjustedRate, 0.1)
+        
+        table.insert(result, {
+            modeIndex = i,
+            itemId = mode.itemId,
+            unlockLevel = mode.unlockLevel,
+            isUnlocked = isUnlocked,
+            rate = adjustedRate,
+        })
+    end
+    return result
 end
 
 --[[

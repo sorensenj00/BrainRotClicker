@@ -1,22 +1,71 @@
 --[[
 	StockMarketManager Server Module
 	
-	Handles the dynamic brainrot stock market.
+	═══════════════════════════════════════════════════════════════════════════════
+	              GLOBAL SHARDED MARKET WITH WELFARE
+	═══════════════════════════════════════════════════════════════════════════════
+	
+	PURPOSE:
+	  Replaces the old random-local sector pricing with a player-driven global
+	  market. Prices are derived from REAL cross-server sales volume stored in
+	  MemoryStoreService. All servers read a sharded volume dataset and compute
+	  synchronized rates.
+	
+	ARCHITECTURE:
+	  • READ LOOP  (every 5s)  — Read 5 MemoryStore shards, sum volumes, compute
+	    MarketRate + BailoutRate per sector, replicate via attributes.
+	  • WRITE LOOP (every 10s) — Flush this server's buffered sales volume into
+	    one random shard to avoid key-lock contention.
+	  • FALLBACK — If MemoryStore fails (Studio / offline), gracefully degrade to
+	    the old random local pricing so gameplay isn't blocked.
+	
+	═══════════════════════════════════════════════════════════════════════════════
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
+local MemoryStoreService = game:GetService("MemoryStoreService")
+
+--------------------------------------------------------------------------------
+-- CONFIGURATION
+--------------------------------------------------------------------------------
 
 local CONFIG = {
-	UPDATE_INTERVAL = 20,
-	MIN_RATE = 0.5,
+	-- Timing
+	READ_INTERVAL = 5,       -- seconds between MemoryStore reads
+	WRITE_INTERVAL = 10,     -- seconds between buffer flushes
+	LOCAL_UPDATE_INTERVAL = 20, -- fallback local update rate (Studio mode)
+	
+	-- Sharding
+	NUM_SHARDS = 5,
+	SHARD_EXPIRATION = 300,  -- MemoryStore key TTL (5 minutes)
+	
+	-- Pricing
+	MIN_RATE = 0.3,
 	MAX_RATE = 3.0,
 	STARTING_RATE = 1.0,
+	BAILOUT_FLOOR = 0.8,     -- Minimum rate for welfare-protected players
+	IMPACT_FACTOR = 0.00005, -- How much each sold unit depresses price
+	RECOVERY_RATE = 0.02,    -- Natural price recovery per read cycle
+	
+	-- Synthetic Volatility (keeps market alive at low player count)
+	JITTER_SPEED = 0.1,      -- Perlin noise time multiplier (lower = slower waves)
+	JITTER_AMPLITUDE = 0.05, -- ±5% micro-fluctuation
+	TREND_PERIOD = 600,      -- seconds per synthetic trend cycle (10 minutes)
+	HYPE_CHANCE = 0.20,      -- 20% chance of a bull run per cycle
+	HYPE_MULTIPLIER = 1.4,   -- Bull run rate multiplier
+	TREND_MIN = 0.9,         -- Normal drift minimum
+	TREND_MAX = 1.1,         -- Normal drift maximum
+	DEAD_MARKET_THRESHOLD = 1000, -- Volume below this triggers ghost trading
+	
+	-- Fallback (old random pricing for Studio)
 	BASE_VOLATILITY = 0.25,
 	SPIKE_CHANCE = 0.10,
 	SPIKE_MULTIPLIER = 2.5,
 	MEAN_REVERSION = 0.05,
+	
+	-- History
 	MAX_HISTORY = 60,
 }
 
@@ -30,15 +79,28 @@ local SECTOR_COLORS = {
 	Mystic = {148, 103, 189}, Tech = {31, 119, 180}, Action = {214, 39, 40},
 }
 
+--------------------------------------------------------------------------------
+-- STATE
+--------------------------------------------------------------------------------
+
 local StockMarketManager = {}
 local Services = {}
-local sectorRates = {}
+
+local sectorRates = {}        -- { [sector] = currentMarketRate }
+local bailoutRates = {}       -- { [sector] = bailoutRate }
 local sectorHistories = {}
-local nextUpdate = 0
 local stockMarketFolder = nil
 
+-- MemoryStore state
+local GlobalMarketMap = nil       -- MemoryStoreService sorted map
+local ServerSalesBuffer = {}      -- { [sector] = volumeToFlush }
+local useGlobalPricing = false    -- true once MemoryStore is confirmed working
+local nextReadTime = 0
+local nextWriteTime = 0
+local nextLocalUpdate = 0
+
 --------------------------------------------------------------------------------
--- HELPER
+-- HELPERS
 --------------------------------------------------------------------------------
 
 local function serializeHistory(history)
@@ -68,7 +130,8 @@ local function getGlobalRateName()
 	else return "NORMAL" end
 end
 
-local function calculateNewRate(sector)
+-- Fallback random pricing (same as old logic, used in Studio)
+local function calculateLocalRate(sector)
 	local current = sectorRates[sector]
 	local vol = SECTOR_VOLATILITY[sector] or CONFIG.BASE_VOLATILITY
 	local base = (math.random() - 0.5) * 2 * vol
@@ -77,14 +140,167 @@ local function calculateNewRate(sector)
 	return math.clamp(current + base + rev, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
 end
 
-local function updateMarket()
-	for _, cat in ipairs(SECTORS) do
-		local nr = calculateNewRate(cat)
-		sectorRates[cat] = nr
-		table.insert(sectorHistories[cat], nr)
-		if #sectorHistories[cat] > CONFIG.MAX_HISTORY then table.remove(sectorHistories[cat], 1) end
+--------------------------------------------------------------------------------
+-- SYNTHETIC VOLATILITY
+--------------------------------------------------------------------------------
+
+-- Generate a unique numeric seed from a sector name
+local function getSectorSeed(sectorName: string): number
+	local seed = 0
+	for i = 1, #sectorName do
+		seed = seed + string.byte(sectorName, i) * i
+	end
+	return seed
+end
+
+--[[
+	Perlin Noise Jitter: smooth ±5% micro-fluctuations.
+	Uses math.noise for natural-looking waves instead of jagged random spikes.
+	Each sector has a unique seed so they don't move in lockstep.
+]]
+local function getJitter(sectorName: string): number
+	local seed = getSectorSeed(sectorName)
+	local timeOffset = os.clock() * CONFIG.JITTER_SPEED
+	local noise = math.noise(timeOffset, seed * 0.1, 0) -- Returns -0.5 to 0.5
+	return 1 + (noise * CONFIG.JITTER_AMPLITUDE)
+end
+
+--[[
+	Synthetic Trend ("Market Maker Bot"): deterministic wave shared by all servers.
+	Every TREND_PERIOD seconds, each sector gets a new trend direction.
+	20% chance of a BULL RUN (1.4x), otherwise normal drift (0.9-1.1x).
+	Deterministic via timeKey + seed so all servers agree.
+]]
+local function getSyntheticTrend(sectorName: string): number
+	local timeKey = math.floor(os.time() / CONFIG.TREND_PERIOD)
+	local seed = getSectorSeed(sectorName)
+	local rng = Random.new(timeKey + seed)
+	
+	if rng:NextNumber() > (1 - CONFIG.HYPE_CHANCE) then
+		return CONFIG.HYPE_MULTIPLIER -- BULL RUN!
+	else
+		return rng:NextNumber(CONFIG.TREND_MIN, CONFIG.TREND_MAX) -- Normal drift
+	end
+end
+
+--------------------------------------------------------------------------------
+-- MEMORYSTORE: SHARDED READER
+--------------------------------------------------------------------------------
+
+local function readGlobalVolumes(): {[string]: number}
+	local totalVolumes: {[string]: number} = {}
+	for _, sector in ipairs(SECTORS) do totalVolumes[sector] = 0 end
+	
+	for shardId = 1, CONFIG.NUM_SHARDS do
+		local key = "GlobalVol_Shard_" .. shardId
+		local ok, data = pcall(function()
+			return GlobalMarketMap:GetAsync(key)
+		end)
+		if ok and data and type(data) == "table" then
+			for sector, vol in pairs(data) do
+				if totalVolumes[sector] then
+					totalVolumes[sector] += (tonumber(vol) or 0)
+				end
+			end
+		end
 	end
 	
+	return totalVolumes
+end
+
+local function computeGlobalRates(totalVolumes: {[string]: number})
+	for _, sector in ipairs(SECTORS) do
+		local vol = totalVolumes[sector] or 0
+		
+		-- Base rate from real player volume
+		local rawRate = CONFIG.STARTING_RATE * (1 - (vol * CONFIG.IMPACT_FACTOR))
+		rawRate += CONFIG.RECOVERY_RATE
+		
+		-- SYNTHETIC VOLATILITY: Apply Market Maker when volume is low
+		if vol < CONFIG.DEAD_MARKET_THRESHOLD then
+			local trend = getSyntheticTrend(sector)
+			rawRate *= trend
+		end
+		
+		-- JITTER: Always-on Perlin noise micro-fluctuation
+		local jitter = getJitter(sector)
+		rawRate *= jitter
+		
+		-- Final clamp
+		rawRate = math.clamp(rawRate, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
+		
+		sectorRates[sector] = rawRate
+		bailoutRates[sector] = math.max(rawRate, CONFIG.BAILOUT_FLOOR)
+		
+		-- Record history
+		table.insert(sectorHistories[sector], rawRate)
+		if #sectorHistories[sector] > CONFIG.MAX_HISTORY then
+			table.remove(sectorHistories[sector], 1)
+		end
+	end
+end
+
+local function performGlobalRead()
+	local ok, vol = pcall(readGlobalVolumes)
+	if ok and vol then
+		computeGlobalRates(vol)
+		return true
+	else
+		warn("StockMarketManager: MemoryStore read failed:", vol)
+		return false
+	end
+end
+
+--------------------------------------------------------------------------------
+-- MEMORYSTORE: SHARDED WRITER
+--------------------------------------------------------------------------------
+
+local function flushSalesBuffer()
+	-- Snapshot and clear buffer atomically
+	local snapshot = ServerSalesBuffer
+	ServerSalesBuffer = {}
+	
+	-- Check if there's anything to write
+	local hasData = false
+	for _, v in pairs(snapshot) do
+		if v > 0 then hasData = true; break end
+	end
+	if not hasData then return end
+	
+	-- Pick a random shard to minimize key contention
+	local shardId = math.random(1, CONFIG.NUM_SHARDS)
+	local key = "GlobalVol_Shard_" .. shardId
+	
+	local ok, err = pcall(function()
+		GlobalMarketMap:UpdateAsync(key, function(old)
+			old = old or {}
+			for sector, amount in pairs(snapshot) do
+				old[sector] = (old[sector] or 0) + amount
+			end
+			return old
+		end, CONFIG.SHARD_EXPIRATION)
+	end)
+	
+	if ok then
+		local totalFlushed = 0
+		for _, v in pairs(snapshot) do totalFlushed += v end
+		if totalFlushed > 0 then
+			print("StockMarketManager: Flushed " .. totalFlushed .. " volume to shard " .. shardId)
+		end
+	else
+		-- Restore buffer on failure (don't lose data)
+		for sector, amount in pairs(snapshot) do
+			ServerSalesBuffer[sector] = (ServerSalesBuffer[sector] or 0) + amount
+		end
+		warn("StockMarketManager: MemoryStore write failed (shard " .. shardId .. "):", err)
+	end
+end
+
+--------------------------------------------------------------------------------
+-- ATTRIBUTE REPLICATION
+--------------------------------------------------------------------------------
+
+local function replicateToClients()
 	local sum = 0; for _, r in pairs(sectorRates) do sum += r end
 	local avgRate = sum / #SECTORS
 	
@@ -93,60 +309,152 @@ local function updateMarket()
 	stockMarketFolder:SetAttribute("Sectors", HttpService:JSONEncode(SECTORS))
 	stockMarketFolder:SetAttribute("SectorColors", HttpService:JSONEncode(SECTOR_COLORS))
 	
+	-- Legacy compat
 	stockMarketFolder:SetAttribute("CurrentRate", avgRate)
 	stockMarketFolder:SetAttribute("RateName", getGlobalRateName())
 	stockMarketFolder:SetAttribute("RateHistory", serializeHistory(sectorHistories.Food))
 	stockMarketFolder:SetAttribute("LastUpdate", os.time())
-	stockMarketFolder:SetAttribute("UpdateInterval", CONFIG.UPDATE_INTERVAL)
+	stockMarketFolder:SetAttribute("UpdateInterval", 
+		useGlobalPricing and CONFIG.READ_INTERVAL or CONFIG.LOCAL_UPDATE_INTERVAL)
+	
+	-- NEW: Per-sector bailout rates for welfare check
+	local bailoutJson = {}
+	for sector, rate in pairs(bailoutRates) do
+		bailoutJson[sector] = math.floor(rate * 1000) / 1000
+	end
+	stockMarketFolder:SetAttribute("BailoutRates", HttpService:JSONEncode(bailoutJson))
+	
+	-- Flag for clients to know which pricing model is active
+	stockMarketFolder:SetAttribute("GlobalPricingActive", useGlobalPricing)
+end
+
+-- Fallback: old-style random local update (with jitter for liveliness)
+local function updateMarketLocal()
+	for _, cat in ipairs(SECTORS) do
+		local nr = calculateLocalRate(cat)
+		-- Apply jitter even in fallback mode for smooth wiggling
+		nr *= getJitter(cat)
+		nr = math.clamp(nr, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
+		sectorRates[cat] = nr
+		bailoutRates[cat] = math.max(nr, CONFIG.BAILOUT_FLOOR)
+		table.insert(sectorHistories[cat], nr)
+		if #sectorHistories[cat] > CONFIG.MAX_HISTORY then
+			table.remove(sectorHistories[cat], 1)
+		end
+	end
+	replicateToClients()
 end
 
 --------------------------------------------------------------------------------
--- API
+-- PUBLIC API
 --------------------------------------------------------------------------------
 
 function StockMarketManager.Init(services)
 	print("   StockMarketManager (Module) - Initializing")
 	Services = services or {}
 	
+	-- Create or find the ReplicatedStorage folder for client access
 	stockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket") or Instance.new("Folder")
 	stockMarketFolder.Name = "StockMarket"
 	stockMarketFolder.Parent = ReplicatedStorage
 	
+	-- Initialize all sector rates
 	for _, cat in ipairs(SECTORS) do
 		sectorRates[cat] = CONFIG.STARTING_RATE
+		bailoutRates[cat] = CONFIG.STARTING_RATE
 		sectorHistories[cat] = {}
-		for i = 1, CONFIG.MAX_HISTORY do table.insert(sectorHistories[cat], CONFIG.STARTING_RATE) end
+		for i = 1, CONFIG.MAX_HISTORY do
+			table.insert(sectorHistories[cat], CONFIG.STARTING_RATE)
+		end
+		ServerSalesBuffer[cat] = 0
 	end
 	
-	stockMarketFolder:SetAttribute("Sectors", HttpService:JSONEncode(SECTORS))
-	stockMarketFolder:SetAttribute("SectorColors", HttpService:JSONEncode(SECTOR_COLORS))
-	stockMarketFolder:SetAttribute("SectorRates", serializeSectorRates())
-	stockMarketFolder:SetAttribute("SectorHistories", serializeSectorHistories())
-	stockMarketFolder:SetAttribute("CurrentRate", CONFIG.STARTING_RATE)
-	stockMarketFolder:SetAttribute("RateName", "NORMAL")
-	stockMarketFolder:SetAttribute("RateHistory", serializeHistory(sectorHistories.Food))
-	stockMarketFolder:SetAttribute("LastUpdate", os.time())
-	stockMarketFolder:SetAttribute("UpdateInterval", CONFIG.UPDATE_INTERVAL)
+	-- Static attributes
 	stockMarketFolder:SetAttribute("MinRate", CONFIG.MIN_RATE)
 	stockMarketFolder:SetAttribute("MaxRate", CONFIG.MAX_RATE)
+	stockMarketFolder:SetAttribute("BailoutFloor", CONFIG.BAILOUT_FLOOR)
 	
-	nextUpdate = os.time() + CONFIG.UPDATE_INTERVAL
-	stockMarketFolder:SetAttribute("NextUpdate", nextUpdate)
+	-- Try to connect to MemoryStoreService
+	local initOk, initErr = pcall(function()
+		GlobalMarketMap = MemoryStoreService:GetSortedMap("GlobalMarket_v1")
+	end)
 	
+	if initOk and GlobalMarketMap then
+		-- Test read to verify MemoryStore is working
+		local testOk = pcall(function()
+			GlobalMarketMap:GetAsync("GlobalVol_Shard_1")
+		end)
+		if testOk then
+			useGlobalPricing = true
+			print("   StockMarketManager: ✓ MemoryStore connected — global pricing ACTIVE")
+		else
+			print("   StockMarketManager: MemoryStore read test failed — using local fallback")
+		end
+	else
+		warn("   StockMarketManager: MemoryStore init failed:", initErr, "— using local fallback")
+	end
+	
+	-- Initial replication
+	replicateToClients()
+	
+	local now = os.time()
+	nextReadTime = now + CONFIG.READ_INTERVAL
+	nextWriteTime = now + CONFIG.WRITE_INTERVAL
+	nextLocalUpdate = now + CONFIG.LOCAL_UPDATE_INTERVAL
+	stockMarketFolder:SetAttribute("NextUpdate", nextReadTime)
+	
+	-- Main heartbeat loop
 	RunService.Heartbeat:Connect(function()
-		local now = os.time()
-		if now >= nextUpdate then
-			updateMarket()
-			nextUpdate = now + CONFIG.UPDATE_INTERVAL
-			stockMarketFolder:SetAttribute("NextUpdate", nextUpdate)
+		local now2 = os.time()
+		
+		if useGlobalPricing then
+			-- GLOBAL MODE: Read from MemoryStore shards
+			if now2 >= nextReadTime then
+				nextReadTime = now2 + CONFIG.READ_INTERVAL
+				task.spawn(function()
+					performGlobalRead()
+					replicateToClients()
+					stockMarketFolder:SetAttribute("NextUpdate", nextReadTime)
+				end)
+			end
+			
+			-- Flush sales buffer to a random shard
+			if now2 >= nextWriteTime then
+				nextWriteTime = now2 + CONFIG.WRITE_INTERVAL
+				task.spawn(flushSalesBuffer)
+			end
+		else
+			-- FALLBACK MODE: Old random local pricing
+			if now2 >= nextLocalUpdate then
+				nextLocalUpdate = now2 + CONFIG.LOCAL_UPDATE_INTERVAL
+				updateMarketLocal()
+				stockMarketFolder:SetAttribute("NextUpdate", nextLocalUpdate)
+			end
 		end
 	end)
 	
-	print("✓ StockMarketManager Initialized")
+	print("✓ StockMarketManager Initialized (" 
+		.. (useGlobalPricing and "GLOBAL" or "LOCAL FALLBACK") .. " mode)")
 end
 
+--[[
+	AddSalesVolume: Called by MarketManager after a player sells items.
+	Buffers the volume to be flushed to MemoryStore on the next write cycle.
+	
+	@param sector string - The market sector (e.g., "Food", "Animals")
+	@param count number - Number of items sold
+]]
+function StockMarketManager.AddSalesVolume(sector: string, count: number)
+	if not sector or not count or count <= 0 then return end
+	ServerSalesBuffer[sector] = (ServerSalesBuffer[sector] or 0) + count
+end
+
+-- Getters (backward compatible)
 StockMarketManager.GetSectorRate = function(c) return sectorRates[c] or 1.0 end
+StockMarketManager.GetBailoutRate = function(c) return bailoutRates[c] or CONFIG.BAILOUT_FLOOR end
 StockMarketManager.GetAllSectorRates = function() return table.clone(sectorRates) end
+StockMarketManager.GetAllBailoutRates = function() return table.clone(bailoutRates) end
 StockMarketManager.GetSectors = function() return SECTORS end
+StockMarketManager.IsGlobalPricingActive = function() return useGlobalPricing end
 
 return StockMarketManager

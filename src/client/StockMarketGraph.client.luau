@@ -527,8 +527,8 @@ local function drawGraph(display: BillboardDisplay)
 			-- Get color for this sector
 			local color = CONFIG.SECTOR_COLORS[sector] or Color3.fromRGB(200, 200, 200)
 			
-			-- Draw the line (first sector gets fill, others don't)
-			MeshRenderer.DrawSectorLine(renderer, points, color, i == 1)
+			-- Draw the line (all lines now without fill)
+			MeshRenderer.DrawSectorLine(renderer, points, color, false)
 			
 			-- Draw current dot
 			if #points > 0 then

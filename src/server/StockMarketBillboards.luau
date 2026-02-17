@@ -65,9 +65,9 @@ local function createBillboard(posData, center)
 	
 	local t = Instance.new("TextLabel"); t.Size=UDim2.new(1,0,0.12,0); t.BackgroundTransparency=1; t.Text="📈 BRAINROT STOCKS"; t.TextColor3=Color3.new(1,1,1); t.TextScaled=true; t.Parent=c
 	
-	local rd = Instance.new("TextLabel"); rd.Size=UDim2.new(0.35,0,0.12,0); rd.Position=UDim2.new(0.05,0,0.12,0); rd.BackgroundTransparency=1; rd.Text="BEST: 1.00x"; rd.TextColor3=Color3.fromRGB(100,255,100); rd.TextScaled=true; rd.TextXAlignment=Enum.TextXAlignment.Left; rd.Parent=c
+	local rd = Instance.new("TextLabel"); rd.Name="RateDisplay"; rd.Size=UDim2.new(0.35,0,0.12,0); rd.Position=UDim2.new(0.05,0,0.12,0); rd.BackgroundTransparency=1; rd.Text="BEST: 1.00x"; rd.TextColor3=Color3.fromRGB(100,255,100); rd.TextScaled=true; rd.TextXAlignment=Enum.TextXAlignment.Left; rd.Parent=c
 	
-	local rn = Instance.new("TextLabel"); rn.Size=UDim2.new(0.5,0,0.08,0); rn.Position=UDim2.new(0.45,0,0.16,0); rn.BackgroundTransparency=1; rn.Text="NORMAL"; rn.TextColor3=Color3.fromRGB(180,180,180); rn.TextScaled=true; rn.TextXAlignment=Enum.TextXAlignment.Right; rn.Parent=c
+	local rn = Instance.new("TextLabel"); rn.Name="RateName"; rn.Size=UDim2.new(0.5,0,0.08,0); rn.Position=UDim2.new(0.45,0,0.16,0); rn.BackgroundTransparency=1; rn.Text="NORMAL"; rn.TextColor3=Color3.fromRGB(180,180,180); rn.TextScaled=true; rn.TextXAlignment=Enum.TextXAlignment.Right; rn.Parent=c
 	
 	local gc = Instance.new("Frame"); gc.Name="GraphContainer"; gc.Size=UDim2.new(0.9,0,0.6,0); gc.Position=UDim2.new(0.05,0,0.3,0); gc.BackgroundColor3=Color3.fromRGB(25,25,35); gc.Parent=c
 	
@@ -75,7 +75,7 @@ local function createBillboard(posData, center)
 	
 	local gl = Instance.new("Frame"); gl.Name="GraphLines"; gl.Size=UDim2.new(1,0,1,0); gl.BackgroundTransparency=1; gl.Parent=gc
 	
-	local td = Instance.new("TextLabel"); td.Size=UDim2.new(1,0,0.08,0); td.Position=UDim2.new(0,0,0.92,0); td.BackgroundTransparency=1; td.Text="Next update in: 10s"; td.TextColor3=Color3.fromRGB(150,150,150); td.TextScaled=true; td.Parent=c
+	local td = Instance.new("TextLabel"); td.Name="TimerDisplay"; td.Size=UDim2.new(1,0,0.08,0); td.Position=UDim2.new(0,0,0.92,0); td.BackgroundTransparency=1; td.Text="Next update in: 10s"; td.TextColor3=Color3.fromRGB(150,150,150); td.TextScaled=true; td.Parent=c
 	
 	model.Parent = Workspace
 	return model

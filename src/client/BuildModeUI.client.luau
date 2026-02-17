@@ -20,7 +20,7 @@ local CollectionService = game:GetService("CollectionService")
 
 -- Shared Configs
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local TileConfig = require(Shared:WaitForChild("TileConfig"))
+local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
 
 -- Player
@@ -42,13 +42,7 @@ local GetInventoryRemote = RemoteEvents:WaitForChild("GetInventory")
 local PlaceBrainrotRemote = RemoteEvents:WaitForChild("PlaceBrainrot")
 local RemoveBrainrotRemote = RemoteEvents:WaitForChild("RemoveBrainrot")
 
--- Tile remotes
-local PlaceTileRemote = RemoteFunctions:WaitForChild("PlaceTile")
-local RemoveTileRemote = RemoteFunctions:WaitForChild("RemoveTile")
-
--- State
-local currentTab = "Units" -- "Units" or "Tiles"
-local tileList = {} -- To be populated from TileConfig
+-- (Tile remotes removed - tiles no longer in game)
 
 -- Events
 local InventoryChangedEvent = RemoteEvents:WaitForChild("InventoryChanged")
@@ -86,12 +80,7 @@ local CONFIG = {
 	BUTTON_SIZE = 60,
 	INVENTORY_WIDTH = 220,
 	
-	-- Rarity colors
-	RARITY_COLORS = {
-		Normal = Color3.fromRGB(180, 180, 180),
-		Spicy = Color3.fromRGB(255, 80, 80),
-		Galaxy = Color3.fromRGB(180, 100, 255),
-	},
+
 	
 	-- Modern Dark Theme (MoneyHUD Style)
 	THEME_BG = Color3.fromRGB(20, 20, 30),
@@ -145,7 +134,7 @@ local refreshInventoryPanel
 local getSlotUnderMouse
 local renderBuildGrid
 local startDrag
-local startTileDrag
+-- (startTileDrag removed - tiles no longer in game)
 local completeDrop
 
 -- Helper for rounded stroke panels (MoneyHUD style)
@@ -620,7 +609,7 @@ end
 -- INVENTORY PANEL (for Build Mode)
 --------------------------------------------------------------------------------
 
-local RARITY_ORDER = {"Normal", "Spicy", "Galaxy"}
+-- (RARITY_ORDER removed - rarity no longer displayed)
 local inventoryItems = {}  -- UI item frames
 
 --[[
@@ -634,66 +623,24 @@ local function createInventoryPanel(parent)
 	_stylePanel(panel)
 	panel.Parent = parent
 	
-	-- Tab Container
-	local tabContainer = Instance.new("Frame")
-	tabContainer.Name = "TabContainer"
-	tabContainer.Size = UDim2.new(1, -20, 0, 36)
-	tabContainer.Position = UDim2.new(0, 10, 0, 10)
-	tabContainer.BackgroundTransparency = 1
-	tabContainer.Parent = panel
-	
-	-- Units Tab Button
-	local unitsBtn = Instance.new("TextButton")
-	unitsBtn.Name = "UnitsButton"
-	unitsBtn.Size = UDim2.new(0.5, -5, 1, 0)
-	unitsBtn.Position = UDim2.new(0, 0, 0, 0)
-	unitsBtn.BackgroundColor3 = currentTab == "Units" and CONFIG.THEME_ACCENT_PURPLE or Color3.fromRGB(40,40,50)
-	unitsBtn.Text = "🧠 UNITS"
-	unitsBtn.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
-	unitsBtn.TextSize = 12
-	unitsBtn.Font = Enum.Font.GothamBold
-	unitsBtn.Parent = tabContainer
-	
-	local uCorner = Instance.new("UICorner")
-	uCorner.CornerRadius = UDim.new(0, 6)
-	uCorner.Parent = unitsBtn
-	
-	-- Tiles Tab Button
-	local tilesBtn = Instance.new("TextButton")
-	tilesBtn.Name = "TilesButton"
-	tilesBtn.Size = UDim2.new(0.5, -5, 1, 0)
-	tilesBtn.Position = UDim2.new(0.5, 5, 0, 0)
-	tilesBtn.BackgroundColor3 = currentTab == "Tiles" and CONFIG.THEME_ACCENT_PINK or Color3.fromRGB(40,40,50)
-	tilesBtn.Text = "🧱 TILES"
-	tilesBtn.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
-	tilesBtn.TextSize = 12
-	tilesBtn.Font = Enum.Font.GothamBold
-	tilesBtn.Parent = tabContainer
-	
-	local tCorner = Instance.new("UICorner")
-	tCorner.CornerRadius = UDim.new(0, 6)
-	tCorner.Parent = tilesBtn
-	
-	-- Tab Logic
-	unitsBtn.MouseButton1Click:Connect(function()
-		currentTab = "Units"
-		unitsBtn.BackgroundColor3 = CONFIG.THEME_ACCENT_PURPLE
-		tilesBtn.BackgroundColor3 = Color3.fromRGB(40,40,50)
-		refreshInventoryPanel()
-	end)
-	
-	tilesBtn.MouseButton1Click:Connect(function()
-		currentTab = "Tiles"
-		tilesBtn.BackgroundColor3 = CONFIG.THEME_ACCENT_PINK
-		unitsBtn.BackgroundColor3 = Color3.fromRGB(40,40,50)
-		refreshInventoryPanel()
-	end)
+	-- Title bar
+	local titleBar = Instance.new("TextLabel")
+	titleBar.Name = "TitleBar"
+	titleBar.Size = UDim2.new(1, -20, 0, 30)
+	titleBar.Position = UDim2.new(0, 10, 0, 8)
+	titleBar.BackgroundTransparency = 1
+	titleBar.Text = "🧠 UNITS"
+	titleBar.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+	titleBar.TextSize = 14
+	titleBar.Font = Enum.Font.GothamBold
+	titleBar.TextXAlignment = Enum.TextXAlignment.Left
+	titleBar.Parent = panel
 
 	-- Scrolling frame for items
 	local scrollFrame = Instance.new("ScrollingFrame")
 	scrollFrame.Name = "ItemsList"
-	scrollFrame.Size = UDim2.new(1, -20, 1, -60)
-	scrollFrame.Position = UDim2.new(0, 10, 0, 55)
+	scrollFrame.Size = UDim2.new(1, -20, 1, -50)
+	scrollFrame.Position = UDim2.new(0, 10, 0, 42)
 	scrollFrame.BackgroundTransparency = 1
 	scrollFrame.BorderSizePixel = 0
 	scrollFrame.ScrollBarThickness = 4
@@ -782,10 +729,10 @@ refreshInventoryPanel = function()
 	end
 	inventoryItems = {}
 	
-	-- Clean up old previews
-	for _, previewFrame in pairs(inventoryPreviews) do
-		if previewFrame and previewFrame.Parent then
-			previewFrame:Destroy()
+	-- Clean up old spinning previews (ViewportPreview objects)
+	for _, preview in pairs(inventoryPreviews) do
+		if preview and preview.Destroy then
+			preview:Destroy()
 		end
 	end
 	inventoryPreviews = {}
@@ -795,224 +742,167 @@ refreshInventoryPanel = function()
 		return 
 	end
 	
-	if currentTab == "Units" then
-		if not inventory or not inventory.units then return end
-		
-		-- Create an entry for each unit that is STORED (not placed)
-		for unitName, unitData in pairs(inventory.units) do
-			if unitData.status == "stored" and (unitData.level or 0) > 0 then
+	if not inventory or not inventory.units then
+		isRefreshingInventory = false
+		return
+	end
+	
+	-- Create an entry for each unit that is STORED (not placed)
+	for unitName, unitData in pairs(inventory.units) do
+		if unitData.status == "stored" and (unitData.level or 0) > 0 then
 
-			local rarityColor = CONFIG.RARITY_COLORS[unitData.rarity] or CONFIG.THEME_TEXT_SECONDARY
+		-- Card container (Modern Style)
+		local itemFrame = Instance.new("Frame")
+		itemFrame.Name = "Item_" .. unitName
+		itemFrame.Size = UDim2.new(1, 0, 0, 100) -- Taller to fit item icons
+		itemFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50) -- Dark inner panel
+		itemFrame.BorderSizePixel = 0
+		itemFrame.Parent = scrollFrame
+		
+		local corner = Instance.new("UICorner")
+		corner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
+		corner.Parent = itemFrame
+		
+		-- Preview Container (for spinning 3D model)
+		local previewContainer = Instance.new("Frame")
+		previewContainer.Name = "PreviewContainer"
+		previewContainer.Size = UDim2.new(0, 70, 0, 70)
+		previewContainer.Position = UDim2.new(0, 10, 0, 10)
+		previewContainer.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+		previewContainer.BorderSizePixel = 0
+		previewContainer.Parent = itemFrame
+		
+		local viewCorner = Instance.new("UICorner")
+		viewCorner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
+		viewCorner.Parent = previewContainer
+		
+		-- Info Group
+		local infoGroup = Instance.new("Frame")
+		infoGroup.Name = "Info"
+		infoGroup.Size = UDim2.new(1, -90, 1, 0)
+		infoGroup.Position = UDim2.new(0, 90, 0, 0)
+		infoGroup.BackgroundTransparency = 1
+		infoGroup.Parent = itemFrame
+		
+		-- Unit Name
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Name = "Name"
+		nameLabel.Size = UDim2.new(1, 0, 0, 18)
+		nameLabel.Position = UDim2.new(0, 0, 0, 6)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Text = unitName
+		nameLabel.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
+		nameLabel.TextSize = 13
+		nameLabel.Font = Enum.Font.GothamBold
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLabel.Parent = infoGroup
+		
+		-- Level Label (no rarity)
+		local levelLabel = Instance.new("TextLabel")
+		levelLabel.Name = "Level"
+		levelLabel.Size = UDim2.new(1, 0, 0, 14)
+		levelLabel.Position = UDim2.new(0, 0, 0, 25)
+		levelLabel.BackgroundTransparency = 1
+		levelLabel.Text = string.format("Lvl %d", unitData.level or 1)
+		levelLabel.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
+		levelLabel.TextSize = 11
+		levelLabel.Font = Enum.Font.Gotham
+		levelLabel.TextXAlignment = Enum.TextXAlignment.Left
+		levelLabel.Parent = infoGroup
+		
+		-- Item Production Icons (4 icons showing what this brainrot produces)
+		local brainrotItems = ItemConfig.BrainrotItems[unitName]
+		if brainrotItems then
+			local iconContainer = Instance.new("Frame")
+			iconContainer.Name = "ItemIcons"
+			iconContainer.Size = UDim2.new(1, 0, 0, 22)
+			iconContainer.Position = UDim2.new(0, 0, 0, 42)
+			iconContainer.BackgroundTransparency = 1
+			iconContainer.Parent = infoGroup
 			
-			-- Card container (Modern Style)
-			local itemFrame = Instance.new("Frame")
-			itemFrame.Name = "Item_" .. unitName
-			itemFrame.Size = UDim2.new(1, 0, 0, 90) -- Slightly taller for new layout
-			itemFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50) -- Dark inner panel
-			itemFrame.BorderSizePixel = 0
-			itemFrame.Parent = scrollFrame
+			local iconLayout = Instance.new("UIListLayout")
+			iconLayout.FillDirection = Enum.FillDirection.Horizontal
+			iconLayout.SortOrder = Enum.SortOrder.LayoutOrder
+			iconLayout.Padding = UDim.new(0, 4)
+			iconLayout.Parent = iconContainer
 			
-			local corner = Instance.new("UICorner")
-			corner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
-			corner.Parent = itemFrame
-			
-			-- Viewport (Preview)
-			local viewport = Instance.new("ViewportFrame")
-			viewport.Name = "Preview"
-			viewport.Size = UDim2.new(0, 70, 0, 70)
-			viewport.Position = UDim2.new(0, 10, 0, 10)
-			viewport.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-			viewport.BorderSizePixel = 0
-			viewport.Parent = itemFrame
-			
-			local viewCorner = Instance.new("UICorner")
-			viewCorner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
-			viewCorner.Parent = viewport
-			
-			-- Info Group
-			local infoGroup = Instance.new("Frame")
-			infoGroup.Name = "Info"
-			infoGroup.Size = UDim2.new(1, -90, 1, 0)
-			infoGroup.Position = UDim2.new(0, 90, 0, 0)
-			infoGroup.BackgroundTransparency = 1
-			infoGroup.Parent = itemFrame
-			
-			-- Unit Name
-			local nameLabel = Instance.new("TextLabel")
-			nameLabel.Name = "Name"
-			nameLabel.Size = UDim2.new(1, 0, 0, 20)
-			nameLabel.Position = UDim2.new(0, 0, 0, 10)
-			nameLabel.BackgroundTransparency = 1
-			nameLabel.Text = unitName
-			nameLabel.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
-			nameLabel.TextSize = 14
-			nameLabel.Font = Enum.Font.GothamBold
-			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-			nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-			nameLabel.Parent = infoGroup
-			
-			-- Level / Rarity
-			local rarityLabel = Instance.new("TextLabel")
-			rarityLabel.Name = "Rarity"
-			rarityLabel.Size = UDim2.new(1, 0, 0, 16)
-			rarityLabel.Position = UDim2.new(0, 0, 0, 30)
-			rarityLabel.BackgroundTransparency = 1
-			rarityLabel.Text = string.format("Lvl %d • %s", unitData.level or 1, unitData.rarity or "Normal")
-			rarityLabel.TextColor3 = rarityColor
-			rarityLabel.TextSize = 11
-			rarityLabel.Font = Enum.Font.Gotham
-			rarityLabel.TextXAlignment = Enum.TextXAlignment.Left
-			rarityLabel.Parent = infoGroup
-			
-			-- HP Label
-			local hpLabel = Instance.new("TextLabel")
-			hpLabel.Name = "HP"
-			hpLabel.Size = UDim2.new(1, 0, 0, 16)
-			hpLabel.Position = UDim2.new(0, 0, 0, 46)
-			hpLabel.BackgroundTransparency = 1
-			hpLabel.Text = "❤️ " .. tostring((unitData.level or 1) * 10 + 25) -- Example HP calculation
-			hpLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-			hpLabel.TextSize = 11
-			hpLabel.Font = Enum.Font.GothamBold
-			hpLabel.TextXAlignment = Enum.TextXAlignment.Left
-			hpLabel.Parent = infoGroup
-			
-			-- Full-card drag overlay (click anywhere to drag)
-			local dragOverlay = Instance.new("TextButton")
-			dragOverlay.Name = "DragOverlay"
-			dragOverlay.Size = UDim2.new(1, 0, 1, 0)
-			dragOverlay.Position = UDim2.new(0, 0, 0, 0)
-			dragOverlay.BackgroundTransparency = 1
-			dragOverlay.Text = ""
-			dragOverlay.ZIndex = 10 -- Ensure it's on top
-			dragOverlay.Parent = itemFrame
-			
-			-- Hover effect for entire card
-			dragOverlay.MouseEnter:Connect(function()
-				TweenService:Create(itemFrame, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(55, 55, 70)
-				}):Play()
-			end)
-			dragOverlay.MouseLeave:Connect(function()
-				TweenService:Create(itemFrame, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-				}):Play()
-			end)
-			
-			-- Drag trigger on mouse down anywhere on the card
-			dragOverlay.MouseButton1Down:Connect(function()
-				startDrag(unitName, unitData.rarity or "Normal")
-			end)
-			
-			-- Try to add model preview
-			local template = getBrainrotModel(unitName)
-			if template then
-				local previewModel = template:Clone()
-				previewModel.Parent = viewport
-				
-				local previewCamera = Instance.new("Camera")
-				previewCamera.Parent = viewport
-				viewport.CurrentCamera = previewCamera
-				
-				-- Calculate bounding box to properly frame the model
-				local cf, size = previewModel:GetBoundingBox()
-				local maxDim = math.max(size.X, size.Y, size.Z)
-				local distance = maxDim * 1.0  -- Zoomed in closer
-				
-				-- Isolate visual center
-				local center = cf.Position
-				if previewModel.PrimaryPart then
-					center = previewModel.PrimaryPart.Position
+			local tierKeys = {"tier1", "tier2", "tier3", "tier4"}
+			for i, tierKey in ipairs(tierKeys) do
+				local itemId = brainrotItems[tierKey]
+				local itemDef = itemId and ItemConfig.Items[itemId]
+				if itemDef then
+					local iconLabel = Instance.new("TextLabel")
+					iconLabel.Name = "Icon_" .. i
+					iconLabel.Size = UDim2.new(0, 22, 0, 22)
+					iconLabel.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+					iconLabel.BackgroundTransparency = 0.3
+					iconLabel.BorderSizePixel = 0
+					iconLabel.Text = itemDef.icon
+					iconLabel.TextSize = 14
+					iconLabel.Font = Enum.Font.Gotham
+					iconLabel.TextColor3 = Color3.new(1, 1, 1)
+					iconLabel.LayoutOrder = i
+					iconLabel.Parent = iconContainer
+					
+					local iconCorner = Instance.new("UICorner")
+					iconCorner.CornerRadius = UDim.new(0, 4)
+					iconCorner.Parent = iconLabel
 				end
-				
-				previewCamera.CFrame = CFrame.new(center + Vector3.new(distance, distance*0.5, distance), center)
-				
-				inventoryItems[unitName] = itemFrame
 			end
 		end
-	end
-	
-	end
-	
-	if currentTab == "Tiles" then
-		-- Render Tiles List
-		local tileIds = TileConfig.GetAllTileIds()
 		
-		for _, tileId in ipairs(tileIds) do
-			local tileData = TileConfig.Tiles[tileId]
-			if not tileData then continue end
-			
-			-- Card container
-			local itemFrame = Instance.new("Frame")
-			itemFrame.Name = "Tile_" .. tileId
-			itemFrame.Size = UDim2.new(1, 0, 0, 80)
-			itemFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-			itemFrame.BorderSizePixel = 0
-			itemFrame.Parent = scrollFrame
-			
-			local corner = Instance.new("UICorner")
-			corner.CornerRadius = UDim.new(0, CONFIG.THEME_BUTTON_RADIUS)
-			corner.Parent = itemFrame
-			
-			-- Color strip
-			local colorStrip = Instance.new("Frame")
-			colorStrip.Name = "ColorStrip"
-			colorStrip.Size = UDim2.new(0, 50, 1, -20)
-			colorStrip.Position = UDim2.new(0, 10, 0, 10)
-			colorStrip.BackgroundColor3 = tileData.Color or Color3.fromRGB(150,150,150)
-			colorStrip.BorderSizePixel = 0
-			colorStrip.Parent = itemFrame
-			
-			local stripCorner = Instance.new("UICorner")
-			stripCorner.CornerRadius = UDim.new(0, 8)
-			stripCorner.Parent = colorStrip
-			
-			-- Info
-			local infoGroup = Instance.new("Frame")
-			infoGroup.Name = "Info"
-			infoGroup.Size = UDim2.new(1, -70, 1, 0)
-			infoGroup.Position = UDim2.new(0, 70, 0, 0)
-			infoGroup.BackgroundTransparency = 1
-			infoGroup.Parent = itemFrame
-			
-			local nameLabel = Instance.new("TextLabel")
-			nameLabel.Name = "Name"
-			nameLabel.Size = UDim2.new(1, 0, 0, 20)
-			nameLabel.Position = UDim2.new(0, 0, 0, 15)
-			nameLabel.BackgroundTransparency = 1
-			nameLabel.Text = tileData.Name
-			nameLabel.TextColor3 = CONFIG.THEME_TEXT_PRIMARY
-			nameLabel.TextSize = 14
-			nameLabel.Font = Enum.Font.GothamBold
-			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-			nameLabel.Parent = infoGroup
-			
-			local descLabel = Instance.new("TextLabel")
-			descLabel.Name = "Desc"
-			descLabel.Size = UDim2.new(1, 0, 0, 30)
-			descLabel.Position = UDim2.new(0, 0, 0, 35)
-			descLabel.BackgroundTransparency = 1
-			descLabel.Text = tileData.Description
-			descLabel.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
-			descLabel.TextSize = 11
-			descLabel.Font = Enum.Font.Gotham
-			descLabel.TextXAlignment = Enum.TextXAlignment.Left
-			descLabel.TextWrapped = true
-			descLabel.Parent = infoGroup
-			
-			-- Drag Button (Transparent overlay)
-			local dragBtn = Instance.new("TextButton")
-			dragBtn.Name = "DragButton"
-			dragBtn.Size = UDim2.new(1, 0, 1, 0)
-			dragBtn.BackgroundTransparency = 1
-			dragBtn.Text = ""
-			dragBtn.Parent = itemFrame
-			
-			dragBtn.MouseButton1Down:Connect(function()
-				startTileDrag(tileId)
-			end)
+		-- HP Label
+		local hpLabel = Instance.new("TextLabel")
+		hpLabel.Name = "HP"
+		hpLabel.Size = UDim2.new(1, 0, 0, 14)
+		hpLabel.Position = UDim2.new(0, 0, 0, 68)
+		hpLabel.BackgroundTransparency = 1
+		hpLabel.Text = "❤️ " .. tostring((unitData.level or 1) * 10 + 25)
+		hpLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+		hpLabel.TextSize = 11
+		hpLabel.Font = Enum.Font.GothamBold
+		hpLabel.TextXAlignment = Enum.TextXAlignment.Left
+		hpLabel.Parent = infoGroup
+		
+		-- Full-card drag overlay (click anywhere to drag)
+		local dragOverlay = Instance.new("TextButton")
+		dragOverlay.Name = "DragOverlay"
+		dragOverlay.Size = UDim2.new(1, 0, 1, 0)
+		dragOverlay.Position = UDim2.new(0, 0, 0, 0)
+		dragOverlay.BackgroundTransparency = 1
+		dragOverlay.Text = ""
+		dragOverlay.ZIndex = 10
+		dragOverlay.Parent = itemFrame
+		
+		-- Hover effect for entire card
+		dragOverlay.MouseEnter:Connect(function()
+			TweenService:Create(itemFrame, TweenInfo.new(0.1), {
+				BackgroundColor3 = Color3.fromRGB(55, 55, 70)
+			}):Play()
+		end)
+		dragOverlay.MouseLeave:Connect(function()
+			TweenService:Create(itemFrame, TweenInfo.new(0.1), {
+				BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+			}):Play()
+		end)
+		
+		-- Drag trigger on mouse down anywhere on the card
+		dragOverlay.MouseButton1Down:Connect(function()
+			startDrag(unitName, unitData.rarity or "Normal")
+		end)
+		
+		-- Spinning model preview (using ViewportPreview module)
+		local template = getBrainrotModel(unitName)
+		if template then
+			local preview = ViewportPreview.Create(template, previewContainer)
+			inventoryPreviews[unitName] = preview
+			inventoryItems[unitName] = itemFrame
+		end
 		end
 	end
+	
+
 	
 	-- Release debounce lock
 	isRefreshingInventory = false
@@ -1067,38 +957,7 @@ end
 local function createPlacementGhost(nameOrId: string, isTile: boolean?): Model?
 	local ghost
 	
-	if isTile then
-		-- Create Tile Ghost
-		local tileData = TileConfig.GetTile(nameOrId)
-		if not tileData then return nil end
-		
-		ghost = Instance.new("Model")
-		local part = Instance.new("Part")
-		part.Name = "TileGhost"
-		part.Size = Vector3.new(CONFIG.TILE_SIZE - 0.5, CONFIG.TILE_HEIGHT, CONFIG.TILE_SIZE - 0.5)
-		part.Transparency = 0.3
-		part.Color = tileData.Color or GHOST_VALID_COLOR
-		part.Material = Enum.Material.ForceField
-		part.Anchored = true
-		part.CanCollide = false
-		part.CastShadow = false
-		part.Parent = ghost
-		ghost.PrimaryPart = part
-		
-		-- Add slight glow
-		local highlight = Instance.new("SurfaceLight")
-		highlight.Color = tileData.Color or GHOST_VALID_COLOR
-		highlight.Brightness = 0.5
-		highlight.Face = Enum.NormalId.Top
-		highlight.Parent = part
-		
-		ghost.Name = "PlacementGhost_Tile"
-		ghost.Parent = workspace
-		placementGhost = ghost
-		isGhostValid = true
-		ghostCenterOffset = Vector3.new()
-		return ghost
-	end
+	-- (Tile ghost removed - tiles no longer in game)
 
 	local originalModel = getBrainrotModel(nameOrId)
 
@@ -1416,66 +1275,7 @@ startDrag = function(unitName: string, rarity: string)
 	end)
 end
 
---[[
-	Starts a drag operation from inventory for a TILE.
-]]
-startTileDrag = function(tileId: string)
-	if isDragging then return end
-	
-	isDragging = true
-	draggedUnit = {type = "tile", id = tileId}
-	
-	-- Determine Start Position
-	local mousePos = getMousePlanePosition()
-	local startPos = mousePos or Vector3.new(0, gridFloorHeight, 0)
-	
-	-- Physics State Variables
-	local currentPos = startPos
-	
-	-- Create ghost (pass true for isTile)
-	local ghost = createPlacementGhost(tileId, true)
-	if ghost then
-		-- Apply offset so visual center is at the target position
-		ghost:PivotTo(CFrame.new(startPos + Vector3.new(0, CONFIG.DRAG_HEIGHT, 0) + ghostCenterOffset))
-		startGhostPulse()
-	end
-	
-	updateStatus("🎯 Tile Mode: Release over a slot to place " .. tileId)
-	
-	-- KINEMATIC DRAG LOOP (Tiles - simplified, no tilt needed for flat tiles usually)
-	dragConnection = RunService.RenderStepped:Connect(function(dt)
-		if not isDragging then return end
-		
-		-- 1. Determine Target Position (Mouse on Floor Plane)
-		local rawMousePos = getMousePlanePosition()
-		if not rawMousePos then return end
-		
-		local targetPos = rawMousePos + Vector3.new(0, CONFIG.DRAG_HEIGHT, 0)
-		
-		-- 2. Smooth Position
-		local lerpAlpha = math.clamp(dt * CONFIG.DRAG_SMOOTHNESS, 0, 1)
-		local newPos = currentPos:Lerp(targetPos, lerpAlpha)
-		currentPos = newPos
-		
-		-- 4. Apply to Ghost
-		if placementGhost then
-			placementGhost:PivotTo(CFrame.new(currentPos + ghostCenterOffset))
-		end
-		
-		-- 5. Grid Interaction (Highlighting)
-		local slot = getSlotUnderMouse()
-		
-		if slot then
-			-- For tiles, we check if the slot already has THIS tile? Or just highlight valid
-			if placementGhost and not isGhostValid then startGhostPulse() end
-			highlightTile(slot, CONFIG.HOVER_COLOR)
-			isGhostValid = true
-		else
-			if placementGhost then setGhostInvalid() end
-			isGhostValid = false
-		end
-	end)
-end
+-- (startTileDrag removed - tiles no longer in game)
 
 --[[
 	Cancels the current drag operation.
@@ -1509,18 +1309,7 @@ completeDrop = function()
 	
 	if slot and isGhostValid then
 		-- Handle different drag types
-		if draggedUnit.type == "tile" then
-			-- Place Tile
-			local success, msg = PlaceTileRemote:InvokeServer(draggedUnit.id, slot)
-			
-			if success then
-				updateStatus("✓ Placed " .. (draggedUnit.id or "tile") .. " at slot " .. slot)
-				task.defer(renderBuildGrid)
-			else
-				updateStatus("✗ " .. (msg or "Tile placement failed"))
-			end
-			
-		elseif draggedUnit.type == "unit" or draggedUnit.type == nil then -- Default to unit
+		if draggedUnit.type == "unit" or draggedUnit.type == nil then -- Default to unit
 			-- Check if slot is empty (units can't overlap)
 			local tile = gridTiles[slot]
 			local isOccupied = tile and tile:GetAttribute("IsOccupied")

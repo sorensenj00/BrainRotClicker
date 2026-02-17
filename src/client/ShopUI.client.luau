@@ -25,7 +25,11 @@ local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
 -- Wait for shared modules and remotes
-local ShopConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ShopConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
+local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+local ViewportPreview = require(Shared:WaitForChild("ViewportPreview"))
+local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local BuyUnitRemote = RemoteEvents:WaitForChild("BuyUnit")
 local GetOwnershipRemote = RemoteEvents:WaitForChild("GetOwnership")
@@ -88,6 +92,7 @@ local ErrorSound = createSound("rbxassetid://138090596", 0.3) -- Error/deny soun
 -- Track ownership locally for UI updates
 local OwnedCounts: {[string]: number} = {}
 local ShopButtons: {[string]: Frame} = {}
+local ViewportPreviews: {any} = {} -- Track ViewportPreview instances for cleanup
 local UnlockProgress: number = ShopConfig.INITIAL_UNLOCKED
 local ShopGui: ScreenGui? = nil
 local ScrollFrame: ScrollingFrame? = nil
@@ -259,16 +264,45 @@ local function createShopButton(unitName: string, config: any, layoutOrder: numb
 	clickButton.Active = not isLocked
 	clickButton.Parent = button
 	
-	-- Left side: Icon/emoji placeholder
-	local iconLabel = Instance.new("TextLabel")
-	iconLabel.Name = "Icon"
-	iconLabel.Size = UDim2.new(0, 50, 0, 50)
-	iconLabel.Position = UDim2.new(0, 10, 0.5, -25)
-	iconLabel.BackgroundColor3 = isLocked and UI_CONFIG.LOCKED_COLOR or UI_CONFIG.BACKGROUND_COLOR
-	iconLabel.Text = isLocked and "🔒" or "🧠"
-	iconLabel.TextSize = 28
-	iconLabel.Font = Enum.Font.GothamBold
-	iconLabel.Parent = button
+	-- Left side: 3D model preview or locked icon
+	local iconContainer = Instance.new("Frame")
+	iconContainer.Name = "IconContainer"
+	iconContainer.Size = UDim2.new(0, 50, 0, 50)
+	iconContainer.Position = UDim2.new(0, 10, 0.5, -25)
+	iconContainer.BackgroundColor3 = isLocked and UI_CONFIG.LOCKED_COLOR or UI_CONFIG.BACKGROUND_COLOR
+	iconContainer.BorderSizePixel = 0
+	iconContainer.Parent = button
+	addCorner(iconContainer, 6)
+	
+	if isLocked then
+		-- Locked: show lock emoji
+		local lockLabel = Instance.new("TextLabel")
+		lockLabel.Name = "LockIcon"
+		lockLabel.Size = UDim2.new(1, 0, 1, 0)
+		lockLabel.BackgroundTransparency = 1
+		lockLabel.Text = "🔒"
+		lockLabel.TextSize = 28
+		lockLabel.Font = Enum.Font.GothamBold
+		lockLabel.Parent = iconContainer
+	else
+		-- Unlocked: show spinning 3D model
+		local modelName = config.ModelName or unitName
+		local modelTemplate = BrainrotsFolder:FindFirstChild(modelName)
+		if modelTemplate then
+			local preview = ViewportPreview.Create(modelTemplate, iconContainer)
+			table.insert(ViewportPreviews, preview)
+		else
+			-- Fallback: brain emoji if model not found
+			local fallbackLabel = Instance.new("TextLabel")
+			fallbackLabel.Name = "FallbackIcon"
+			fallbackLabel.Size = UDim2.new(1, 0, 1, 0)
+			fallbackLabel.BackgroundTransparency = 1
+			fallbackLabel.Text = "🧠"
+			fallbackLabel.TextSize = 28
+			fallbackLabel.Font = Enum.Font.GothamBold
+			fallbackLabel.Parent = iconContainer
+		end
+	end
 	
 	-- Unit name
 	local nameLabel = Instance.new("TextLabel")
@@ -297,17 +331,38 @@ local function createShopButton(unitName: string, config: any, layoutOrder: numb
 	ownedBadge.Parent = button
 	addCorner(ownedBadge, 6)
 	
-	-- Income info or locked message
+	-- Income info: show producible items instead of money
 	local incomeLabel = Instance.new("TextLabel")
 	incomeLabel.Name = "Income"
 	incomeLabel.Size = UDim2.new(1, -80, 0, 18)
 	incomeLabel.Position = UDim2.new(0, 70, 0, 32)
 	incomeLabel.BackgroundTransparency = 1
-	incomeLabel.Text = isLocked and "Purchase units to unlock!" or string.format("+$%d every %ds", config.BaseIncome, config.CycleTime)
+	if isLocked then
+		incomeLabel.Text = "Purchase units to unlock!"
+	else
+		-- Build items display from BrainrotItems mapping
+		local brainrotItems = ItemConfig.BrainrotItems[unitName]
+		if brainrotItems then
+			local parts = {}
+			for _, tierKey in ipairs({"tier1", "tier2", "tier3", "tier4"}) do
+				local itemId = brainrotItems[tierKey]
+				if itemId then
+					local itemDef = ItemConfig.Items[itemId]
+					if itemDef then
+						table.insert(parts, itemDef.icon .. " " .. itemDef.displayName)
+					end
+				end
+			end
+			incomeLabel.Text = table.concat(parts, "  ")
+		else
+			incomeLabel.Text = "No items"
+		end
+	end
 	incomeLabel.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or UI_CONFIG.SECONDARY_TEXT_COLOR
-	incomeLabel.TextSize = 12
+	incomeLabel.TextSize = 10
 	incomeLabel.Font = Enum.Font.Gotham
 	incomeLabel.TextXAlignment = Enum.TextXAlignment.Left
+	incomeLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	incomeLabel.Parent = button
 	
 	-- Milestone progress label (only for unlocked)
@@ -422,12 +477,25 @@ local function updateButtonPrice(unitName: string, newCount: number)
 		ownedBadge.Text = tostring(newCount)
 	end
 	
-	-- Update income display with milestone bonuses
+	-- Update income display: show producible items
 	local incomeLabel = button:FindFirstChild("Income")
 	if incomeLabel then
-		local effectiveIncome = ShopConfig.CalculateEffectiveIncome(unitName, newCount)
-		local effectiveCycleTime = ShopConfig.CalculateEffectiveCycleTime(unitName, newCount)
-		incomeLabel.Text = string.format("+$%d every %.1fs", effectiveIncome, effectiveCycleTime)
+		local brainrotItems = ItemConfig.BrainrotItems[unitName]
+		if brainrotItems then
+			local parts = {}
+			for _, tierKey in ipairs({"tier1", "tier2", "tier3", "tier4"}) do
+				local itemId = brainrotItems[tierKey]
+				if itemId then
+					local itemDef = ItemConfig.Items[itemId]
+					if itemDef then
+						table.insert(parts, itemDef.icon .. " " .. itemDef.displayName)
+					end
+				end
+			end
+			incomeLabel.Text = table.concat(parts, "  ")
+		else
+			incomeLabel.Text = "No items"
+		end
 	end
 	
 	-- Update milestone progress
@@ -583,6 +651,14 @@ end
 ]]
 local function refreshShopUI()
 	if not ScrollFrame then return end
+	
+	-- Clean up viewport previews
+	for _, preview in ViewportPreviews do
+		if preview and preview.Destroy then
+			preview:Destroy()
+		end
+	end
+	ViewportPreviews = {}
 	
 	-- Clear existing buttons
 	for _, child in ScrollFrame:GetChildren() do

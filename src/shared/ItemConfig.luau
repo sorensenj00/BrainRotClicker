@@ -706,12 +706,12 @@ function ItemConfig.GetSector(modelName: string): string
     local name = string.lower(modelName)
     
     local SECTORS = {
-        Food = {"avocado", "pizza", "burrito", "coffee", "cheese", "cap", "signora", "lemon", "toast", "crostini", "guac", "berry", "crab", "glorbo", "melon", "fruit", "pineapple", "strawber"},
-        Animals = {"chimp", "panda", "giraffe", "croc", "pig", "zebra", "orca", "whale", "dolphin", "octopus", "goose", "horse", "kiwi", "lion", "tiger", "penguin", "flamingo", "mole", "spider", "spyder"},
-        Entertainment = {"dance", "music", "trala", "sahur", "symphony", "virtuoso", "bell", "choir", "rhythm", "drum", "trumpet", "marching", "parade", "lololo", "larila"},
-        Mystic = {"god", "odin", "mythic", "lucky", "relic", "artifact", "ancient", "dragon", "kraken", "forbidden", "spell", "magic", "secret", "divine", "bicus", "truli", "bubble"},
-        Tech = {"neon", "cyber", "machine", "hybrid", "combined", "drone", "turbo", "bullet", "engine", "battery", "neon", "cyber", "volt", "light", "circuit", "train", "combo", "mat_teo"},
-        Action = {"bombard", "assassin", "gangster", "bandit", "crocbomb", "boom", "nuke", "atomic", "spy", "stealth", "binoculars", "camera", "spion", "detonator", "missile", "grenade", "trip", "matteo"},
+        Food = {"avocado", "pizza", "burrito", "coffee", "cheese", "cap", "signora", "lemon", "toast", "crostini", "guac", "berry", "crab", "glorbo", "melon", "fruit", "pineapple", "strawber", "avoca", "pot", "frut", "ananas", "orang", "cappu", "chef"},
+        Animals = {"chimp", "panda", "giraffe", "croc", "pig", "zebra", "orca", "whale", "dolphin", "octopus", "goose", "horse", "kiwi", "lion", "tiger", "penguin", "flamingo", "mole", "spider", "spyder", "gusini", "hipo", "eleph", "coco", "came", "giraf", "vacca", "vaqu", "dino", "saur", "talpa", "tigr", "ligre", "zibra", "zubra", "nyan", "gatt", "pigeon", "bird"},
+        Entertainment = {"dance", "music", "trala", "sahur", "symphony", "virtuoso", "bell", "choir", "rhythm", "drum", "trumpet", "marching", "parade", "lololo", "larila", "liri", "lari", "statu", "libert"},
+        Mystic = {"god", "odin", "mythic", "lucky", "relic", "artifact", "ancient", "dragon", "kraken", "forbidden", "spell", "magic", "secret", "divine", "bicus", "truli", "bubble", "brr", "burb", "fluri", "garama", "madun", "medus", "grai", "boneca"},
+        Tech = {"neon", "cyber", "machine", "hybrid", "combined", "drone", "turbo", "bullet", "engine", "battery", "volt", "light", "circuit", "train", "combo", "mat_teo", "biciclet", "chicl", "combina", "macchina"},
+        Action = {"bombard", "assassin", "gangster", "bandit", "crocbomb", "boom", "nuke", "atomic", "spy", "stealth", "binoculars", "camera", "spion", "detonator", "missile", "grenade", "trip", "matteo", "samito", "uncl", "nuclearo", "bomb"},
     }
     
     for sector, keywords in pairs(SECTORS) do

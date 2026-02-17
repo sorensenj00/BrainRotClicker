@@ -1,15 +1,7 @@
 --[[
 	TransportUI Client Script
 	
-	Handles the transport/vehicle selection UI for carrying items to market.
-	
-	Features:
-	- Storage view with item list
-	- Vehicle selection
-	- "Load" and "Load Max" buttons
-	- Backpack capacity display
-	
-	Opens when approaching the Storage on player plot.
+	Handles the storage loading UI for the physical Cart system.
 ]]
 
 -- Services
@@ -28,15 +20,12 @@ local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 
 -- Storage events
 local StorageUpdatedEvent = RemoteEvents:WaitForChild("StorageUpdated")
-local BackpackUpdatedEvent = RemoteEvents:WaitForChild("BackpackUpdated")
-local GetStorageFunction = RemoteEvents:WaitForChild("GetStorage")
-local GetBackpackFunction = RemoteEvents:WaitForChild("GetBackpack")
+local CartUpdateEvent = RemoteEvents:WaitForChild("CartUpdate") -- Changed from BackpackUpdated
+local GetStorageFunction = RemoteFunctions:WaitForChild("GetStorage")
 
 -- Transport events
-local VehicleUpdatedEvent = RemoteEvents:WaitForChild("VehicleUpdated")
 local LoadFromStorageFunction = RemoteFunctions:WaitForChild("LoadFromStorage")
 local LoadMaxFromStorageFunction = RemoteFunctions:WaitForChild("LoadMaxFromStorage")
-local GetVehicleInfoFunction = RemoteFunctions:WaitForChild("GetVehicleInfo")
 
 -- Wait for ItemConfig
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -59,12 +48,11 @@ local COLORS = {
 -- State
 local isOpen = false
 local currentStorage = {}
-local currentBackpack = {}
-local storageCapacity = 2000
+local currentCart = {} -- Changed from Backpack
+local storageCapacity = 0 -- Updated via Player Attribute
 local storageUsage = 0
-local backpackCapacity = 100
-local backpackUsage = 0
-local selectedVehicle = "Sneakers"
+local cartCapacity = 0 -- Updated via Player Attribute
+local cartState = "idle"
 
 -- UI References
 local screenGui = nil
@@ -128,7 +116,7 @@ local function createHeader(parent)
 	title.Size = UDim2.new(1, -60, 1, 0)
 	title.Position = UDim2.new(0, 20, 0, 0)
 	title.BackgroundTransparency = 1
-	title.Text = "📦 STORAGE & TRANSPORT"
+	title.Text = "📦 STORAGE & LOADING"
 	title.TextColor3 = COLORS.text
 	title.TextSize = 22
 	title.Font = Enum.Font.GothamBold
@@ -214,7 +202,7 @@ local function createStoragePanel(parent)
 	capacityText.Name = "Text"
 	capacityText.Size = UDim2.new(1, 0, 1, 0)
 	capacityText.BackgroundTransparency = 1
-	capacityText.Text = "0 / 2000"
+	capacityText.Text = "0 / 0"
 	capacityText.TextColor3 = COLORS.text
 	capacityText.TextSize = 12
 	capacityText.Font = Enum.Font.GothamBold
@@ -239,9 +227,9 @@ local function createStoragePanel(parent)
 	return panel
 end
 
-local function createBackpackPanel(parent)
+local function createCartPanel(parent)
 	local panel = Instance.new("Frame")
-	panel.Name = "BackpackPanel"
+	panel.Name = "CartPanel"
 	panel.Size = UDim2.new(0.5, -15, 1, -120)
 	panel.Position = UDim2.new(0.5, 5, 0, 60)
 	panel.BackgroundColor3 = COLORS.panel
@@ -259,7 +247,7 @@ local function createBackpackPanel(parent)
 	title.Size = UDim2.new(1, -20, 0, 30)
 	title.Position = UDim2.new(0, 10, 0, 10)
 	title.BackgroundTransparency = 1
-	title.Text = "🛵 TRANSPORT MODE"
+	title.Text = "🛒 TRANSPORT CART"
 	title.TextColor3 = COLORS.success
 	title.TextSize = 16
 	title.Font = Enum.Font.GothamBold
@@ -294,16 +282,47 @@ local function createBackpackPanel(parent)
 	capacityText.Name = "Text"
 	capacityText.Size = UDim2.new(1, 0, 1, 0)
 	capacityText.BackgroundTransparency = 1
-	capacityText.Text = "0 / 100"
+	capacityText.Text = "0 / 0"
 	capacityText.TextColor3 = COLORS.text
 	capacityText.TextSize = 12
 	capacityText.Font = Enum.Font.GothamBold
 	capacityText.Parent = capacityBar
 	
+	-- Action Button (Push/Return)
+	local actionBtn = Instance.new("TextButton")
+	actionBtn.Name = "ActionButton"
+	actionBtn.Size = UDim2.new(1, -20, 0, 35)
+	actionBtn.Position = UDim2.new(0, 10, 1, -45)
+	actionBtn.BackgroundColor3 = COLORS.warning
+	actionBtn.Text = "PUSH TO MARKET"
+	actionBtn.TextColor3 = COLORS.background
+	actionBtn.TextSize = 14
+	actionBtn.Font = Enum.Font.GothamBold
+	actionBtn.Visible = false
+	actionBtn.Parent = panel
+	
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0, 8)
+	btnCorner.Parent = actionBtn
+	
+	-- Connect Event
+	actionBtn.MouseButton1Click:Connect(function()
+		local PushCartRemote = RemoteEvents:FindFirstChild("PushCart")
+		local ReturnCartRemote = RemoteEvents:FindFirstChild("ReturnCart")
+		
+		if cartState == "idle" and PushCartRemote then
+			PushCartRemote:FireServer()
+		elseif cartState == "at_market" and ReturnCartRemote then
+			ReturnCartRemote:FireServer()
+		end
+		-- Close UI on action?
+		closeUI()
+	end)
+	
 	-- Item list scroll
 	local scrollFrame = Instance.new("ScrollingFrame")
 	scrollFrame.Name = "ItemList"
-	scrollFrame.Size = UDim2.new(1, -20, 1, -80)
+	scrollFrame.Size = UDim2.new(1, -20, 1, -135) -- Adjusted for button
 	scrollFrame.Position = UDim2.new(0, 10, 0, 75)
 	scrollFrame.BackgroundTransparency = 1
 	scrollFrame.ScrollBarThickness = 4
@@ -339,7 +358,7 @@ local function createBottomBar(parent)
 	loadMaxBtn.Size = UDim2.new(0, 200, 0, 40)
 	loadMaxBtn.Position = UDim2.new(0.5, -100, 0.5, -20)
 	loadMaxBtn.BackgroundColor3 = COLORS.accent
-	loadMaxBtn.Text = "📦 LOAD MAX"
+	loadMaxBtn.Text = "📦 LOAD TO CART"
 	loadMaxBtn.TextColor3 = COLORS.text
 	loadMaxBtn.TextSize = 16
 	loadMaxBtn.Font = Enum.Font.GothamBold
@@ -477,7 +496,7 @@ local function updateStoragePanel()
 				color = COLORS.danger
 			elseif ratio > 0.7 then
 				color = COLORS.warning
-			end
+				end
 			fill.BackgroundColor3 = color
 		end
 		
@@ -487,10 +506,10 @@ local function updateStoragePanel()
 	end
 end
 
-local function updateBackpackPanel()
+local function updateCartPanel()
 	if not mainFrame then return end
 	
-	local panel = mainFrame:FindFirstChild("BackpackPanel")
+	local panel = mainFrame:FindFirstChild("CartPanel")
 	if not panel then return end
 	
 	local scrollFrame = panel:FindFirstChild("ItemList")
@@ -504,9 +523,11 @@ local function updateBackpackPanel()
 	end
 	
 	-- Add items
-	for itemId, count in pairs(currentBackpack) do
+	local hasItems = false
+	for itemId, count in pairs(currentCart) do
 		if count > 0 then
 			createItemRow(scrollFrame, itemId, count, false)
+			hasItems = true
 		end
 	end
 	
@@ -516,7 +537,10 @@ local function updateBackpackPanel()
 		local fill = capacityBar:FindFirstChild("Fill")
 		local text = capacityBar:FindFirstChild("Text")
 		
-		local ratio = math.clamp(backpackUsage / math.max(1, backpackCapacity), 0, 1)
+		local usage = 0
+		for _, c in pairs(currentCart) do usage += c end
+		
+		local ratio = math.clamp(usage / math.max(1, cartCapacity), 0, 1)
 		
 		if fill then
 			TweenService:Create(fill, TweenInfo.new(0.3), {Size = UDim2.new(ratio, 0, 1, 0)}):Play()
@@ -532,14 +556,34 @@ local function updateBackpackPanel()
 		end
 		
 		if text then
-			text.Text = string.format("%d / %d", backpackUsage, backpackCapacity)
+			text.Text = string.format("%d / %d", usage, cartCapacity)
 		end
 	end
 	
-	-- Update title with vehicle name
+	-- Update Action Button
+	local actionBtn = panel:FindFirstChild("ActionButton")
+	if actionBtn then
+		if cartState == "idle" then
+			actionBtn.Visible = hasItems
+			actionBtn.Text = "🚶 PUSH TO MARKET"
+			actionBtn.BackgroundColor3 = COLORS.success
+		elseif cartState == "at_market" then
+			actionBtn.Visible = true
+			actionBtn.Text = "🏠 RETURN CART"
+			actionBtn.BackgroundColor3 = COLORS.warning
+		else
+			actionBtn.Visible = false
+		end
+	end
+	
+	-- Update title with cart state
 	local title = panel:FindFirstChild("Title")
 	if title then
-		title.Text = "🛵 TRANSPORT: " .. string.upper(selectedVehicle)
+		local stateText = "IDLE"
+		if cartState == "rolling_to_market" then stateText = "ROLLING..."
+		elseif cartState == "at_market" then stateText = "AT MARKET" 
+		elseif cartState == "rolling_to_plot" then stateText = "RETURNING..." end
+		title.Text = "🛒 CART: " .. stateText
 	end
 end
 
@@ -547,31 +591,31 @@ end
 -- OPEN/CLOSE
 --------------------------------------------------------------------------------
 
+local GetVehicleInfoFunction = RemoteFunctions:WaitForChild("GetVehicleInfo")
+
 local function openUI()
 	if isOpen then return end
 	isOpen = true
 	
-	-- Fetch latest data
+	-- Fetch latest storage data
 	local storageItems, storageTotal, storageCap = GetStorageFunction:InvokeServer()
 	currentStorage = storageItems or {}
 	storageUsage = storageTotal or 0
-	storageCapacity = storageCap or 2000
+	storageCapacity = LocalPlayer:GetAttribute("StorageCapacity") or storageCap or 0
 	
-	local backpackItems, backpackTotal, backpackCap = GetBackpackFunction:InvokeServer()
-	currentBackpack = backpackItems or {}
-	backpackUsage = backpackTotal or 0
-	backpackCapacity = backpackCap or 100
-	
-	-- Fetch vehicle info
-	local vehicleInfo = GetVehicleInfoFunction:InvokeServer()
-	if vehicleInfo then
-		selectedVehicle = vehicleInfo.selectedVehicle or "Sneakers"
-		backpackCapacity = vehicleInfo.capacity or backpackCapacity
+	-- Fetch cart data
+	local vInfo = GetVehicleInfoFunction:InvokeServer()
+	if vInfo then
+		currentCart = vInfo.inventory or {}
+		cartCapacity = LocalPlayer:GetAttribute("CartCapacity") or vInfo.capacity or 0
+		local usage = 0
+		for _, c in pairs(currentCart) do usage += c end
+		-- cartUsage removed, dealt with locally
 	end
 	
 	-- Update UI
 	updateStoragePanel()
-	updateBackpackPanel()
+	updateCartPanel()
 	
 	-- Show with animation
 	mainFrame.Visible = true
@@ -600,28 +644,20 @@ end
 StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
 	currentStorage = items or {}
 	storageUsage = total or 0
-	storageCapacity = capacity or 2000
+	storageCapacity = LocalPlayer:GetAttribute("StorageCapacity") or capacity or 0
 	
 	if isOpen then
 		updateStoragePanel()
 	end
 end)
 
-BackpackUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
-	currentBackpack = items or {}
-	backpackUsage = total or 0
-	backpackCapacity = capacity or 100
+CartUpdateEvent.OnClientEvent:Connect(function(state, inventory, capacity)
+	cartState = state or "idle"
+	currentCart = inventory or {}
+	cartCapacity = LocalPlayer:GetAttribute("CartCapacity") or capacity or 0
 	
 	if isOpen then
-		updateBackpackPanel()
-	end
-end)
-
-VehicleUpdatedEvent.OnClientEvent:Connect(function(vehicleId, newCapacity)
-	selectedVehicle = vehicleId or selectedVehicle
-	backpackCapacity = newCapacity or 100
-	if isOpen then
-		updateBackpackPanel()
+		updateCartPanel()
 	end
 end)
 
@@ -638,6 +674,18 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	end
 end)
 
+-- Toggle via HUD button
+local StorageToggleEvent = ReplicatedStorage:WaitForChild("StorageToggleEvent", 5)
+if StorageToggleEvent then
+	StorageToggleEvent.Event:Connect(function()
+		if isOpen then
+			closeUI()
+		else
+			openUI()
+		end
+	end)
+end
+
 --------------------------------------------------------------------------------
 -- INITIALIZATION
 --------------------------------------------------------------------------------
@@ -648,7 +696,7 @@ local function initialize()
 	mainFrame = createMainFrame(screenGui)
 	createHeader(mainFrame)
 	createStoragePanel(mainFrame)
-	createBackpackPanel(mainFrame)
+	createCartPanel(mainFrame) -- Changed from createBackpackPanel
 	createBottomBar(mainFrame)
 	
 	print("✓ TransportUI initialized - Press T to open")

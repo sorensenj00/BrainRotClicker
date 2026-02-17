@@ -70,7 +70,9 @@ print("╔═══════════════════════�
 print("║           SERVER BOOTSTRAP START          ║")
 print("╚═══════════════════════════════════════════╝")
 
--- 1. Load All Modules
+-- 1. Load All Modules (DataService and PlayerLifecycleManager first to avoid circular deps)
+registerService("DataService", script.Parent.DataService)
+registerService("PlayerLifecycleManager", script.Parent.PlayerLifecycleManager)
 registerService("DataManager", script.Parent.DataManager)
 registerService("InventoryManager", script.Parent.InventoryManager)
 registerService("MapSystem", script.Parent.MapSystem)
@@ -80,6 +82,7 @@ registerService("GridManager", script.Parent.GridManager)
 registerService("ItemStorageManager", script.Parent.ItemStorageManager)
 registerService("ShopManager", script.Parent.ShopManager)
 registerService("TransportManager", script.Parent.TransportManager)
+registerService("CartManager", script.Parent.CartManager)
 registerService("PrestigeManager", script.Parent.PrestigeManager)
 registerService("ArtifactManager", script.Parent.ArtifactManager)
 registerService("StockMarketManager", script.Parent.StockMarketManager)
@@ -96,6 +99,10 @@ registerService("AdminService", script.Parent.AdminService)
 
 -- 2. Initialize All Systems (In Order)
 
+-- Priority 0: Core Infrastructure (must be first)
+initService("DataService")
+initService("PlayerLifecycleManager")
+
 -- Priority 1: Core Data & Map
 initService("DataManager")
 initService("MapSystem")
@@ -110,6 +117,7 @@ initService("ItemStorageManager")
 -- Priority 3: Features
 initService("ShopManager")
 initService("TransportManager")
+initService("CartManager")
 initService("PrestigeManager")
 initService("ArtifactManager")
 initService("StockMarketManager")

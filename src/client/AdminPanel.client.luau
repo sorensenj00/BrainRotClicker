@@ -59,9 +59,9 @@ uiCorner.Parent = toggleBtn
 local panel = Instance.new("Frame")
 panel.Name = "MainPanel"
 panel.Size = UI_CONFIG.PANEL_SIZE
-panel.Position = UDim2.new(1, -270, 1, -320)
+panel.Position = UDim2.new(1, -270, 1, -320) 
 panel.BackgroundColor3 = UI_CONFIG.COLOR_PRIMARY
-panel.Visible = false
+panel.Visible = false 
 panel.Parent = screenGui
 
 local panelCorner = Instance.new("UICorner")

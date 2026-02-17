@@ -44,16 +44,19 @@ end
 --------------------------------------------------------------------------------
 
 handlers.ResetPlot = function(player)
-	if Services.DataManager and Services.DataManager.ResetPlayerData then
-		Services.DataManager.ResetPlayerData(player, false)
+	local DataManager = rawget(Services, "DataManager")
+	if DataManager and DataManager.ResetPlayerData then
+		DataManager.ResetPlayerData(player, false)
 		print("✓ Admin: Reset all DataStore data for " .. player.Name)
 	end
 	
-	if Services.MapSystem and Services.MapSystem.ResetPlayerPlot then
-		Services.MapSystem.ResetPlayerPlot(player)
+	local MapSystem = rawget(Services, "MapSystem")
+	if MapSystem and MapSystem.ResetPlayerPlot then
+		MapSystem.ResetPlayerPlot(player)
 		
-		if Services.ShopManager and Services.ShopManager.ResetPlayerData then
-			Services.ShopManager.ResetPlayerData(player)
+		local ShopManager = rawget(Services, "ShopManager")
+		if ShopManager and ShopManager.ResetPlayerData then
+			ShopManager.ResetPlayerData(player)
 		end
 		
 		-- Money Reset

@@ -11,6 +11,15 @@ local DataStoreService = game:GetService("DataStoreService")
 
 local ProfileService = require(script.Parent.ProfileService)
 
+-- PlayerLifecycleManager (Lazy Loaded to avoid circular require at module load time)
+local PlayerLifecycleManager
+local function getPlayerLifecycleManager()
+	if not PlayerLifecycleManager then
+		PlayerLifecycleManager = require(script.Parent.PlayerLifecycleManager)
+	end
+	return PlayerLifecycleManager
+end
+
 -- Types
 type Profile = {
 	Data: {[string]: any},
@@ -264,6 +273,8 @@ end
 --------------------------------------------------------------------------------
 
 local function onPlayerAdded(player: Player)
+	if Profiles[player] then return end -- Prevent double loading
+	
 	local profile = ProfileStore:LoadProfileAsync("Player_" .. player.UserId)
 
 	if profile then
@@ -311,8 +322,8 @@ local function onPlayerAdded(player: Player)
 				end)
 			end
 			
-			local PlayerLifecycleManager = require(script.Parent.PlayerLifecycleManager)
-			PlayerLifecycleManager.SetDataLoaded(player)
+			local plm = getPlayerLifecycleManager()
+			if plm then plm.SetDataLoaded(player) end
 
 			print("DataService: Profile loaded for " .. player.Name)
 		else
@@ -371,7 +382,12 @@ end
 -- INITIALIZATION
 --------------------------------------------------------------------------------
 
+local Initialized = false
+
 function DataService.Init()
+	if Initialized then return end
+	Initialized = true
+	
 	for _, player in ipairs(Players:GetPlayers()) do
 		task.spawn(onPlayerAdded, player)
 	end

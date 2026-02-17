@@ -3,11 +3,10 @@
 	
 	DISABLED: Stock market is now displayed on billboards instead of HUD.
 	See: StockMarketGraph.client.luau and StockMarketBillboards.server.luau
+	
+	RE-ENABLED: Now togglable via HUD button.
 ]]
 
--- Disabled - billboards now handle stock market display
-return
---[[
 -- Services
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -188,5 +187,19 @@ RunService.Heartbeat:Connect(function()
 	updateTimer()
 end)
 
+-- Toggle Visibility
+container.Visible = false -- Start hidden
+
+local stockToggleEvent = ReplicatedStorage:WaitForChild("StockToggleEvent", 5)
+if stockToggleEvent then
+	stockToggleEvent.Event:Connect(function()
+		container.Visible = not container.Visible
+		if container.Visible then
+			updateDisplay()
+		end
+	end)
+else
+	warn("StockMarketUI: StockToggleEvent not found")
+end
+
 print("✓ StockMarketUI initialized")
-]]

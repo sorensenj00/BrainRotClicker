@@ -23,7 +23,7 @@ local function getPrestigeConfig()
 	return PrestigeConfig
 end
 
-local DataService = require(script.Parent.DataService)
+local DataService -- Will be set from Services.DataService
 
 -- Remotes
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
@@ -44,20 +44,31 @@ local DEFAULT_PRESTIGE_DATA = {
 local PrestigeManager = {}
 local Services = {}
 
+-- Getter for DataService (to avoid circular require)
+local function getDataService()
+	if not DataService then
+		DataService = rawget(Services, "DataService")
+	end
+	return DataService
+end
+
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
 --------------------------------------------------------------------------------
 
 local function getPrestigeData(player)
-	local data = DataService.GetComponentData(player, COMPONENT_KEY)
+	local ds = getDataService()
+	if not ds then return nil end
+	
+	local data = ds.GetComponentData(player, COMPONENT_KEY)
 	if data then return data end
-	if DataService.IsLoaded(player) then
+	if ds.IsLoaded(player) then
 		local d = {}
 		for k, v in pairs(DEFAULT_PRESTIGE_DATA) do
 			if type(v) == "table" then d[k] = {} else d[k] = v end
 		end
-		DataService.SetComponentData(player, COMPONENT_KEY, d)
-		return DataService.GetComponentData(player, COMPONENT_KEY)
+		ds.SetComponentData(player, COMPONENT_KEY, d)
+		return ds.GetComponentData(player, COMPONENT_KEY)
 	end
 	return nil
 end
@@ -149,13 +160,19 @@ function PrestigeManager.Init(services)
 	print("   PrestigeManager (Module) - Initializing")
 	Services = services or {}
 	
-	DataService.RegisterHandler(COMPONENT_KEY, {
-		DefaultData = DEFAULT_PRESTIGE_DATA,
-		OnLoad = function(p, d) 
-			print("PrestigeManager: Loaded for " .. p.Name) 
-		end,
-		OnSave = function(p, d) return d end
-	})
+	-- Register with DataService
+	local ds = getDataService()
+	if ds then
+		ds.RegisterHandler(COMPONENT_KEY, {
+			DefaultData = DEFAULT_PRESTIGE_DATA,
+			OnLoad = function(p, d) 
+				print("PrestigeManager: Loaded for " .. p.Name) 
+			end,
+			OnSave = function(p, d) return d end
+		})
+	else
+		warn("PrestigeManager: DataService not available during Init")
+	end
 	
 	PrestigeEvent.OnServerEvent:Connect(function(player, action, ...)
 		local args = {...}
@@ -235,8 +252,9 @@ function PrestigeManager.ExecutePrestige(player)
 	data.totalMeatballs += pending
 	data.prestigeCount += 1
 	
-	if Services.DataManager and Services.DataManager.ResetPlayerData then
-		Services.DataManager.ResetPlayerData(player, true)
+	local DataManager = rawget(Services, "DataManager")
+	if DataManager and DataManager.ResetPlayerData then
+		DataManager.ResetPlayerData(player, true)
 	else
 		warn("PrestigeManager: Check DataManager usage")
 	end

@@ -46,18 +46,26 @@ local Services = {}
 -- HELPERS
 --------------------------------------------------------------------------------
 
-local function getItemCategory(itemId)
-	for cat, map in pairs(ItemConfig.BrainrotItems) do
-		if map.tier1==itemId or map.tier2==itemId or map.tier3==itemId or map.tier4==itemId then return cat end
+local function getItemSector(itemId)
+	if not itemId then return nil end
+	
+	-- Scan BrainrotItems to find which model produces this item
+	for modelName, mapping in pairs(ItemConfig.BrainrotItems) do
+		if mapping.tier1 == itemId or mapping.tier2 == itemId or 
+		   mapping.tier3 == itemId or mapping.tier4 == itemId then
+			return ItemConfig.GetSector(modelName)
+		end
 	end
-	return nil
+	return "Neutral"
 end
 
 local function getMarketRate(itemId)
-	local SM = Services.StockMarketManager
+	local SM = rawget(Services, "StockMarketManager")
 	if itemId and SM then
-		local cat = getItemCategory(itemId)
-		if cat then return SM.GetCategoryRate(cat) or 1.0 end
+		local sector = getItemSector(itemId)
+		if sector and sector ~= "Neutral" then 
+			return SM.GetSectorRate(sector) or 1.0 
+		end
 	end
 	return stockMarketFolder:GetAttribute("CurrentRate") or 1.0
 end
@@ -124,7 +132,7 @@ function MarketManager.Init(services)
 end
 
 function MarketManager.SellItem(player, itemId, count)
-	local ISM = Services.ItemStorageManager
+	local ISM = rawget(Services, "ItemStorageManager")
 	if not ISM then return 0, 0 end
 	
 	local bp = ISM.GetBackpackContents(player)
@@ -146,7 +154,7 @@ function MarketManager.SellItem(player, itemId, count)
 end
 
 function MarketManager.SellAll(player)
-	local ISM = Services.ItemStorageManager
+	local ISM = rawget(Services, "ItemStorageManager")
 	if not ISM then return 0,0 end
 	
 	local bp = ISM.GetBackpackContents(player)
@@ -161,20 +169,56 @@ function MarketManager.SellAll(player)
 	return sold, earned
 end
 
+function MarketManager.SellCartContents(player, cartInventory)
+	if not cartInventory then return 0, 0 end
+	local sold, earned = 0, 0
+	
+	for itemId, count in pairs(cartInventory) do
+		if count > 0 then
+			local price = getItemPrice(itemId)
+			local total = count * price
+			
+			sold += count
+			earned += total
+		end
+	end
+	
+	if earned > 0 then
+		local ls = player:FindFirstChild("leaderstats")
+		local m = ls and ls:FindFirstChild("Money")
+		if m then m.Value += earned end
+		
+		-- Notify client (using generic sold event or maybe a summary?)
+		-- Let's just fire ItemSoldEvent for the aggregate?
+		-- ItemSoldEvent takes (player, itemId, count, total)
+		-- We can fire it once per item type, or once total?
+		-- Client expects itemId. Let's fire per item type to keep notifications working.
+		
+		for itemId, count in pairs(cartInventory) do
+			if count > 0 then
+				local price = getItemPrice(itemId)
+				ItemSoldEvent:FireClient(player, itemId, count, count * price)
+			end
+		end
+	end
+	
+	return sold, earned
+end
+
 function MarketManager.GetAllPrices()
 	local p = {}
-	local SM = Services.StockMarketManager
+	local SM = rawget(Services, "StockMarketManager")
 	for id, info in pairs(ItemConfig.Items) do
 		local bp = info.basePrice or 1
-		local cat = getItemCategory(id)
+		local sector = getItemSector(id)
 		local rate = 1.0
-		if cat and SM then rate = SM.GetCategoryRate(cat) or 1.0 end
+		if sector and SM then rate = SM.GetSectorRate(sector) or 1.0 end
 		p[id] = {
 			basePrice = bp,
 			currentPrice = math.floor(bp * rate),
 			tier = info.tier or 1,
-			category = cat,
-			categoryRate = rate
+			sector = sector,
+			sectorRate = rate
 		}
 	end
 	return p

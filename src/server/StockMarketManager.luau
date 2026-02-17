@@ -20,20 +20,20 @@ local CONFIG = {
 	MAX_HISTORY = 60,
 }
 
-local CATEGORY_VOLATILITY = {
-	Skibidi = 0.25, Bombardiro = 0.45, Tralalero = 0.30,
-	BrrBrr = 0.35, Sigma = 0.40, Mewer = 0.20,
+local SECTOR_VOLATILITY = {
+	Food = 0.20, Animals = 0.25, Entertainment = 0.30,
+	Mystic = 0.40, Tech = 0.35, Action = 0.45,
 }
-local CATEGORIES = {"Skibidi", "Bombardiro", "Tralalero", "BrrBrr", "Sigma", "Mewer"}
-local CATEGORY_COLORS = {
-	Skibidi = {148, 103, 189}, Bombardiro = {255, 127, 14}, Tralalero = {44, 160, 44},
-	BrrBrr = {31, 119, 180}, Sigma = {214, 39, 40}, Mewer = {227, 119, 194},
+local SECTORS = {"Food", "Animals", "Entertainment", "Mystic", "Tech", "Action"}
+local SECTOR_COLORS = {
+	Food = {227, 119, 194}, Animals = {44, 160, 44}, Entertainment = {255, 127, 14},
+	Mystic = {148, 103, 189}, Tech = {31, 119, 180}, Action = {214, 39, 40},
 }
 
 local StockMarketManager = {}
 local Services = {}
-local categoryRates = {}
-local categoryHistories = {}
+local sectorRates = {}
+local sectorHistories = {}
 local nextUpdate = 0
 local stockMarketFolder = nil
 
@@ -47,30 +47,30 @@ local function serializeHistory(history)
 	return table.concat(parts, ",")
 end
 
-local function serializeCategoryRates()
+local function serializeSectorRates()
 	local t = {}
-	for c, r in pairs(categoryRates) do t[c] = math.floor(r * 1000) / 1000 end
+	for c, r in pairs(sectorRates) do t[c] = math.floor(r * 1000) / 1000 end
 	return HttpService:JSONEncode(t)
 end
 
-local function serializeCategoryHistories()
+local function serializeSectorHistories()
 	local t = {}
-	for c, h in pairs(categoryHistories) do t[c] = serializeHistory(h) end
+	for c, h in pairs(sectorHistories) do t[c] = serializeHistory(h) end
 	return HttpService:JSONEncode(t)
 end
 
 local function getGlobalRateName()
-	local sum = 0; for _, r in pairs(categoryRates) do sum += r end
-	local avg = sum / #CATEGORIES
+	local sum = 0; for _, r in pairs(sectorRates) do sum += r end
+	local avg = sum / #SECTORS
 	if avg >= 2.5 then return "HYPER INFLATION"
 	elseif avg >= 1.5 then return "STONKS"
 	elseif avg <= 0.7 then return "CRASH"
 	else return "NORMAL" end
 end
 
-local function calculateNewRate(category)
-	local current = categoryRates[category]
-	local vol = CATEGORY_VOLATILITY[category] or CONFIG.BASE_VOLATILITY
+local function calculateNewRate(sector)
+	local current = sectorRates[sector]
+	local vol = SECTOR_VOLATILITY[sector] or CONFIG.BASE_VOLATILITY
 	local base = (math.random() - 0.5) * 2 * vol
 	if math.random() < CONFIG.SPIKE_CHANCE then base *= CONFIG.SPIKE_MULTIPLIER end
 	local rev = (CONFIG.STARTING_RATE - current) * CONFIG.MEAN_REVERSION
@@ -78,24 +78,24 @@ local function calculateNewRate(category)
 end
 
 local function updateMarket()
-	for _, cat in ipairs(CATEGORIES) do
+	for _, cat in ipairs(SECTORS) do
 		local nr = calculateNewRate(cat)
-		categoryRates[cat] = nr
-		table.insert(categoryHistories[cat], nr)
-		if #categoryHistories[cat] > CONFIG.MAX_HISTORY then table.remove(categoryHistories[cat], 1) end
+		sectorRates[cat] = nr
+		table.insert(sectorHistories[cat], nr)
+		if #sectorHistories[cat] > CONFIG.MAX_HISTORY then table.remove(sectorHistories[cat], 1) end
 	end
 	
-	local sum = 0; for _, r in pairs(categoryRates) do sum += r end
-	local avgRate = sum / #CATEGORIES
+	local sum = 0; for _, r in pairs(sectorRates) do sum += r end
+	local avgRate = sum / #SECTORS
 	
-	stockMarketFolder:SetAttribute("CategoryRates", serializeCategoryRates())
-	stockMarketFolder:SetAttribute("CategoryHistories", serializeCategoryHistories())
-	stockMarketFolder:SetAttribute("Categories", HttpService:JSONEncode(CATEGORIES))
-	stockMarketFolder:SetAttribute("CategoryColors", HttpService:JSONEncode(CATEGORY_COLORS))
+	stockMarketFolder:SetAttribute("SectorRates", serializeSectorRates())
+	stockMarketFolder:SetAttribute("SectorHistories", serializeSectorHistories())
+	stockMarketFolder:SetAttribute("Sectors", HttpService:JSONEncode(SECTORS))
+	stockMarketFolder:SetAttribute("SectorColors", HttpService:JSONEncode(SECTOR_COLORS))
 	
 	stockMarketFolder:SetAttribute("CurrentRate", avgRate)
 	stockMarketFolder:SetAttribute("RateName", getGlobalRateName())
-	stockMarketFolder:SetAttribute("RateHistory", serializeHistory(categoryHistories.Skibidi))
+	stockMarketFolder:SetAttribute("RateHistory", serializeHistory(sectorHistories.Food))
 	stockMarketFolder:SetAttribute("LastUpdate", os.time())
 	stockMarketFolder:SetAttribute("UpdateInterval", CONFIG.UPDATE_INTERVAL)
 end
@@ -112,19 +112,19 @@ function StockMarketManager.Init(services)
 	stockMarketFolder.Name = "StockMarket"
 	stockMarketFolder.Parent = ReplicatedStorage
 	
-	for _, cat in ipairs(CATEGORIES) do
-		categoryRates[cat] = CONFIG.STARTING_RATE
-		categoryHistories[cat] = {}
-		for i = 1, CONFIG.MAX_HISTORY do table.insert(categoryHistories[cat], CONFIG.STARTING_RATE) end
+	for _, cat in ipairs(SECTORS) do
+		sectorRates[cat] = CONFIG.STARTING_RATE
+		sectorHistories[cat] = {}
+		for i = 1, CONFIG.MAX_HISTORY do table.insert(sectorHistories[cat], CONFIG.STARTING_RATE) end
 	end
 	
-	stockMarketFolder:SetAttribute("Categories", HttpService:JSONEncode(CATEGORIES))
-	stockMarketFolder:SetAttribute("CategoryColors", HttpService:JSONEncode(CATEGORY_COLORS))
-	stockMarketFolder:SetAttribute("CategoryRates", serializeCategoryRates())
-	stockMarketFolder:SetAttribute("CategoryHistories", serializeCategoryHistories())
+	stockMarketFolder:SetAttribute("Sectors", HttpService:JSONEncode(SECTORS))
+	stockMarketFolder:SetAttribute("SectorColors", HttpService:JSONEncode(SECTOR_COLORS))
+	stockMarketFolder:SetAttribute("SectorRates", serializeSectorRates())
+	stockMarketFolder:SetAttribute("SectorHistories", serializeSectorHistories())
 	stockMarketFolder:SetAttribute("CurrentRate", CONFIG.STARTING_RATE)
 	stockMarketFolder:SetAttribute("RateName", "NORMAL")
-	stockMarketFolder:SetAttribute("RateHistory", serializeHistory(categoryHistories.Skibidi))
+	stockMarketFolder:SetAttribute("RateHistory", serializeHistory(sectorHistories.Food))
 	stockMarketFolder:SetAttribute("LastUpdate", os.time())
 	stockMarketFolder:SetAttribute("UpdateInterval", CONFIG.UPDATE_INTERVAL)
 	stockMarketFolder:SetAttribute("MinRate", CONFIG.MIN_RATE)
@@ -145,8 +145,8 @@ function StockMarketManager.Init(services)
 	print("✓ StockMarketManager Initialized")
 end
 
-StockMarketManager.GetCategoryRate = function(c) return categoryRates[c] or 1.0 end
-StockMarketManager.GetAllCategoryRates = function() return table.clone(categoryRates) end
-StockMarketManager.GetCategories = function() return CATEGORIES end
+StockMarketManager.GetSectorRate = function(c) return sectorRates[c] or 1.0 end
+StockMarketManager.GetAllSectorRates = function() return table.clone(sectorRates) end
+StockMarketManager.GetSectors = function() return SECTORS end
 
 return StockMarketManager

@@ -1,27 +1,40 @@
 --[[
-	MoneyHUD LocalScript
+	MoneyHUD LocalScript (Reworked)
 	
-	Displays the player's current money and money per second in a simple HUD.
-	Located in the top-left area of the screen.
+	Right-side HUD:
+	  • Money + MPS display
+	  • Storage bar
+	  • "Your Top Holdings" from storage items
+	  • "View Full Portfolio" button
+	  • Bottom-center action bar with 6 quick-access buttons
 ]]
 
 -- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local HttpService = game:GetService("HttpService")
 
 -- Player reference
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
 -- Wait for shared modules and remotes
-local ShopConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ShopConfig"))
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
+local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
+local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 local GetOwnershipRemote = RemoteEvents:WaitForChild("GetOwnership")
 local OwnershipChangedEvent = RemoteEvents:WaitForChild("OwnershipChanged")
+local StorageUpdatedEvent = RemoteEvents:FindFirstChild("StorageUpdated")
+local GetStorageFunction = RemoteFunctions:WaitForChild("GetStorage")
 
 -- Brainrots folder for preview
 local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
+
+-- Stock Market folder (for sector rates)
+local StockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket")
 
 --------------------------------------------------------------------------------
 -- UI CONFIGURATION
@@ -30,9 +43,13 @@ local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
 local UI_CONFIG = {
 	-- Panel positioning and size
 	PANEL_WIDTH = 220,
-	PANEL_HEIGHT = 290,  -- Increased for new buttons
+	PANEL_HEIGHT = 400,
 	PANEL_MARGIN = 20,
 	CORNER_RADIUS = 16,
+	
+	-- Holdings
+	MAX_HOLDINGS_ROWS = 5,
+	ROW_HEIGHT = 22,
 	
 	-- Colors
 	BACKGROUND_COLOR = Color3.fromRGB(20, 20, 30),
@@ -41,13 +58,21 @@ local UI_CONFIG = {
 	MPS_COLOR = Color3.fromRGB(180, 180, 180),
 	LABEL_COLOR = Color3.fromRGB(120, 120, 140),
 	ITEMS_BG_COLOR = Color3.fromRGB(40, 40, 50),
-	ITEMS_FILL_COLOR = Color3.fromRGB(100, 180, 255),  -- Blue for items
+	ITEMS_FILL_COLOR = Color3.fromRGB(100, 180, 255),
 	ITEMS_FULL_COLOR = Color3.fromRGB(255, 100, 100),
+	
+	-- Holdings colors
+	HOLDINGS_TITLE_COLOR = Color3.fromRGB(200, 200, 220),
+	HOLDINGS_NAME_COLOR = Color3.fromRGB(230, 230, 240),
+	HOLDINGS_COUNT_COLOR = Color3.fromRGB(160, 160, 180),
+	HOLDINGS_VALUE_COLOR = Color3.fromRGB(100, 255, 100),
+	ARROW_UP_COLOR = Color3.fromRGB(80, 220, 120),
+	ARROW_DOWN_COLOR = Color3.fromRGB(255, 80, 80),
 	
 	-- Animation
 	TWEEN_TIME = 0.2,
 	
-	-- Theme (Modern Dark from BuildMode)
+	-- Theme
 	THEME_BG = Color3.fromRGB(20, 20, 30),
 	THEME_STROKE = Color3.fromRGB(50, 50, 70),
 	THEME_ACCENT_PURPLE = Color3.fromRGB(80, 60, 140),
@@ -56,6 +81,10 @@ local UI_CONFIG = {
 	THEME_ACCENT_BLUE = Color3.fromRGB(60, 120, 200),
 	THEME_TEXT_PRIMARY = Color3.fromRGB(255, 255, 255),
 	THEME_TEXT_SECONDARY = Color3.fromRGB(180, 180, 180),
+	
+	-- Bottom bar
+	BOTTOM_BAR_BTN_SIZE = 42,
+	BOTTOM_BAR_PADDING = 10,
 }
 
 --------------------------------------------------------------------------------
@@ -90,6 +119,30 @@ local function addStroke(parent: GuiObject, color: Color3, thickness: number)
 	return stroke
 end
 
+-- Get current sector rates from StockMarket folder
+local function getSectorRates(): {[string]: number}
+	local rates = {}
+	if not StockMarketFolder then
+		StockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket")
+	end
+	if StockMarketFolder then
+		local ratesStr = StockMarketFolder:GetAttribute("SectorRates")
+		if ratesStr then
+			local ok, parsed = pcall(function() return HttpService:JSONDecode(ratesStr) end)
+			if ok and parsed then
+				rates = parsed
+			end
+		end
+	end
+	return rates
+end
+
+--------------------------------------------------------------------------------
+-- STATE
+--------------------------------------------------------------------------------
+
+local StorageItems: {[string]: number} = {} -- Current storage item map
+
 --------------------------------------------------------------------------------
 -- UI CREATION
 --------------------------------------------------------------------------------
@@ -100,11 +153,13 @@ local function createMoneyHUD(): ScreenGui
 	screenGui.ResetOnSpawn = false
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	
-	-- Main HUD panel
+	----------------------------------------------------------------------
+	-- RIGHT PANEL (Money, Storage, Holdings)
+	----------------------------------------------------------------------
 	local hudPanel = Instance.new("Frame")
 	hudPanel.Name = "HUDPanel"
-	hudPanel.Size = UDim2.new(0, UI_CONFIG.PANEL_WIDTH, 0, 260) -- Adjusted height
-	hudPanel.Position = UDim2.new(1, -UI_CONFIG.PANEL_WIDTH - UI_CONFIG.PANEL_MARGIN, 0, 60) -- Lowered slightly
+	hudPanel.Size = UDim2.new(0, UI_CONFIG.PANEL_WIDTH, 0, UI_CONFIG.PANEL_HEIGHT)
+	hudPanel.Position = UDim2.new(1, -UI_CONFIG.PANEL_WIDTH - UI_CONFIG.PANEL_MARGIN, 0, 60)
 	hudPanel.BackgroundColor3 = UI_CONFIG.THEME_BG
 	hudPanel.BackgroundTransparency = 0.1
 	hudPanel.BorderSizePixel = 0
@@ -112,7 +167,6 @@ local function createMoneyHUD(): ScreenGui
 	addCorner(hudPanel, UI_CONFIG.CORNER_RADIUS)
 	addStroke(hudPanel, UI_CONFIG.THEME_STROKE, 2)
 	
-	-- Add padding
 	local padding = Instance.new("UIPadding")
 	padding.PaddingLeft = UDim.new(0, 16)
 	padding.PaddingRight = UDim.new(0, 16)
@@ -128,7 +182,6 @@ local function createMoneyHUD(): ScreenGui
 	moneyContainer.BackgroundTransparency = 1
 	moneyContainer.Parent = hudPanel
 	
-	-- Money icon
 	local moneyIcon = Instance.new("TextLabel")
 	moneyIcon.Name = "MoneyIcon"
 	moneyIcon.Size = UDim2.new(0, 32, 0, 32)
@@ -139,7 +192,6 @@ local function createMoneyHUD(): ScreenGui
 	moneyIcon.Font = Enum.Font.GothamBold
 	moneyIcon.Parent = moneyContainer
 	
-	-- Money value label
 	local moneyLabel = Instance.new("TextLabel")
 	moneyLabel.Name = "MoneyLabel"
 	moneyLabel.Size = UDim2.new(1, -40, 0, 32)
@@ -165,30 +217,19 @@ local function createMoneyHUD(): ScreenGui
 	mpsLabel.TextXAlignment = Enum.TextXAlignment.Left
 	mpsLabel.Parent = hudPanel
 	
-	-- Separator
-	local div = Instance.new("Frame")
-	div.Name = "Divider"
-	div.Size = UDim2.new(0, 2, 0, 40)
-	div.Position = UDim2.new(0, 0, 0, 60)
-	div.BackgroundColor3 = UI_CONFIG.THEME_ACCENT_BLUE
-	div.BorderSizePixel = 0
-	div.Parent = hudPanel
-	addCorner(div, 2)
-	
 	-- Storage Section
 	local storageContainer = Instance.new("Frame")
-	storageContainer.Name = "ItemsContainer" -- Kept Name for script compatibility
+	storageContainer.Name = "ItemsContainer"
 	storageContainer.Size = UDim2.new(1, -20, 0, 50)
 	storageContainer.Position = UDim2.new(0, 15, 0, 60)
 	storageContainer.BackgroundTransparency = 1
 	storageContainer.Parent = hudPanel
 	
 	local storageTitle = Instance.new("TextLabel")
-	storageTitle.Name = "Title"
+	storageTitle.Name = "ItemsAmount"
 	storageTitle.Size = UDim2.new(1, 0, 0, 20)
 	storageTitle.BackgroundTransparency = 1
-	storageTitle.Text = "📦 ITEMS: 0 / 2000" -- Initial text
-	storageTitle.Name = "ItemsAmount" -- Kept Name for script compatibility
+	storageTitle.Text = "📦 ITEMS: 0 / 0"
 	storageTitle.TextColor3 = UI_CONFIG.THEME_TEXT_PRIMARY
 	storageTitle.TextSize = 12
 	storageTitle.Font = Enum.Font.GothamBold
@@ -212,56 +253,141 @@ local function createMoneyHUD(): ScreenGui
 	itemsBarFill.Parent = itemsBarBg
 	addCorner(itemsBarFill, 4)
 	
-	-- Action Icons Container (2x2 grid)
-	local actionsFrame = Instance.new("Frame")
-	actionsFrame.Name = "ActionsFrame"
-	actionsFrame.Size = UDim2.new(1, 0, 0, 115)  -- Height for 2 rows of buttons + padding
-	actionsFrame.Position = UDim2.new(0, 0, 0, 120)
-	actionsFrame.BackgroundTransparency = 1
-	actionsFrame.Parent = hudPanel
+	----------------------------------------------------------------------
+	-- YOUR TOP HOLDINGS SECTION
+	----------------------------------------------------------------------
+	local holdingsY = 105
 	
-	local uiGrid = Instance.new("UIGridLayout")
-	uiGrid.CellSize = UDim2.new(0, 48, 0, 48)
-	uiGrid.CellPadding = UDim2.new(0, 15, 0, 15)
-	uiGrid.FillDirection = Enum.FillDirection.Horizontal
-	uiGrid.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	uiGrid.VerticalAlignment = Enum.VerticalAlignment.Center
-	uiGrid.SortOrder = Enum.SortOrder.LayoutOrder
-	uiGrid.Parent = actionsFrame
+	-- Thin divider
+	local div = Instance.new("Frame")
+	div.Name = "HoldingsDivider"
+	div.Size = UDim2.new(1, -10, 0, 1)
+	div.Position = UDim2.new(0, 5, 0, holdingsY)
+	div.BackgroundColor3 = UI_CONFIG.THEME_STROKE
+	div.BackgroundTransparency = 0.4
+	div.BorderSizePixel = 0
+	div.Parent = hudPanel
 	
-	-- Helper to create icon buttons
-	local function createIconButton(name, textIcon, color, order)
+	holdingsY += 8
+	
+	local holdingsTitle = Instance.new("TextLabel")
+	holdingsTitle.Name = "HoldingsTitle"
+	holdingsTitle.Size = UDim2.new(1, 0, 0, 16)
+	holdingsTitle.Position = UDim2.new(0, 0, 0, holdingsY)
+	holdingsTitle.BackgroundTransparency = 1
+	holdingsTitle.Text = "Your Top Holdings"
+	holdingsTitle.TextColor3 = UI_CONFIG.HOLDINGS_TITLE_COLOR
+	holdingsTitle.TextSize = 13
+	holdingsTitle.Font = Enum.Font.GothamBold
+	holdingsTitle.TextXAlignment = Enum.TextXAlignment.Left
+	holdingsTitle.Parent = hudPanel
+	
+	holdingsY += 20
+	
+	-- Holdings list container
+	local holdingsList = Instance.new("Frame")
+	holdingsList.Name = "HoldingsList"
+	holdingsList.Size = UDim2.new(1, 0, 0, UI_CONFIG.MAX_HOLDINGS_ROWS * UI_CONFIG.ROW_HEIGHT)
+	holdingsList.Position = UDim2.new(0, 0, 0, holdingsY)
+	holdingsList.BackgroundTransparency = 1
+	holdingsList.ClipsDescendants = true
+	holdingsList.Parent = hudPanel
+	
+	local listLayout = Instance.new("UIListLayout")
+	listLayout.Padding = UDim.new(0, 2)
+	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	listLayout.Parent = holdingsList
+	
+	holdingsY += UI_CONFIG.MAX_HOLDINGS_ROWS * UI_CONFIG.ROW_HEIGHT + 10
+	
+	-- Empty state label
+	local emptyLabel = Instance.new("TextLabel")
+	emptyLabel.Name = "EmptyLabel"
+	emptyLabel.Size = UDim2.new(1, 0, 1, 0)
+	emptyLabel.BackgroundTransparency = 1
+	emptyLabel.Text = "No items in storage"
+	emptyLabel.TextColor3 = UI_CONFIG.LABEL_COLOR
+	emptyLabel.TextSize = 11
+	emptyLabel.Font = Enum.Font.Gotham
+	emptyLabel.Visible = true
+	emptyLabel.Parent = holdingsList
+	
+	-- View Full Portfolio button
+	local portfolioBtn = Instance.new("TextButton")
+	portfolioBtn.Name = "PortfolioButton"
+	portfolioBtn.Size = UDim2.new(1, 0, 0, 30)
+	portfolioBtn.Position = UDim2.new(0, 0, 0, holdingsY)
+	portfolioBtn.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
+	portfolioBtn.Text = "📋 View Full Portfolio"
+	portfolioBtn.TextColor3 = UI_CONFIG.THEME_TEXT_PRIMARY
+	portfolioBtn.TextSize = 12
+	portfolioBtn.Font = Enum.Font.GothamBold
+	portfolioBtn.BorderSizePixel = 0
+	portfolioBtn.Parent = hudPanel
+	addCorner(portfolioBtn, 8)
+	addStroke(portfolioBtn, UI_CONFIG.THEME_STROKE, 1)
+	
+	----------------------------------------------------------------------
+	-- BOTTOM CENTER ACTION BAR (6 buttons in a row)
+	----------------------------------------------------------------------
+	local btnSize = UI_CONFIG.BOTTOM_BAR_BTN_SIZE
+	local btnPad = UI_CONFIG.BOTTOM_BAR_PADDING
+	local totalBarWidth = 6 * btnSize + 5 * btnPad + 24 -- + side padding
+	
+	local bottomBar = Instance.new("Frame")
+	bottomBar.Name = "BottomBar"
+	bottomBar.Size = UDim2.new(0, totalBarWidth, 0, btnSize + 20)
+	bottomBar.Position = UDim2.new(0.5, -totalBarWidth / 2, 1, -(btnSize + 30))
+	bottomBar.BackgroundColor3 = UI_CONFIG.THEME_BG
+	bottomBar.BackgroundTransparency = 0.15
+	bottomBar.BorderSizePixel = 0
+	bottomBar.Parent = screenGui
+	addCorner(bottomBar, 14)
+	addStroke(bottomBar, UI_CONFIG.THEME_STROKE, 2)
+	
+	local barPadding = Instance.new("UIPadding")
+	barPadding.PaddingLeft = UDim.new(0, 12)
+	barPadding.PaddingRight = UDim.new(0, 12)
+	barPadding.PaddingTop = UDim.new(0, 10)
+	barPadding.PaddingBottom = UDim.new(0, 10)
+	barPadding.Parent = bottomBar
+	
+	local barLayout = Instance.new("UIListLayout")
+	barLayout.FillDirection = Enum.FillDirection.Horizontal
+	barLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	barLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	barLayout.Padding = UDim.new(0, btnPad)
+	barLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	barLayout.Parent = bottomBar
+	
+	local function createBarButton(name, textIcon, color, order)
 		local btn = Instance.new("TextButton")
 		btn.Name = name
-		btn.Size = UDim2.new(0, 48, 0, 48)
+		btn.Size = UDim2.new(0, btnSize, 0, btnSize)
 		btn.BackgroundColor3 = color
 		btn.LayoutOrder = order
 		btn.Text = textIcon
-		btn.TextSize = 24
+		btn.TextSize = 20
 		btn.TextColor3 = UI_CONFIG.THEME_TEXT_PRIMARY
 		btn.Font = Enum.Font.GothamBold
-		btn.Parent = actionsFrame
-		
-		addCorner(btn, 12)
+		btn.Parent = bottomBar
+		addCorner(btn, 10)
 		addStroke(btn, UI_CONFIG.THEME_STROKE, 1.5)
-		
 		return btn
 	end
 	
-	-- 1. Shop Button
-	createIconButton("ShopButton", "🛒", UI_CONFIG.THEME_ACCENT_PURPLE, 1)
+	-- 1. Shop
+	createBarButton("ShopButton", "🛒", UI_CONFIG.THEME_ACCENT_PURPLE, 1)
 	
-	-- 2. Brainrots Button (3D Preview)
-	local brainrotsBtn = createIconButton("BrainrotsButton", "", UI_CONFIG.THEME_ACCENT_PINK, 2)
+	-- 2. Brainrots (with 3D preview + badge)
+	local brainrotsBtn = createBarButton("BrainrotsButton", "", UI_CONFIG.THEME_ACCENT_PINK, 2)
 	
-	-- Viewport for Brainrot
 	local viewport = Instance.new("ViewportFrame")
 	viewport.Size = UDim2.new(1, -6, 1, -6)
 	viewport.Position = UDim2.new(0, 3, 0, 3)
 	viewport.BackgroundTransparency = 1
 	viewport.Parent = brainrotsBtn
 	
-	-- Count badge (shows total brainrot count)
 	local countBadge = Instance.new("TextLabel")
 	countBadge.Name = "CountBadge"
 	countBadge.Size = UDim2.new(0, 20, 0, 16)
@@ -273,12 +399,8 @@ local function createMoneyHUD(): ScreenGui
 	countBadge.Font = Enum.Font.GothamBold
 	countBadge.ZIndex = 10
 	countBadge.Parent = brainrotsBtn
+	addCorner(countBadge, 8)
 	
-	local badgeCorner = Instance.new("UICorner")
-	badgeCorner.CornerRadius = UDim.new(0, 8)
-	badgeCorner.Parent = countBadge
-	
-	-- Pick random model for preview
 	task.spawn(function()
 		local allModels = {}
 		if BrainrotsFolder then
@@ -286,15 +408,12 @@ local function createMoneyHUD(): ScreenGui
 				if m:IsA("Model") then table.insert(allModels, m) end
 			end
 		end
-		
 		if #allModels > 0 then
 			local randomModel = allModels[math.random(1, #allModels)]:Clone()
 			randomModel.Parent = viewport
-			
 			local cam = Instance.new("Camera")
 			cam.Parent = viewport
 			viewport.CurrentCamera = cam
-			
 			local cf, size = randomModel:GetBoundingBox()
 			local maxDim = math.max(size.X, size.Y, size.Z)
 			local dist = maxDim * 1.5
@@ -302,11 +421,14 @@ local function createMoneyHUD(): ScreenGui
 		end
 	end)
 	
-	-- 3. Synergies Button
-	createIconButton("SynergiesButton", "📖", UI_CONFIG.THEME_ACCENT_GOLD, 3)
-	
-	-- 4. Backpack Button (NEW)
-	createIconButton("BackpackButton", "🎒", UI_CONFIG.THEME_ACCENT_BLUE, 4)
+	-- 3. Synergies
+	createBarButton("SynergiesButton", "📖", UI_CONFIG.THEME_ACCENT_GOLD, 3)
+	-- 4. Backpack
+	createBarButton("BackpackButton", "🎒", UI_CONFIG.THEME_ACCENT_BLUE, 4)
+	-- 5. Storage
+	createBarButton("StorageButton", "📦", Color3.fromRGB(255, 100, 50), 5)
+	-- 6. Stock Market
+	createBarButton("StockButton", "📈", Color3.fromRGB(80, 200, 100), 6)
 	
 	return screenGui
 end
@@ -322,39 +444,25 @@ local ItemsBarFill: Frame
 local ItemsAmountLabel: TextLabel
 
 local previousMoney: number = 0
-
--- Track ownership for MPS calculation
 local OwnedCounts: {[string]: number} = {}
 
---[[
-	Calculates the total money per second based on all owned units.
-	Formula: Sum of (BaseIncome / CycleTime) * count for each unit
-]]
 local function calculateMPS(): number
 	local totalMPS = 0
-	
 	for unitName, count in OwnedCounts do
 		if count > 0 then
 			local config = ShopConfig.GetConfig(unitName)
 			if config then
-				-- Income per second for this unit type: (BaseIncome / CycleTime) * count
 				local incomePerSecond = (config.BaseIncome / config.CycleTime) * count
 				totalMPS = totalMPS + incomePerSecond
 			end
 		end
 	end
-	
 	return totalMPS
 end
 
---[[
-	Updates the MPS display label with the calculated value.
-]]
 local function updateMPSDisplay()
 	if not MPSLabel then return end
-	
 	local mps = calculateMPS()
-	
 	if mps >= 1000 then
 		MPSLabel.Text = string.format("+$%.1fK/s", mps / 1000)
 	else
@@ -362,35 +470,28 @@ local function updateMPSDisplay()
 	end
 end
 
---[[
-	Updates the brainrot count badge on the brainrots button.
-]]
 local function updateBrainrotCount()
 	if not MoneyHUDGui then return end
 	
-	local hudPanel = MoneyHUDGui:FindFirstChild("HUDPanel")
-	local actionsFrame = hudPanel and hudPanel:FindFirstChild("ActionsFrame")
-	if not actionsFrame then return end
+	local bottomBar = MoneyHUDGui:FindFirstChild("BottomBar")
+	if not bottomBar then return end
 	
-	local brainrotsBtn = actionsFrame:FindFirstChild("BrainrotsButton")
+	local brainrotsBtn = bottomBar:FindFirstChild("BrainrotsButton")
 	if not brainrotsBtn then return end
 	
-	local countBadge = brainrotsBtn:FindFirstChild("CountBadge")
-	if not countBadge then return end
+	local badge = brainrotsBtn:FindFirstChild("CountBadge")
+	if not badge then return end
 	
-	-- Count total owned brainrots
 	local totalCount = 0
 	for _, count in OwnedCounts do
 		totalCount = totalCount + count
 	end
 	
-	countBadge.Text = tostring(totalCount)
-	
-	-- Color based on count
+	badge.Text = tostring(totalCount)
 	if totalCount > 0 then
-		countBadge.BackgroundColor3 = Color3.fromRGB(60, 180, 100)  -- Green
+		badge.BackgroundColor3 = Color3.fromRGB(60, 180, 100)
 	else
-		countBadge.BackgroundColor3 = Color3.fromRGB(100, 100, 100)  -- Gray
+		badge.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
 	end
 end
 
@@ -400,15 +501,12 @@ local function updateMoneyDisplay(newMoney: number)
 	local formattedMoney = formatMoney(newMoney)
 	MoneyLabel.Text = formattedMoney
 	
-	-- Animate color flash on money change
 	if newMoney > previousMoney then
-		-- Money gained - flash bright green
 		MoneyLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
 		TweenService:Create(MoneyLabel, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
 			TextColor3 = UI_CONFIG.MONEY_COLOR
 		}):Play()
 	elseif newMoney < previousMoney then
-		-- Money spent - flash red briefly
 		MoneyLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
 		TweenService:Create(MoneyLabel, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
 			TextColor3 = UI_CONFIG.MONEY_COLOR
@@ -418,28 +516,21 @@ local function updateMoneyDisplay(newMoney: number)
 	previousMoney = newMoney
 end
 
---[[
-	Updates the items bar fill and text based on current item storage.
-]]
 local function updateItemsDisplay(currentItems: number, maxItems: number)
 	if not ItemsBarFill or not ItemsAmountLabel then return end
 	
-	local fillPercent = math.clamp(currentItems / maxItems, 0, 1)
+	local fillPercent = math.clamp(currentItems / math.max(1, maxItems), 0, 1)
 	
-	-- Animate the fill bar width
 	TweenService:Create(ItemsBarFill, TweenInfo.new(0.3, Enum.EasingStyle.Quad), {
 		Size = UDim2.new(fillPercent, 0, 1, 0)
 	}):Play()
 	
-	-- Update text
 	ItemsAmountLabel.Text = string.format("📦 ITEMS: %d / %d", currentItems, maxItems)
 	
-	-- Change color based on fill level
 	local targetColor
 	if fillPercent >= 1 then
 		targetColor = UI_CONFIG.ITEMS_FULL_COLOR
 	elseif fillPercent >= 0.75 then
-		-- Interpolate between fill and full color
 		targetColor = UI_CONFIG.ITEMS_FILL_COLOR:Lerp(UI_CONFIG.ITEMS_FULL_COLOR, (fillPercent - 0.75) / 0.25)
 	else
 		targetColor = UI_CONFIG.ITEMS_FILL_COLOR
@@ -451,17 +542,144 @@ local function updateItemsDisplay(currentItems: number, maxItems: number)
 end
 
 --------------------------------------------------------------------------------
+-- HOLDINGS DISPLAY
+--------------------------------------------------------------------------------
+
+local function updateHoldingsDisplay()
+	if not MoneyHUDGui then return end
+	
+	local hudPanel = MoneyHUDGui:FindFirstChild("HUDPanel")
+	if not hudPanel then return end
+	local holdingsList = hudPanel:FindFirstChild("HoldingsList")
+	if not holdingsList then return end
+	
+	-- Clear old rows (keep EmptyLabel)
+	for _, child in holdingsList:GetChildren() do
+		if child:IsA("Frame") then child:Destroy() end
+	end
+	
+	local emptyLabel = holdingsList:FindFirstChild("EmptyLabel")
+	
+	-- Get sector rates
+	local sectorRates = getSectorRates()
+	
+	-- Build sorted list by total value
+	local sortedItems = {}
+	for itemId, count in pairs(StorageItems) do
+		if count > 0 then
+			local itemDef = ItemConfig.Items[itemId]
+			if itemDef then
+				local sector = ItemConfig.GetSector(itemId) -- item-level lookup
+				local rate = sectorRates[sector] or 1.0
+				local totalValue = count * itemDef.basePrice * rate
+				table.insert(sortedItems, {
+					id = itemId,
+					count = count,
+					icon = itemDef.icon or "📦",
+					name = itemDef.displayName or itemId,
+					value = totalValue,
+					rate = rate,
+				})
+			end
+		end
+	end
+	
+	table.sort(sortedItems, function(a, b) return a.value > b.value end)
+	
+	if emptyLabel then
+		emptyLabel.Visible = #sortedItems == 0
+	end
+	
+	for i = 1, math.min(UI_CONFIG.MAX_HOLDINGS_ROWS, #sortedItems) do
+		local data = sortedItems[i]
+		
+		local row = Instance.new("Frame")
+		row.Name = "Row" .. i
+		row.Size = UDim2.new(1, 0, 0, UI_CONFIG.ROW_HEIGHT)
+		row.BackgroundTransparency = 1
+		row.LayoutOrder = i
+		row.Parent = holdingsList
+		
+		-- Icon
+		local iconLabel = Instance.new("TextLabel")
+		iconLabel.Size = UDim2.new(0, 18, 1, 0)
+		iconLabel.Position = UDim2.new(0, 0, 0, 0)
+		iconLabel.BackgroundTransparency = 1
+		iconLabel.Text = data.icon
+		iconLabel.TextSize = 12
+		iconLabel.Font = Enum.Font.Gotham
+		iconLabel.Parent = row
+		
+		-- Name (truncated)
+		local displayName = data.name
+		if #displayName > 10 then
+			displayName = string.sub(displayName, 1, 9) .. "…"
+		end
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Size = UDim2.new(0, 60, 1, 0)
+		nameLabel.Position = UDim2.new(0, 20, 0, 0)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Text = displayName
+		nameLabel.TextColor3 = UI_CONFIG.HOLDINGS_NAME_COLOR
+		nameLabel.TextSize = 10
+		nameLabel.Font = Enum.Font.Gotham
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLabel.Parent = row
+		
+		-- Count
+		local countLabel = Instance.new("TextLabel")
+		countLabel.Size = UDim2.new(0, 30, 1, 0)
+		countLabel.Position = UDim2.new(0, 82, 0, 0)
+		countLabel.BackgroundTransparency = 1
+		countLabel.Text = "x" .. tostring(data.count)
+		countLabel.TextColor3 = UI_CONFIG.HOLDINGS_COUNT_COLOR
+		countLabel.TextSize = 10
+		countLabel.Font = Enum.Font.Gotham
+		countLabel.TextXAlignment = Enum.TextXAlignment.Right
+		countLabel.Parent = row
+		
+		-- Value
+		local valueLabel = Instance.new("TextLabel")
+		valueLabel.Size = UDim2.new(0, 50, 1, 0)
+		valueLabel.Position = UDim2.new(0, 115, 0, 0)
+		valueLabel.BackgroundTransparency = 1
+		valueLabel.Text = formatMoney(data.value)
+		valueLabel.TextColor3 = UI_CONFIG.HOLDINGS_VALUE_COLOR
+		valueLabel.TextSize = 10
+		valueLabel.Font = Enum.Font.GothamBold
+		valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+		valueLabel.Parent = row
+		
+		-- Arrow (▲ if rate >= 1, ▼ if < 1)
+		local arrowLabel = Instance.new("TextLabel")
+		arrowLabel.Size = UDim2.new(0, 14, 1, 0)
+		arrowLabel.Position = UDim2.new(0, 168, 0, 0)
+		arrowLabel.BackgroundTransparency = 1
+		if data.rate >= 1.0 then
+			arrowLabel.Text = "▲"
+			arrowLabel.TextColor3 = UI_CONFIG.ARROW_UP_COLOR
+		else
+			arrowLabel.Text = "▼"
+			arrowLabel.TextColor3 = UI_CONFIG.ARROW_DOWN_COLOR
+		end
+		arrowLabel.TextSize = 10
+		arrowLabel.Font = Enum.Font.GothamBold
+		arrowLabel.Parent = row
+	end
+end
+
+--------------------------------------------------------------------------------
 -- INITIALIZATION
 --------------------------------------------------------------------------------
 
 local function initialize()
 	print("MoneyHUD: Initializing...")
 	
-	-- Create the HUD
 	MoneyHUDGui = createMoneyHUD()
 	MoneyHUDGui.Parent = PlayerGui
 	
-	-- Get references to labels
+	-- Get references
 	local hudPanel = MoneyHUDGui:FindFirstChild("HUDPanel")
 	if hudPanel then
 		local moneyContainer = hudPanel:FindFirstChild("MoneyContainer")
@@ -470,7 +688,6 @@ local function initialize()
 		end
 		MPSLabel = hudPanel:FindFirstChild("MPSLabel")
 		
-		-- Get items bar references (was tank bar)
 		local itemsContainer = hudPanel:FindFirstChild("ItemsContainer")
 		if itemsContainer then
 			ItemsAmountLabel = itemsContainer:FindFirstChild("ItemsAmount")
@@ -481,140 +698,87 @@ local function initialize()
 		end
 	end
 	
-	-- Get action buttons from ActionsFrame
-	local actionsFrame = hudPanel and hudPanel:FindFirstChild("ActionsFrame")
-	if actionsFrame then 
-		local shopButton = actionsFrame:FindFirstChild("ShopButton")
-		local brainrotsButton = actionsFrame:FindFirstChild("BrainrotsButton")
-		local synergiesButton = actionsFrame:FindFirstChild("SynergiesButton")
-		local backpackButton = actionsFrame:FindFirstChild("BackpackButton")
-		
-		print(string.format("MoneyHUD: Buttons found - Shop:%s, Brainrots:%s, Synergies:%s, Backpack:%s",
-			tostring(shopButton~=nil), tostring(brainrotsButton~=nil), tostring(synergiesButton~=nil), tostring(backpackButton~=nil)))
-
-		-- Setup shop button click
-		if shopButton then
-			-- Create or get the BindableEvent for shop toggle
-			local shopToggleEvent = ReplicatedStorage:FindFirstChild("ShopToggleEvent")
-			if not shopToggleEvent then
-				shopToggleEvent = Instance.new("BindableEvent")
-				shopToggleEvent.Name = "ShopToggleEvent"
-				shopToggleEvent.Parent = ReplicatedStorage
+	----------------------------------------------------------------------
+	-- BUTTON CONNECTIONS (Bottom Bar)
+	----------------------------------------------------------------------
+	local bottomBar = MoneyHUDGui:FindFirstChild("BottomBar")
+	if bottomBar then
+		local function setupBtn(btnName, eventName, filterArg, baseColor, hoverColor)
+			local btn = bottomBar:FindFirstChild(btnName)
+			if not btn then return end
+			
+			local toggleEvent = ReplicatedStorage:FindFirstChild(eventName)
+			if not toggleEvent then
+				toggleEvent = Instance.new("BindableEvent")
+				toggleEvent.Name = eventName
+				toggleEvent.Parent = ReplicatedStorage
 			end
 			
-			shopButton.MouseButton1Click:Connect(function()
-				shopToggleEvent:Fire()
+			btn.MouseButton1Click:Connect(function()
+				if filterArg then
+					toggleEvent:Fire(filterArg)
+				else
+					toggleEvent:Fire()
+				end
 			end)
 			
-			-- Hover effects
-			shopButton.MouseEnter:Connect(function()
-				TweenService:Create(shopButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(100, 80, 170),
-					Size = UDim2.new(0, 56, 0, 56)
+			btn.MouseEnter:Connect(function()
+				TweenService:Create(btn, TweenInfo.new(0.1), {
+					BackgroundColor3 = hoverColor,
+					Size = UDim2.new(0, UI_CONFIG.BOTTOM_BAR_BTN_SIZE + 6, 0, UI_CONFIG.BOTTOM_BAR_BTN_SIZE + 6)
 				}):Play()
 			end)
-			
-			shopButton.MouseLeave:Connect(function()
-				TweenService:Create(shopButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = UI_CONFIG.THEME_ACCENT_PURPLE,
-					Size = UDim2.new(0, 48, 0, 48)
+			btn.MouseLeave:Connect(function()
+				TweenService:Create(btn, TweenInfo.new(0.1), {
+					BackgroundColor3 = baseColor,
+					Size = UDim2.new(0, UI_CONFIG.BOTTOM_BAR_BTN_SIZE, 0, UI_CONFIG.BOTTOM_BAR_BTN_SIZE)
 				}):Play()
 			end)
 		end
 		
-		-- Setup brainrots button click
-		if brainrotsButton then
-			-- Create or get the BindableEvent for backpack toggle (we use this now instead of InventoryToggleEvent)
-			local backpackToggleEvent = ReplicatedStorage:FindFirstChild("BackpackToggleEvent")
-			if not backpackToggleEvent then
-				backpackToggleEvent = Instance.new("BindableEvent")
-				backpackToggleEvent.Name = "BackpackToggleEvent"
-				backpackToggleEvent.Parent = ReplicatedStorage
-			end
-			
-			brainrotsButton.MouseButton1Click:Connect(function()
-				-- Open Backpack filtered to Units
-				backpackToggleEvent:Fire("Unit")
-			end)
-			
-			-- Hover effects
-			brainrotsButton.MouseEnter:Connect(function()
-				TweenService:Create(brainrotsButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(170, 100, 190),
-					Size = UDim2.new(0, 56, 0, 56)
-				}):Play()
-			end)
-			
-			brainrotsButton.MouseLeave:Connect(function()
-				TweenService:Create(brainrotsButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = UI_CONFIG.THEME_ACCENT_PINK,
-					Size = UDim2.new(0, 48, 0, 48)
-				}):Play()
-			end)
-		end
-		
-		-- Setup synergies button click
-		if synergiesButton then
-			-- Create or get the BindableEvent for synergy toggle
-			local synergyToggleEvent = ReplicatedStorage:FindFirstChild("SynergyToggleEvent")
-			if not synergyToggleEvent then
-				synergyToggleEvent = Instance.new("BindableEvent")
-				synergyToggleEvent.Name = "SynergyToggleEvent"
-				synergyToggleEvent.Parent = ReplicatedStorage
-			end
-			
-			synergiesButton.MouseButton1Click:Connect(function()
-				synergyToggleEvent:Fire()
-			end)
-			
-			-- Hover effects
-			synergiesButton.MouseEnter:Connect(function()
-				TweenService:Create(synergiesButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(230, 180, 80),
-					Size = UDim2.new(0, 56, 0, 56)
-				}):Play()
-			end)
-			
-			synergiesButton.MouseLeave:Connect(function()
-				TweenService:Create(synergiesButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = UI_CONFIG.THEME_ACCENT_GOLD,
-					Size = UDim2.new(0, 48, 0, 48)
-				}):Play()
-			end)
-		end
-		
-		-- Setup backpack button click
-		if backpackButton then
-			-- Create or get the BindableEvent for backpack toggle
-			local backpackToggleEvent = ReplicatedStorage:FindFirstChild("BackpackToggleEvent")
-			if not backpackToggleEvent then
-				backpackToggleEvent = Instance.new("BindableEvent")
-				backpackToggleEvent.Name = "BackpackToggleEvent"
-				backpackToggleEvent.Parent = ReplicatedStorage
-			end
-			
-			backpackButton.MouseButton1Click:Connect(function()
-				backpackToggleEvent:Fire()
-			end)
-			
-			-- Hover effects
-			backpackButton.MouseEnter:Connect(function()
-				TweenService:Create(backpackButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = Color3.fromRGB(100, 150, 255),
-					Size = UDim2.new(0, 56, 0, 56)
-				}):Play()
-			end)
-			
-			backpackButton.MouseLeave:Connect(function()
-				TweenService:Create(backpackButton, TweenInfo.new(0.1), {
-					BackgroundColor3 = UI_CONFIG.THEME_ACCENT_BLUE,
-					Size = UDim2.new(0, 48, 0, 48)
-				}):Play()
-			end)
-		end
+		setupBtn("ShopButton", "ShopToggleEvent", nil,
+			UI_CONFIG.THEME_ACCENT_PURPLE, Color3.fromRGB(100, 80, 170))
+		setupBtn("BrainrotsButton", "BackpackToggleEvent", "Unit",
+			UI_CONFIG.THEME_ACCENT_PINK, Color3.fromRGB(170, 100, 190))
+		setupBtn("SynergiesButton", "SynergyToggleEvent", nil,
+			UI_CONFIG.THEME_ACCENT_GOLD, Color3.fromRGB(230, 180, 80))
+		setupBtn("BackpackButton", "BackpackToggleEvent", nil,
+			UI_CONFIG.THEME_ACCENT_BLUE, Color3.fromRGB(100, 150, 255))
+		setupBtn("StorageButton", "StorageToggleEvent", nil,
+			Color3.fromRGB(255, 100, 50), Color3.fromRGB(255, 140, 100))
+		setupBtn("StockButton", "StockToggleEvent", nil,
+			Color3.fromRGB(80, 200, 100), Color3.fromRGB(100, 230, 130))
 	end
 	
-	-- Get initial ownership data from server for MPS calculation
+	-- Portfolio button
+	local portfolioBtn = hudPanel and hudPanel:FindFirstChild("PortfolioButton")
+	if portfolioBtn then
+		local backpackToggle = ReplicatedStorage:FindFirstChild("BackpackToggleEvent")
+		if not backpackToggle then
+			backpackToggle = Instance.new("BindableEvent")
+			backpackToggle.Name = "BackpackToggleEvent"
+			backpackToggle.Parent = ReplicatedStorage
+		end
+		
+		portfolioBtn.MouseButton1Click:Connect(function()
+			backpackToggle:Fire()
+		end)
+		
+		portfolioBtn.MouseEnter:Connect(function()
+			TweenService:Create(portfolioBtn, TweenInfo.new(0.1), {
+				BackgroundColor3 = Color3.fromRGB(55, 60, 80)
+			}):Play()
+		end)
+		portfolioBtn.MouseLeave:Connect(function()
+			TweenService:Create(portfolioBtn, TweenInfo.new(0.1), {
+				BackgroundColor3 = Color3.fromRGB(40, 45, 60)
+			}):Play()
+		end)
+	end
+	
+	----------------------------------------------------------------------
+	-- OWNERSHIP / MPS (unchanged logic)
+	----------------------------------------------------------------------
 	local ownershipData = GetOwnershipRemote:InvokeServer()
 	if ownershipData and ownershipData.units then
 		for unitName, data in ownershipData.units do
@@ -624,27 +788,24 @@ local function initialize()
 		updateBrainrotCount()
 	end
 	
-	-- Listen for ownership changes to update MPS and brainrot count
 	OwnershipChangedEvent.OnClientEvent:Connect(function(unitName: string, newCount: number)
 		OwnedCounts[unitName] = newCount
 		updateMPSDisplay()
 		updateBrainrotCount()
 	end)
 	
-	-- Wait for leaderstats and connect to money changes
+	----------------------------------------------------------------------
+	-- MONEY TRACKING
+	----------------------------------------------------------------------
 	local leaderstats = Player:WaitForChild("leaderstats", 10)
 	if leaderstats then
 		local money = leaderstats:WaitForChild("Money", 5)
 		if money then
-			-- Initial update
 			previousMoney = money.Value
 			updateMoneyDisplay(money.Value)
-			
-			-- Listen for changes
 			money:GetPropertyChangedSignal("Value"):Connect(function()
 				updateMoneyDisplay(money.Value)
 			end)
-			
 			print("MoneyHUD: Connected to money value")
 		else
 			warn("MoneyHUD: Could not find Money value")
@@ -653,22 +814,47 @@ local function initialize()
 		warn("MoneyHUD: Could not find leaderstats")
 	end
 	
-	-- Listen for item storage updates (from ItemStorageManager)
-	local StorageUpdatedEvent = RemoteEvents:FindFirstChild("StorageUpdated")
-	if StorageUpdatedEvent then
-		StorageUpdatedEvent.OnClientEvent:Connect(function(_, total, capacity)
-			updateItemsDisplay(total or 0, capacity or 2000)
-		end)
-		-- Also fetch initial values
-		local GetStorageFunction = RemoteEvents:FindFirstChild("GetStorage")
-		if GetStorageFunction then
-			task.spawn(function()
-				local _, total, capacity = GetStorageFunction:InvokeServer()
-				updateItemsDisplay(total or 0, capacity or 2000)
-			end)
-		end
+	----------------------------------------------------------------------
+	-- STORAGE + HOLDINGS
+	----------------------------------------------------------------------
+	local function refreshFromAttribute()
+		local items, total, cap = GetStorageFunction:InvokeServer()
+		StorageItems = items or {}
+		updateItemsDisplay(total or 0, Player:GetAttribute("StorageCapacity") or cap or 0)
+		updateHoldingsDisplay()
 	end
-
+	
+	if StorageUpdatedEvent then
+		StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
+			StorageItems = items or {}
+			updateItemsDisplay(total or 0, Player:GetAttribute("StorageCapacity") or capacity or 0)
+			updateHoldingsDisplay()
+		end)
+	end
+	
+	Player:GetAttributeChangedSignal("StorageCapacity"):Connect(function()
+		local cur = 0
+		if ItemsAmountLabel then
+			local txt = ItemsAmountLabel.Text
+			local val = txt:match("ITEMS: (%d+)")
+			cur = tonumber(val) or 0
+		end
+		updateItemsDisplay(cur, Player:GetAttribute("StorageCapacity") or 0)
+	end)
+	
+	-- Listen for stock market rate changes to refresh holdings values
+	if not StockMarketFolder then
+		StockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket")
+	end
+	if StockMarketFolder then
+		StockMarketFolder:GetAttributeChangedSignal("SectorRates"):Connect(function()
+			updateHoldingsDisplay()
+		end)
+	end
+	
+	-- Initial fetch
+	task.spawn(refreshFromAttribute)
+	
 	print("MoneyHUD: Ready!")
 end
 

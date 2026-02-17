@@ -115,13 +115,14 @@ function IslandShopManager.Init(services)
 end
 
 function IslandShopManager.HandleTierPurchase(player)
-	if not Services.MapSystem then return false, "Shop system not ready" end
-	local ts = Services.MapSystem.GetPlayerTierSystem(player)
+	local MapSystem = rawget(Services, "MapSystem")
+	if not MapSystem then return false, "Shop system not ready" end
+	local ts = MapSystem.GetPlayerTierSystem(player)
 	if not ts then return false, "No plot assigned" end
 	
 	local currentCount = #ts.Tiers
 	local nextNum = currentCount + 1
-	local CONF = Services.MapSystem.TIER_CONFIG
+	local CONF = MapSystem.TIER_CONFIG
 	if nextNum > CONF.MAX_TIERS then return false, "Max islands reached" end
 	
 	local price = getTierPrice(nextNum)
@@ -137,7 +138,7 @@ function IslandShopManager.HandleTierPurchase(player)
 	if not parentTier then return false, "No space for new island" end
 	
 	m.Value -= price
-	local newTier = Services.MapSystem.SpawnTierPlot(player, parentTier)
+	local newTier = MapSystem.SpawnTierPlot(player, parentTier)
 	if not newTier then
 		m.Value += price
 		return false, "Spawn failed"
@@ -147,11 +148,12 @@ function IslandShopManager.HandleTierPurchase(player)
 end
 
 function IslandShopManager.GetTierInfo(player)
-	if not Services.MapSystem then return nil end
-	local ts = Services.MapSystem.GetPlayerTierSystem(player)
+	local MapSystem = rawget(Services, "MapSystem")
+	if not MapSystem then return nil end
+	local ts = MapSystem.GetPlayerTierSystem(player)
 	if not ts then return nil end
 	local cnt = #ts.Tiers
-	local Conf = Services.MapSystem.TIER_CONFIG
+	local Conf = MapSystem.TIER_CONFIG
 	return {
 		CurrentTiers = cnt,
 		MaxTiers = Conf.MAX_TIERS,

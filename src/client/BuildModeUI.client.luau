@@ -753,12 +753,27 @@ end
 	Populates the inventory panel with stored units.
 	Called when entering build mode and after placing/removing units.
 ]]
+local isRefreshingInventory = false -- Debounce lock
+
 refreshInventoryPanel = function()
 	if not inventoryPanel then return end
 	
-	local scrollFrame = inventoryPanel:FindFirstChild("ItemsList")
-	if not scrollFrame then return end
+	-- Debounce: Skip if already refreshing (prevents race condition duplicates)
+	if isRefreshingInventory then return end
+	isRefreshingInventory = true
 	
+	local scrollFrame = inventoryPanel:FindFirstChild("ItemsList")
+	if not scrollFrame then 
+		isRefreshingInventory = false
+		return 
+	end
+	
+	-- Fetch inventory from server FIRST (async operation)
+	local success, inventory = pcall(function()
+		return GetInventoryRemote:InvokeServer()
+	end)
+	
+	-- Clear and rebuild AFTER server returns (prevents race condition)
 	-- Clear old entries (destroy everything except UIListLayout)
 	for _, child in scrollFrame:GetChildren() do
 		if not child:IsA("UIListLayout") then
@@ -775,12 +790,10 @@ refreshInventoryPanel = function()
 	end
 	inventoryPreviews = {}
 	
-	-- Fetch inventory from server
-	local success, inventory = pcall(function()
-		return GetInventoryRemote:InvokeServer()
-	end)
-	
-	if not success then return end
+	if not success then 
+		isRefreshingInventory = false
+		return 
+	end
 	
 	if currentTab == "Units" then
 		if not inventory or not inventory.units then return end
@@ -1000,6 +1013,9 @@ refreshInventoryPanel = function()
 			end)
 		end
 	end
+	
+	-- Release debounce lock
+	isRefreshingInventory = false
 end
 
 -- Ghost colors
@@ -1782,6 +1798,11 @@ local function completeDragFromWorld()
 		
 		if mouse.X >= panelPos.X and mouse.X <= panelPos.X + panelSize.X and
 		   mouse.Y >= panelPos.Y and mouse.Y <= panelPos.Y + panelSize.Y then
+			-- BUGFIX: Restore visibility BEFORE stashing so model is visible when placed later
+			if draggedUnit and draggedUnit.originalModel and draggedUnit.originalModel.Parent then
+				setVisualsEnabled(draggedUnit.originalModel, true)
+			end
+			
 			-- Drop on inventory - remove from grid to storage
 			local success, msg = RemoveBrainrotRemote:InvokeServer(sourceSlot)
 			if success then

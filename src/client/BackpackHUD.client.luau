@@ -9,16 +9,16 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
+local _UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local ItemTypes = require(Shared:WaitForChild("ItemTypes"))
-local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
-local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
+local _ItemTypes = require(Shared:WaitForChild("ItemTypes"))
+local _ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+local _ShopConfig = require(Shared:WaitForChild("ShopConfig"))
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
@@ -26,7 +26,7 @@ local GetUnifiedInventoryFunc = RemoteFunctions:WaitForChild("GetUnifiedInventor
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 
 -- Storage remotes
-local GetStorageFunction = RemoteEvents:WaitForChild("GetStorage")
+local GetStorageFunction = RemoteFunctions:WaitForChild("GetStorage")
 local StorageUpdatedEvent = RemoteEvents:WaitForChild("StorageUpdated")
 local TakeFromStorageEvent = RemoteEvents:FindFirstChild("TakeFromStorage") or Instance.new("RemoteEvent")
 TakeFromStorageEvent.Name = "TakeFromStorage"
@@ -72,7 +72,7 @@ local StorageUsage = 0
 -- Hover tooltip state
 local CurrentHoverTooltip = nil
 local HoverDelayThread = nil
-local StorageCapacity = 2000
+local StorageCapacity = 0 -- Updated via Player Attribute
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -624,7 +624,7 @@ local function refreshGrid()
 		
 		CurrentStorageItems = items
 		StorageUsage = total or 0
-		StorageCapacity = capacity or 2000
+		StorageCapacity = Player:GetAttribute("StorageCapacity") or capacity or 0
 		
 		local onIsland = isOnOwnIsland()
 		

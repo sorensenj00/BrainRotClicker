@@ -35,14 +35,14 @@ local CONFIG = {
 	GLOW_THICKNESS = 10,
 	GLOW_OPACITY = 0.5,
 	
-	-- Colors per category (from server config)
-	CATEGORY_COLORS = {
-		Skibidi = Color3.fromRGB(148, 103, 189),    -- Purple
-		Bombardiro = Color3.fromRGB(255, 127, 14),  -- Orange
-		Tralalero = Color3.fromRGB(44, 160, 44),    -- Green
-		BrrBrr = Color3.fromRGB(31, 119, 180),      -- Blue
-		Sigma = Color3.fromRGB(214, 39, 40),        -- Red
-		Mewer = Color3.fromRGB(227, 119, 194),      -- Pink
+	-- Colors per sector (from server config)
+	SECTOR_COLORS = {
+		Food = Color3.fromRGB(227, 119, 194),          -- Pink
+		Animals = Color3.fromRGB(44, 160, 44),       -- Green
+		Entertainment = Color3.fromRGB(255, 127, 14), -- Orange
+		Mystic = Color3.fromRGB(148, 103, 189),      -- Purple
+		Tech = Color3.fromRGB(31, 119, 180),        -- Blue
+		Action = Color3.fromRGB(214, 39, 40),        -- Red
 	},
 	
 	FILL_OPACITY = 0.15,  -- Much lower for multiple overlapping fills
@@ -51,8 +51,8 @@ local CONFIG = {
 	MAX_HISTORY = 60,
 }
 
--- Category order for consistent rendering
-local CATEGORY_ORDER = {"Skibidi", "Bombardiro", "Tralalero", "BrrBrr", "Sigma", "Mewer"}
+-- Sector order for consistent rendering
+local SECTOR_ORDER = {"Food", "Animals", "Entertainment", "Mystic", "Tech", "Action"}
 
 --------------------------------------------------------------------------------
 -- DataBuffer Class: Circular buffer for rate history
@@ -323,9 +323,9 @@ function MeshRenderer.DrawThickLine(
 end
 
 --[[
-	Draws a single category's polyline with specified color.
+	Draws a single sector's polyline with specified color.
 ]]
-function MeshRenderer.DrawCategoryLine(self: RendererImpl, points: {Vector2}, color: Color3, drawFill: boolean)
+function MeshRenderer.DrawSectorLine(self: RendererImpl, points: {Vector2}, color: Color3, drawFill: boolean)
 	if not self.image or #points < 2 then return end
 	
 	local bottomY = GraphViewport.GetBottomY(self.viewport)
@@ -384,12 +384,12 @@ type BillboardDisplay = {
 }
 
 local billboardDisplays: {BillboardDisplay} = {}
-local categoryBuffers: {[string]: DataBufferImpl} = {}
+local sectorBuffers: {[string]: DataBufferImpl} = {}
 local stockMarketFolder: Folder? = nil
 
--- Initialize buffers for each category
-for _, category in CATEGORY_ORDER do
-	categoryBuffers[category] = DataBuffer.new(CONFIG.MAX_HISTORY)
+-- Initialize buffers for each sector
+for _, sector in SECTOR_ORDER do
+	sectorBuffers[sector] = DataBuffer.new(CONFIG.MAX_HISTORY)
 end
 
 --[[
@@ -495,8 +495,8 @@ local function drawGraph(display: BillboardDisplay)
 	local minRate = stockMarketFolder:GetAttribute("MinRate") :: number? or 0.5
 	local maxRate = stockMarketFolder:GetAttribute("MaxRate") :: number? or 3.0
 	
-	-- Find point count (use first category's count)
-	local firstBuffer = categoryBuffers[CATEGORY_ORDER[1]]
+	-- Find point count (use first sector's count)
+	local firstBuffer = sectorBuffers[SECTOR_ORDER[1]]
 	local pointCount = DataBuffer.GetCount(firstBuffer)
 	
 	if pointCount < 2 then return end
@@ -507,13 +507,13 @@ local function drawGraph(display: BillboardDisplay)
 	-- Clear and start drawing
 	MeshRenderer.Clear(renderer)
 	
-	-- Track best performing category
-	local bestCategory = CATEGORY_ORDER[1]
+	-- Track best performing sector
+	local bestSector = SECTOR_ORDER[1]
 	local bestRate = 0
 	
-	-- Draw each category line
-	for i, category in CATEGORY_ORDER do
-		local buffer = categoryBuffers[category]
+	-- Draw each sector line
+	for i, sector in SECTOR_ORDER do
+		local buffer = sectorBuffers[sector]
 		local rates = DataBuffer.GetPoints(buffer)
 		local count = DataBuffer.GetCount(buffer)
 		
@@ -524,11 +524,11 @@ local function drawGraph(display: BillboardDisplay)
 				points[j] = GraphViewport.ToPixelCoords(renderer.viewport, j, rates[j])
 			end
 			
-			-- Get color for this category
-			local color = CONFIG.CATEGORY_COLORS[category] or Color3.fromRGB(200, 200, 200)
+			-- Get color for this sector
+			local color = CONFIG.SECTOR_COLORS[sector] or Color3.fromRGB(200, 200, 200)
 			
-			-- Draw the line (first category gets fill, others don't)
-			MeshRenderer.DrawCategoryLine(renderer, points, color, i == 1)
+			-- Draw the line (first sector gets fill, others don't)
+			MeshRenderer.DrawSectorLine(renderer, points, color, i == 1)
 			
 			-- Draw current dot
 			if #points > 0 then
@@ -540,7 +540,7 @@ local function drawGraph(display: BillboardDisplay)
 			local currentRate = rates[count] or 1.0
 			if currentRate > bestRate then
 				bestRate = currentRate
-				bestCategory = category
+				bestSector = sector
 			end
 		end
 	end
@@ -548,12 +548,12 @@ local function drawGraph(display: BillboardDisplay)
 	-- Update text labels
 	if display.rateDisplay then
 		display.rateDisplay.Text = string.format("BEST: %.2fx", bestRate)
-		display.rateDisplay.TextColor3 = CONFIG.CATEGORY_COLORS[bestCategory] or getRateColor(bestRate)
+		display.rateDisplay.TextColor3 = CONFIG.SECTOR_COLORS[bestSector] or getRateColor(bestRate)
 	end
 	
 	if display.rateName then
-		display.rateName.Text = bestCategory:upper()
-		display.rateName.TextColor3 = CONFIG.CATEGORY_COLORS[bestCategory] or getRateColor(bestRate)
+		display.rateName.Text = bestSector:upper()
+		display.rateName.TextColor3 = CONFIG.SECTOR_COLORS[bestSector] or getRateColor(bestRate)
 	end
 end
 
@@ -584,12 +584,12 @@ local function updateTimer()
 end
 
 --[[
-	Parses category histories from JSON attribute.
+	Parses sector histories from JSON attribute.
 ]]
 local function parseHistories()
 	if not stockMarketFolder then return end
 	
-	local historiesJson = stockMarketFolder:GetAttribute("CategoryHistories") :: string?
+	local historiesJson = stockMarketFolder:GetAttribute("SectorHistories") :: string?
 	if not historiesJson then return end
 	
 	local success, histories = pcall(function()
@@ -598,8 +598,8 @@ local function parseHistories()
 	
 	if not success or not histories then return end
 	
-	for category, historyStr in pairs(histories) do
-		local buffer = categoryBuffers[category]
+	for sector, historyStr in pairs(histories) do
+		local buffer = sectorBuffers[sector]
 		if buffer then
 			DataBuffer.ParseAndUpdate(buffer, historyStr)
 		end
@@ -643,8 +643,8 @@ local function initialize()
 	parseHistories()
 	updateAllGraphs()
 	
-	-- Listen for category history changes
-	stockMarketFolder:GetAttributeChangedSignal("CategoryHistories"):Connect(onHistoryChanged)
+	-- Listen for sector history changes
+	stockMarketFolder:GetAttributeChangedSignal("SectorHistories"):Connect(onHistoryChanged)
 	
 	-- Also listen to legacy attribute for backwards compatibility
 	stockMarketFolder:GetAttributeChangedSignal("RateHistory"):Connect(onHistoryChanged)
@@ -652,7 +652,7 @@ local function initialize()
 	-- Timer update loop
 	RunService.Heartbeat:Connect(updateTimer)
 	
-	print("✓ StockMarketGraph initialized with 6 category lines")
+	print("✓ StockMarketGraph initialized with 6 sector lines")
 end
 
 -- Start

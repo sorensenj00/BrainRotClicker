@@ -1,12 +1,3 @@
---[[
-	TileConfig - Shared Configuration for Grid Tiles
-	
-	Defines flooring types and their synergy bonuses.
-	Tiles can be placed on the grid, and Units placed on top receive bonuses.
-	
-	Located in ReplicatedStorage so both Server and Client can access it.
-]]
-
 local TileConfig = {}
 
 --------------------------------------------------------------------------------
@@ -15,19 +6,19 @@ local TileConfig = {}
 
 TileConfig.Tiles = {
 	-- ═══════════════════════════════════════════════════════════════════════
-	-- CATEGORY-SPECIFIC TILES (50% speed boost to matching units)
+	-- THEMED TILES (50% speed boost to units with matching name keywords)
 	-- ═══════════════════════════════════════════════════════════════════════
 	
 	Lava = {
 		Id = "Lava",
 		Name = "Molten Floor",
-		Description = "Bombardiro units work 50% faster here.",
+		Description = "Explosive and Crocodile units work 50% faster here.",
 		Icon = "🌋",
-		BonusCategory = "Bombardiro",
+		BoostKeywords = {"Bombard", "Boom", "Croc", "Nuke", "Atomic"},
 		SpeedMult = 1.5,
 		LuckMult = 1.0,
 		Color = Color3.fromRGB(255, 100, 50),
-		TextureId = "",  -- Optional: can be rbxassetid://
+		TextureId = "",
 		ParticleEffect = "Fire",
 		UnlockCost = 5000,
 		UnlockTier = 1,
@@ -36,9 +27,9 @@ TileConfig.Tiles = {
 	Ice = {
 		Id = "Ice",
 		Name = "Frozen Ground",
-		Description = "BrrBrr units work 50% faster here.",
+		Description = "Cold and Winter units work 50% faster here.",
 		Icon = "❄️",
-		BonusCategory = "BrrBrr",
+		BoostKeywords = {"Brr", "Ice", "Penguin", "Frosty", "Camelo", "Blueberry"},
 		SpeedMult = 1.5,
 		LuckMult = 1.0,
 		Color = Color3.fromRGB(150, 220, 255),
@@ -51,9 +42,9 @@ TileConfig.Tiles = {
 	Stage = {
 		Id = "Stage",
 		Name = "Performance Stage",
-		Description = "Tralalero units work 50% faster here.",
+		Description = "Musical and Talented units work 50% faster here.",
 		Icon = "🎭",
-		BonusCategory = "Tralalero",
+		BoostKeywords = {"Trala", "Dance", "Music", "Horse", "Messi", "Piano", "Sahur", "Symphony"},
 		SpeedMult = 1.5,
 		LuckMult = 1.0,
 		Color = Color3.fromRGB(200, 150, 100),
@@ -66,9 +57,9 @@ TileConfig.Tiles = {
 	Throne = {
 		Id = "Throne",
 		Name = "Throne Platform",
-		Description = "Sigma units work 50% faster here.",
+		Description = "Godly and Mythical units work 50% faster here.",
 		Icon = "👑",
-		BonusCategory = "Sigma",
+		BoostKeywords = {"God", "Odin", "Mythic", "King", "Royal", "Elite", "Master"},
 		SpeedMult = 1.5,
 		LuckMult = 1.0,
 		Color = Color3.fromRGB(100, 50, 150),
@@ -81,9 +72,9 @@ TileConfig.Tiles = {
 	Toilet = {
 		Id = "Toilet",
 		Name = "Bathroom Floor",
-		Description = "Skibidi units work 50% faster here.",
+		Description = "Food and Noob units work 50% faster here.",
 		Icon = "🚽",
-		BonusCategory = "Skibidi",
+		BoostKeywords = {"Pizza", "Noob", "Toast", "Pot", "Chef", "Coffee", "Cap", "Signora"},
 		SpeedMult = 1.5,
 		LuckMult = 1.0,
 		Color = Color3.fromRGB(200, 200, 220),
@@ -96,9 +87,9 @@ TileConfig.Tiles = {
 	Cozy = {
 		Id = "Cozy",
 		Name = "Cozy Carpet",
-		Description = "Mewer units work 50% faster here.",
+		Description = "Animal and Tropical units work 50% faster here.",
 		Icon = "🐱",
-		BonusCategory = "Mewer",
+		BoostKeywords = {"Ban", "Animal", "Guffo", "Berry", "Fruit", "Mew", "Cat", "Neon", "Nyan", "Panda", "Giraffe", "Elephant"},
 		SpeedMult = 1.5,
 		LuckMult = 1.0,
 		Color = Color3.fromRGB(255, 180, 200),
@@ -117,7 +108,7 @@ TileConfig.Tiles = {
 		Name = "Grass Patch",
 		Description = "All units work 10% faster here.",
 		Icon = "🌱",
-		BonusCategory = nil,  -- nil = all categories
+		BoostKeywords = nil,  -- nil = all units
 		SpeedMult = 1.1,
 		LuckMult = 1.0,
 		Color = Color3.fromRGB(100, 180, 80),
@@ -132,7 +123,7 @@ TileConfig.Tiles = {
 		Name = "Golden Platform",
 		Description = "25% higher artifact drop chance here.",
 		Icon = "💰",
-		BonusCategory = nil,
+		BoostKeywords = nil,
 		SpeedMult = 1.0,
 		LuckMult = 1.25,
 		Color = Color3.fromRGB(255, 215, 0),
@@ -147,7 +138,7 @@ TileConfig.Tiles = {
 		Name = "Diamond Floor",
 		Description = "20% faster + 20% higher artifact chance.",
 		Icon = "💎",
-		BonusCategory = nil,
+		BoostKeywords = nil,
 		SpeedMult = 1.2,
 		LuckMult = 1.2,
 		Color = Color3.fromRGB(180, 230, 255),
@@ -171,58 +162,62 @@ TileConfig.TileSize = 9.5   -- Slightly smaller than grid slot for visual gap
 	@param tileId string - The tile ID
 	@return table? - The tile definition or nil
 ]]
-function TileConfig.GetTile(tileId)
+function TileConfig.GetTile(tileId: string)
 	return TileConfig.Tiles[tileId]
 end
 
 --[[
 	Calculates the speed multiplier for a unit on a tile.
 	@param tileId string - The tile ID
-	@param unitCategory string - The unit's category (from ItemConfig)
+	@param unitType string - The unit's model name/type
 	@return number - Speed multiplier (higher = faster production)
 ]]
-function TileConfig.GetSpeedBonus(tileId, unitCategory)
+function TileConfig.GetSpeedBonus(tileId: string, unitType: string)
 	local tile = TileConfig.Tiles[tileId]
 	if not tile then return 1.0 end
 	
-	-- Universal tiles apply to all
-	if tile.BonusCategory == nil then
+	-- Universal tiles apply to all units
+	if tile.BoostKeywords == nil then
 		return tile.SpeedMult
 	end
 	
-	-- Category-specific tiles only apply to matching units
-	if tile.BonusCategory == unitCategory then
-		return tile.SpeedMult
+	-- Check if unit matches any keywords
+	if unitType then
+		for _, keyword in ipairs(tile.BoostKeywords) do
+			if string.find(string.lower(unitType), string.lower(keyword)) then
+				return tile.SpeedMult
+			end
+		end
 	end
 	
-	-- No bonus for non-matching category
+	-- No bonus for non-matching units
 	return 1.0
 end
 
 --[[
 	Calculates the luck multiplier for a unit on a tile.
 	@param tileId string - The tile ID
-	@param unitCategory string - The unit's category
+	@param unitType string - The unit's model name (ignored, but for parity)
 	@return number - Luck multiplier (higher = more artifact drops)
 ]]
-function TileConfig.GetLuckBonus(tileId, unitCategory)
+function TileConfig.GetLuckBonus(tileId: string, unitType: string?)
 	local tile = TileConfig.Tiles[tileId]
 	if not tile then return 1.0 end
 	
-	-- Luck bonus applies regardless of category
+	-- Luck bonus applies regardless of unit type
 	return tile.LuckMult
 end
 
 --[[
 	Gets all bonuses for a unit on a tile.
 	@param tileId string - The tile ID
-	@param unitCategory string - The unit's category
+	@param unitType string - The unit's model name
 	@return table - {SpeedMult, LuckMult}
 ]]
-function TileConfig.GetBonus(tileId, unitCategory)
+function TileConfig.GetBonus(tileId: string, unitType: string)
 	return {
-		SpeedMult = TileConfig.GetSpeedBonus(tileId, unitCategory),
-		LuckMult = TileConfig.GetLuckBonus(tileId, unitCategory),
+		SpeedMult = TileConfig.GetSpeedBonus(tileId, unitType),
+		LuckMult = TileConfig.GetLuckBonus(tileId, unitType),
 	}
 end
 
@@ -255,3 +250,4 @@ function TileConfig.GetAllTileIds()
 end
 
 return TileConfig
+

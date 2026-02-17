@@ -37,7 +37,7 @@ local GetMarketPricesFunction = RemoteFunctions:WaitForChild("GetMarketPrices")
 
 -- Backpack events
 local BackpackUpdatedEvent = RemoteEvents:WaitForChild("BackpackUpdated")
-local GetBackpackFunction = RemoteEvents:WaitForChild("GetBackpack")
+local GetBackpackFunction = RemoteFunctions:WaitForChild("GetBackpack")
 
 -- Wait for ItemConfig
 local Shared = ReplicatedStorage:WaitForChild("Shared")
@@ -60,9 +60,8 @@ local COLORS = {
 -- State
 local isOpen = false
 local currentBackpack = {}
-local backpackTotal = 0
-local marketRate = 1.0
-local prices = {}
+local _backpackTotal = 0
+local marketPrices = {} -- [itemId] = {currentPrice, sector, categoryRate, etc}
 
 -- UI References
 local screenGui = nil
@@ -131,13 +130,13 @@ local function createHeader(parent)
 	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.Parent = header
 	
-	-- Market rate display
+	-- Market rate display (Shows average or status)
 	local rateLabel = Instance.new("TextLabel")
 	rateLabel.Name = "RateLabel"
 	rateLabel.Size = UDim2.new(0.5, -30, 0, 25)
 	rateLabel.Position = UDim2.new(0, 20, 0, 35)
 	rateLabel.BackgroundTransparency = 1
-	rateLabel.Text = "📈 Market Rate: 1.00x"
+	rateLabel.Text = "📊 Market open and active"
 	rateLabel.TextColor3 = COLORS.success
 	rateLabel.TextSize = 14
 	rateLabel.Font = Enum.Font.GothamBold
@@ -191,7 +190,7 @@ local function createItemsPanel(parent)
 	headerRow.Parent = panel
 	
 	local itemHeader = Instance.new("TextLabel")
-	itemHeader.Size = UDim2.new(0.35, 0, 1, 0)
+	itemHeader.Size = UDim2.new(0.3, 0, 1, 0)
 	itemHeader.BackgroundTransparency = 1
 	itemHeader.Text = "ITEM"
 	itemHeader.TextColor3 = COLORS.textMuted
@@ -201,18 +200,28 @@ local function createItemsPanel(parent)
 	itemHeader.Parent = headerRow
 	
 	local qtyHeader = Instance.new("TextLabel")
-	qtyHeader.Size = UDim2.new(0.15, 0, 1, 0)
-	qtyHeader.Position = UDim2.new(0.35, 0, 0, 0)
+	qtyHeader.Size = UDim2.new(0.12, 0, 1, 0)
+	qtyHeader.Position = UDim2.new(0.3, 0, 0, 0)
 	qtyHeader.BackgroundTransparency = 1
 	qtyHeader.Text = "QTY"
 	qtyHeader.TextColor3 = COLORS.textMuted
 	qtyHeader.TextSize = 12
 	qtyHeader.Font = Enum.Font.GothamBold
 	qtyHeader.Parent = headerRow
+
+	local sectorHeader = Instance.new("TextLabel")
+	sectorHeader.Size = UDim2.new(0.18, 0, 1, 0)
+	sectorHeader.Position = UDim2.new(0.42, 0, 0, 0)
+	sectorHeader.BackgroundTransparency = 1
+	sectorHeader.Text = "SECTOR"
+	sectorHeader.TextColor3 = COLORS.textMuted
+	sectorHeader.TextSize = 12
+	sectorHeader.Font = Enum.Font.GothamBold
+	sectorHeader.Parent = headerRow
 	
 	local priceHeader = Instance.new("TextLabel")
-	priceHeader.Size = UDim2.new(0.2, 0, 1, 0)
-	priceHeader.Position = UDim2.new(0.5, 0, 0, 0)
+	priceHeader.Size = UDim2.new(0.15, 0, 1, 0)
+	priceHeader.Position = UDim2.new(0.6, 0, 0, 0)
 	priceHeader.BackgroundTransparency = 1
 	priceHeader.Text = "PRICE"
 	priceHeader.TextColor3 = COLORS.textMuted
@@ -222,7 +231,7 @@ local function createItemsPanel(parent)
 	
 	local totalHeader = Instance.new("TextLabel")
 	totalHeader.Size = UDim2.new(0.15, 0, 1, 0)
-	totalHeader.Position = UDim2.new(0.7, 0, 0, 0)
+	totalHeader.Position = UDim2.new(0.75, 0, 0, 0)
 	totalHeader.BackgroundTransparency = 1
 	totalHeader.Text = "TOTAL"
 	totalHeader.TextColor3 = COLORS.textMuted
@@ -293,7 +302,7 @@ local function createBottomBar(parent)
 	btnCorner.Parent = sellAllBtn
 	
 	sellAllBtn.MouseButton1Click:Connect(function()
-		local sold, earned = SellAllFunction:InvokeServer()
+		local _, earned = SellAllFunction:InvokeServer()
 		if earned > 0 then
 			-- Flash the button green
 			sellAllBtn.BackgroundColor3 = COLORS.profit
@@ -314,11 +323,15 @@ local function createBottomBar(parent)
 	return bar
 end
 
-local function createItemRow(parent, itemId, count, price)
+local function createItemRow(parent, itemId, count, priceData)
 	local tierEmoji = {"⚪", "🟡", "🟠", "💎"}
 	local itemInfo = ItemConfig.Items[itemId] or {}
 	local emoji = tierEmoji[itemInfo.tier or 1] or "⚪"
-	local totalValue = count * price
+	
+	local currentPrice = priceData.currentPrice or 0
+	local totalValue = count * currentPrice
+	local sector = priceData.sector or "Neutral"
+	local rate = priceData.sectorRate or 1.0
 	
 	local row = Instance.new("Frame")
 	row.Name = "Item_" .. itemId
@@ -334,12 +347,12 @@ local function createItemRow(parent, itemId, count, price)
 	
 	-- Item name
 	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size = UDim2.new(0.35, 0, 1, 0)
+	nameLabel.Size = UDim2.new(0.3, 0, 1, 0)
 	nameLabel.Position = UDim2.new(0, 10, 0, 0)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Text = emoji .. " " .. itemId
 	nameLabel.TextColor3 = COLORS.text
-	nameLabel.TextSize = 13
+	nameLabel.TextSize = 11
 	nameLabel.Font = Enum.Font.Gotham
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
 	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
@@ -348,45 +361,56 @@ local function createItemRow(parent, itemId, count, price)
 	-- Quantity
 	local qtyLabel = Instance.new("TextLabel")
 	qtyLabel.Size = UDim2.new(0.12, 0, 1, 0)
-	qtyLabel.Position = UDim2.new(0.35, 0, 0, 0)
+	qtyLabel.Position = UDim2.new(0.3, 0, 0, 0)
 	qtyLabel.BackgroundTransparency = 1
 	qtyLabel.Text = "x" .. count
 	qtyLabel.TextColor3 = COLORS.textMuted
-	qtyLabel.TextSize = 13
+	qtyLabel.TextSize = 12
 	qtyLabel.Font = Enum.Font.GothamBold
 	qtyLabel.Parent = row
+
+	-- Sector
+	local sectorLabel = Instance.new("TextLabel")
+	sectorLabel.Size = UDim2.new(0.18, 0, 1, 0)
+	sectorLabel.Position = UDim2.new(0.42, 0, 0, 0)
+	sectorLabel.BackgroundTransparency = 1
+	sectorLabel.Text = sector
+	sectorLabel.TextColor3 = rate >= 1.2 and COLORS.profit or (rate <= 0.8 and COLORS.loss or COLORS.textMuted)
+	sectorLabel.TextSize = 10
+	sectorLabel.Font = Enum.Font.GothamBold
+	sectorLabel.Parent = row
 	
 	-- Price per item
 	local priceLabel = Instance.new("TextLabel")
-	priceLabel.Size = UDim2.new(0.18, 0, 1, 0)
-	priceLabel.Position = UDim2.new(0.47, 0, 0, 0)
+	priceLabel.Size = UDim2.new(0.15, 0, 1, 0)
+	priceLabel.Position = UDim2.new(0.6, 0, 0, 0)
 	priceLabel.BackgroundTransparency = 1
-	priceLabel.Text = "$" .. price
-	priceLabel.TextColor3 = marketRate >= 1.5 and COLORS.profit or (marketRate <= 0.7 and COLORS.loss or COLORS.text)
-	priceLabel.TextSize = 13
+	priceLabel.Text = "$" .. currentPrice
+	priceLabel.TextColor3 = rate >= 1.2 and COLORS.profit or (rate <= 0.8 and COLORS.loss or COLORS.text)
+	priceLabel.TextSize = 12
 	priceLabel.Font = Enum.Font.Gotham
 	priceLabel.Parent = row
 	
 	-- Total value
 	local totalLabel = Instance.new("TextLabel")
 	totalLabel.Size = UDim2.new(0.15, 0, 1, 0)
-	totalLabel.Position = UDim2.new(0.65, 0, 0, 0)
+	totalLabel.Position = UDim2.new(0.75, 0, 0, 0)
 	totalLabel.BackgroundTransparency = 1
 	totalLabel.Text = "$" .. totalValue
 	totalLabel.TextColor3 = COLORS.profit
-	totalLabel.TextSize = 13
+	totalLabel.TextSize = 12
 	totalLabel.Font = Enum.Font.GothamBold
 	totalLabel.Parent = row
 	
 	-- Sell button
 	local sellBtn = Instance.new("TextButton")
 	sellBtn.Name = "SellButton"
-	sellBtn.Size = UDim2.new(0, 55, 0, 26)
-	sellBtn.Position = UDim2.new(1, -65, 0.5, -13)
+	sellBtn.Size = UDim2.new(0, 50, 0, 24)
+	sellBtn.Position = UDim2.new(1, -60, 0.5, -12)
 	sellBtn.BackgroundColor3 = COLORS.accent
 	sellBtn.Text = "SELL"
 	sellBtn.TextColor3 = COLORS.background
-	sellBtn.TextSize = 11
+	sellBtn.TextSize = 10
 	sellBtn.Font = Enum.Font.GothamBold
 	sellBtn.Parent = row
 	
@@ -409,10 +433,9 @@ local function calculateTotalValue()
 	local total = 0
 	for itemId, count in pairs(currentBackpack) do
 		if count > 0 then
-			local itemInfo = ItemConfig.Items[itemId]
-			if itemInfo then
-				local price = math.floor((itemInfo.basePrice or 1) * marketRate)
-				total = total + (price * count)
+			local priceInfo = marketPrices[itemId]
+			if priceInfo then
+				total = total + (priceInfo.currentPrice * count)
 			end
 		end
 	end
@@ -422,14 +445,13 @@ end
 local function updateUI()
 	if not mainFrame then return end
 	
-	-- Update market rate display
+	-- Update market rate display (Average of all sectors?)
 	local header = mainFrame:FindFirstChild("Header")
 	if header then
 		local rateLabel = header:FindFirstChild("RateLabel")
 		if rateLabel then
-			local rateColor = marketRate >= 1.5 and COLORS.profit or (marketRate <= 0.7 and COLORS.loss or COLORS.success)
-			rateLabel.Text = string.format("📈 Market Rate: %.2fx", marketRate)
-			rateLabel.TextColor3 = rateColor
+			rateLabel.Text = "📊 Market open and active"
+			rateLabel.TextColor3 = COLORS.success
 		end
 	end
 	
@@ -448,10 +470,9 @@ local function updateUI()
 			-- Add items
 			for itemId, count in pairs(currentBackpack) do
 				if count > 0 then
-					local itemInfo = ItemConfig.Items[itemId]
-					if itemInfo then
-						local price = math.floor((itemInfo.basePrice or 1) * marketRate)
-						createItemRow(scrollFrame, itemId, count, price)
+					local priceInfo = marketPrices[itemId]
+					if priceInfo then
+						createItemRow(scrollFrame, itemId, count, priceInfo)
 					end
 				end
 			end
@@ -473,19 +494,22 @@ end
 -- OPEN/CLOSE
 --------------------------------------------------------------------------------
 
+local function refreshMarketData()
+	-- Fetch latest pricing from server
+	local prices, _baseRate = GetMarketPricesFunction:InvokeServer()
+	marketPrices = prices or {}
+	
+	-- Fetch latest backpack data
+	local backpackItems, backpackTot, _ = GetBackpackFunction:InvokeServer()
+	currentBackpack = backpackItems or {}
+	_backpackTotal = backpackTot or 0
+end
+
 local function openUI()
 	if isOpen then return end
 	isOpen = true
 	
-	-- Fetch latest data
-	local backpackItems, backpackTot, _ = GetBackpackFunction:InvokeServer()
-	currentBackpack = backpackItems or {}
-	backpackTotal = backpackTot or 0
-	
-	-- Get market rate
-	marketRate = stockMarketFolder:GetAttribute("CurrentRate") or 1.0
-	
-	-- Update UI
+	refreshMarketData()
 	updateUI()
 	
 	-- Show with animation
@@ -512,9 +536,9 @@ end
 -- EVENT HANDLERS
 --------------------------------------------------------------------------------
 
-BackpackUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
+BackpackUpdatedEvent.OnClientEvent:Connect(function(items, total, _capacity)
 	currentBackpack = items or {}
-	backpackTotal = total or 0
+	_backpackTotal = total or 0
 	
 	if isOpen then
 		updateUI()
@@ -523,9 +547,7 @@ end)
 
 ItemSoldEvent.OnClientEvent:Connect(function(itemId, count, earned)
 	-- Refresh backpack after sale
-	local backpackItems, backpackTot, _ = GetBackpackFunction:InvokeServer()
-	currentBackpack = backpackItems or {}
-	backpackTotal = backpackTot or 0
+	refreshMarketData()
 	
 	if isOpen then
 		updateUI()
@@ -534,15 +556,23 @@ end)
 
 -- Market rate updates
 stockMarketFolder:GetAttributeChangedSignal("CurrentRate"):Connect(function()
-	marketRate = stockMarketFolder:GetAttribute("CurrentRate") or 1.0
 	if isOpen then
+		refreshMarketData()
 		updateUI()
 	end
 end)
 
 -- Keyboard toggle (M key)
 UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then return end
+	-- ALWAYS allow toggling via key even if processed? 
+	-- Careful: Usually processed == true means typing in chat.
+	-- But user says it's NOT working. Let's try removing processed check or debugging.
+	if processed and input.KeyCode == Enum.KeyCode.M then
+		-- If typing in chat, don't open market.
+		-- Check if focusing a textbox.
+		local focus = UserInputService:GetFocusedTextBox()
+		if focus then return end
+	end
 	
 	if input.KeyCode == Enum.KeyCode.M then
 		if isOpen then
@@ -557,18 +587,22 @@ end)
 local function setupMarketPrompt()
 	-- Wait for market building
 	task.spawn(function()
-		local mainIsland = workspace:WaitForChild("MainIsland", 30)
-		if mainIsland then
-			local marketBuilding = mainIsland:WaitForChild("MarketBuilding", 30)
-			if marketBuilding then
-				local prompt = marketBuilding:FindFirstChild("MarketPrompt")
-				if prompt then
-					prompt.Triggered:Connect(function()
-						openUI()
-					end)
-					print("MarketTerminalUI: Connected to Market prompt")
+		while true do
+			local mainIsland = workspace:FindFirstChild("MainIsland")
+			if mainIsland then
+				local marketBuilding = mainIsland:FindFirstChild("MarketBuilding")
+				if marketBuilding then
+					local prompt = marketBuilding:FindFirstChild("MarketPrompt")
+					if prompt then
+						prompt.Triggered:Connect(function()
+							openUI()
+						end)
+						print("MarketTerminalUI: Connected to Market prompt")
+						break
+					end
 				end
 			end
+			task.wait(1)
 		end
 	end)
 end

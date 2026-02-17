@@ -218,7 +218,7 @@ local function updateCollectorBots(player)
 	local needed = countAutoCollectorBots(upgrades)
 	local current = PlayerCollectorBots[player.UserId] or {}
 	
-	local BM = Services.BrainrotManager
+	local BM = rawget(Services, "BrainrotManager")
 	local plot = BM and BM.GetPlayerPlot(player)
 	if not plot then return end
 	

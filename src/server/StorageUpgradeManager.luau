@@ -59,7 +59,7 @@ local function handleUpgradeStorage(player)
 		end
 	end
 	
-	local ISM = Services.ItemStorageManager
+	local ISM = rawget(Services, "ItemStorageManager")
 	if not ISM then return false, "ItemStorageManager failed" end
 	
 	-- Calculate price
@@ -91,7 +91,7 @@ local function handleUpgradeStorage(player)
 end
 
 local function handleGetStorageInfo(player)
-	local ISM = Services.ItemStorageManager
+	local ISM = rawget(Services, "ItemStorageManager")
 	local currentCap = ISM and ISM.GetStorageCapacity(player) or CONFIG.BASE_STORAGE
 	local lvl = getUpgradeLevel(currentCap)
 	return {

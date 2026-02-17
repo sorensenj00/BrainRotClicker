@@ -27,7 +27,7 @@ local RarityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChi
 -- Configuration
 local HUD_CONFIG = {
 	-- Billboard settings (bigger to fit all info)
-	BILLBOARD_SIZE = UDim2.new(0, 120, 0, 50),
+	BILLBOARD_SIZE = UDim2.new(0, 140, 0, 65),
 	MAX_DISTANCE = 100,
 	
 	-- Card styling (dark theme)
@@ -179,6 +179,19 @@ local function createProgressHUD(brainrot: Instance): BillboardGui
 	rarityLabel.Font = Enum.Font.Gotham
 	rarityLabel.TextXAlignment = Enum.TextXAlignment.Center
 	rarityLabel.Parent = container
+
+	-- Production label (What it makes)
+	local prodLabel = Instance.new("TextLabel")
+	prodLabel.Name = "ProductionLabel"
+	prodLabel.Size = UDim2.new(1, 0, 0, 12)
+	prodLabel.Position = UDim2.new(0, 0, 0, 26)
+	prodLabel.BackgroundTransparency = 1
+	prodLabel.Text = "Produces: Item"
+	prodLabel.TextColor3 = HUD_CONFIG.FLOAT_TEXT_COLOR
+	prodLabel.TextSize = 10
+	prodLabel.Font = Enum.Font.GothamBold
+	prodLabel.TextXAlignment = Enum.TextXAlignment.Center
+	prodLabel.Parent = container
 	
 	-- Progress bar background (at bottom of card)
 	local barBg = Instance.new("Frame")
@@ -298,18 +311,29 @@ local function getCycleTime(brainrot: Instance): number
 end
 
 --[[
-	Gets the item produced by a brainrot based on its category.
+	Gets the item produced by a brainrot based on its model type.
 ]]
-local function getProducedItem(brainrot: Instance): string
+--[[
+	Gets the item produced by a brainrot based on its model type.
+	Returns { icon: string, name: string, id: string }
+]]
+local function getProducedItemInfo(brainrot: Instance)
 	local unitType = brainrot:GetAttribute("UnitType")
 	if unitType then
-		local category = ItemConfig.BrainrotToCategory[unitType]
-		if category and ItemConfig.BrainrotItems[category] then
-			-- Return tier 1 item for display
-			return ItemConfig.BrainrotItems[category].tier1 or "Item"
+		local mapping = ItemConfig.BrainrotItems[unitType]
+		if mapping then
+			local itemId = mapping.tier1 -- Always show tier 1 as baseline
+			local item = ItemConfig.Items[itemId]
+			if item then
+				return {
+					icon = item.icon or "📦",
+					name = item.displayName or "Item",
+					id = itemId
+				}
+			end
 		end
 	end
-	return "Item"
+	return { icon = "📦", name = "Item", id = "" }
 end
 
 --[[
@@ -345,6 +369,13 @@ local function updateHUDLabels(brainrot: Instance, billboard: BillboardGui)
 		rarityLabel.Text = rarity
 		rarityLabel.TextColor3 = RarityConfig.GetColor(rarity)
 	end
+
+	-- Update production label
+	local prodLabel = container:FindFirstChild("ProductionLabel")
+	if prodLabel then
+		local info = getProducedItemInfo(brainrot)
+		prodLabel.Text = string.format("Produces %s %s", info.icon, info.name)
+	end
 end
 
 --[[
@@ -371,19 +402,17 @@ local function setupBrainrotHUD(brainrot: Instance)
 	end
 	
 	local billboard = createProgressHUD(brainrot)
-	local cycleTime = getCycleTime(brainrot)
-	local producedItem = getProducedItem(brainrot)
 	
-	-- Use server's spawn time if available, otherwise use current time
-	local serverSpawnTime = brainrot:GetAttribute("SpawnTime")
-	local startTime = serverSpawnTime or os.time()
+	-- Initial info
+	local info = getProducedItemInfo(brainrot)
 	
 	ActiveHUDs[brainrot] = {
 		billboard = billboard,
-		startTime = startTime,
-		cycleTime = cycleTime,
-		producedItem = producedItem,
+		startTime = os.clock(), -- Fallback
+		cycleTime = getCycleTime(brainrot),
+		producedItem = info.id,
 		lastCycle = 0,
+		lastProdTS = brainrot:GetAttribute("LastProductionTime") or 0,
 	}
 	
 	-- Update stats/rarity labels from attributes
@@ -398,6 +427,12 @@ local function setupBrainrotHUD(brainrot: Instance)
 			local hudData = ActiveHUDs[brainrot]
 			if hudData then
 				hudData.cycleTime = getCycleTime(brainrot)
+			end
+		end
+		if attributeName == "LastProductionTime" then
+			local hudData = ActiveHUDs[brainrot]
+			if hudData then
+				hudData.startTime = brainrot:GetAttribute("LastProductionTime")
 			end
 		end
 	end)
@@ -445,20 +480,27 @@ local function updateProgressBars()
 		local barFill = barBg:FindFirstChild("BarFill")
 		if not barFill then continue end
 		
-		-- Calculate progress within current cycle
+		-- Calculate progress
 		local cycleTime = hudData.cycleTime
-		local elapsed = currentTime - hudData.startTime
-		local cycleProgress = (elapsed % cycleTime) / cycleTime
-		local currentCycle = math.floor(elapsed / cycleTime)
+		-- Use server-synced LastProductionTime if available
+		local lastProd = brainrot:GetAttribute("LastProductionTime") or hudData.startTime
+		local elapsed = currentTime - lastProd
+		
+		local progress = math.clamp(elapsed / cycleTime, 0, 1)
 		
 		-- Update bar width
-		barFill.Size = UDim2.new(cycleProgress, 0, 1, 0)
+		barFill.Size = UDim2.new(progress, 0, 1, 0)
 		
-		-- Check for cycle completion
-		if currentCycle > hudData.lastCycle then
-			hudData.lastCycle = currentCycle
-			
-			-- Play completion effects
+		-- Logic for effects is handled by the attribute change for perfectly sync'd pulse?
+		-- No, we stick to the local tracking for the pulse/float text but triggered by the reset.
+		if progress >= 1 then
+			-- Wait for server to update LastProductionTime to reset.
+			-- Or if we haven't seen an update in cycleTime * 1.5, we assume it's stuck/offline.
+		end
+		
+		-- Pulse and floating text on reset (detected by a decrease in progress)
+		if lastProd ~= hudData.lastProdTS then
+			hudData.lastProdTS = lastProd
 			pulseComplete(barFill)
 			createFloatingText(billboard, hudData.producedItem)
 		end

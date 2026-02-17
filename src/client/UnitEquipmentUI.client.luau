@@ -65,7 +65,6 @@ local currentUnitData = nil  -- Current unit being inspected
 local isDragging = false
 local draggedArtifact = nil  -- {GUID, Name, Slot, Rarity, source = "inventory" | "slot"}
 local dragGhost = nil  -- The floating visual
-local dragStartPos = nil
 
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
@@ -175,7 +174,6 @@ local function startDrag(artifact, source)
 	isDragging = true
 	draggedArtifact = artifact
 	draggedArtifact.source = source
-	dragStartPos = UserInputService:GetMouseLocation()
 	
 	-- Create ghost
 	dragGhost = createDragGhost(artifact)
@@ -238,7 +236,6 @@ local function endDrag(dropTarget)
 	
 	isDragging = false
 	draggedArtifact = nil
-	dragStartPos = nil
 end
 
 --------------------------------------------------------------------------------
@@ -412,7 +409,7 @@ local function createEquipmentUI()
 	
 	-- Create 3 equipment slots
 	local slots = {"Head", "Body", "Accessory"}
-	local slotIcons = ArtifactConfig.SlotIcons
+	local _slotIcons = ArtifactConfig.SlotIcons
 	
 	for i, slotName in ipairs(slots) do
 		local slotFrame = Instance.new("Frame")
@@ -750,8 +747,14 @@ local function refreshArtifactInventory()
 		icon.Size = UDim2.new(0, 30, 0, 30)
 		icon.Position = UDim2.new(0, 12, 0, 5)
 		icon.BackgroundTransparency = 1
-		icon.Text = artifact.BaseIcon or "📿"
-		icon.TextSize = 20
+		local iconText = artifact.BaseIcon
+		if not iconText or iconText == "" then
+			-- Use slot default fallback
+			iconText = ArtifactConfig.SlotIcons[artifact.Slot] or "📿"
+		end
+		icon.Text = iconText
+		icon.TextColor3 = Color3.new(1, 1, 1) -- Ensure visible
+		icon.TextSize = 25 -- Slightly larger
 		icon.Parent = itemFrame
 		
 		-- Name

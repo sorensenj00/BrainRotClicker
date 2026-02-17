@@ -5,7 +5,7 @@
 	Acts as a listener to InventoryManager and GridManager.
 ]]
 
-local Players = game:GetService("Players")
+local _Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 local HttpService = game:GetService("HttpService")
@@ -217,7 +217,7 @@ function BrainrotManager.Init(services)
 	-- Preload Configs
 	getConfigs()
 	
-	local InventoryManager = Services.InventoryManager
+	local InventoryManager = rawget(Services, "InventoryManager")
 	
 	-- Connect to Inventory
 	if InventoryManager and InventoryManager.UnitChanged then
@@ -227,7 +227,25 @@ function BrainrotManager.Init(services)
 				BrainrotManager.UpdateAllUnitStats(player)
 			else
 				-- Single update
-				spawnOrUpdateUnit(player, unitName, newData)
+				-- CRITICAL CHANGE: Only update if a physical model ALREADY exists!
+				-- New units bought from shop stay in inventory (virtual) until placed.
+				local plot = getPlayerPlot(player)
+				if plot then
+					local brainrotsContainer = plot:FindFirstChild("Brainrots")
+					if brainrotsContainer then
+						local existing = nil
+						for _, child in brainrotsContainer:GetChildren() do
+							if child:GetAttribute("UnitType") == unitName then
+								existing = child
+								break
+							end
+						end
+						
+						if existing then
+							spawnOrUpdateUnit(player, unitName, newData)
+						end
+					end
+				end
 			end
 		end)
 	else
@@ -237,9 +255,14 @@ function BrainrotManager.Init(services)
 	print("✓ BrainrotManager Initialized")
 end
 
+-- Exposed for GridManager to spawn units when placed from inventory
+function BrainrotManager.SpawnForGrid(player: Player, unitName: string, data: any): Instance?
+	return spawnOrUpdateUnit(player, unitName, data)
+end
+
 function BrainrotManager.AddUnit(player: Player, unitName: string, forceRarity: string?, forceLevel: number?): Instance?
 	-- Delegate to InventoryManager
-	local InventoryManager = Services.InventoryManager
+	local InventoryManager = rawget(Services, "InventoryManager")
 	
 	if InventoryManager then
 		local newData = InventoryManager.AddUnit(player, unitName, forceRarity, forceLevel)
@@ -262,7 +285,7 @@ function BrainrotManager.StashBrainrot(player: Player, brainrot: Model)
 end
 
 function BrainrotManager.GetPlacementData(player: Player)
-	local GridManager = Services.GridManager
+	local GridManager = rawget(Services, "GridManager")
 	local placements = {}
 	
 	if GridManager and GridManager.GetGridPositions then
@@ -289,7 +312,7 @@ function BrainrotManager.GetPlacementData(player: Player)
 end
 
 function BrainrotManager.SpawnFromPlacement(player: Player, data: any)
-	local GridManager = Services.GridManager
+	local GridManager = rawget(Services, "GridManager")
 	
 	local unitType = data.unitType or (data.Unit and data.Unit.unitType)
 	local rarity = data.rarity or (data.Unit and data.Unit.rarity)
@@ -338,7 +361,7 @@ end
 
 -- Spawn directly at slot (legacy wrapper)
 function BrainrotManager.SpawnBrainrotAtSlot(player, unitName, slotIndex, rarity, level, unitId)
-	local GridManager = Services.GridManager
+	local GridManager = rawget(Services, "GridManager")
 	
 	-- No more retry loop. If GridManager isn't there, we fail.
 	if GridManager then
@@ -367,5 +390,15 @@ BuyBrainrotRemote.OnServerEvent:Connect(function(player, unitName)
 	-- Or check money here if logic was embedded
 	BrainrotManager.AddUnit(player, unitName)
 end)
+
+function BrainrotManager.ClearAllUnits(player)
+	local plot = getPlayerPlot(player)
+	if plot then
+		local brainrotsContainer = plot:FindFirstChild("Brainrots")
+		if brainrotsContainer then
+			brainrotsContainer:ClearAllChildren()
+		end
+	end
+end
 
 return BrainrotManager

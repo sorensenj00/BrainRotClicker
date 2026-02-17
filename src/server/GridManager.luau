@@ -5,9 +5,9 @@
 ]]
 
 -- Services
-local Players = game:GetService("Players")
+local _Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local CollectionService = game:GetService("CollectionService")
+local _CollectionService = game:GetService("CollectionService")
 
 -- Shared configs
 -- Shared configs (Lazy Loaded)
@@ -21,11 +21,11 @@ local function getTileConfig()
 	return TileConfig
 end
 
--- DataService for real-time grid persistence
-local DataService = require(script.Parent.DataService)
+-- DataService (Lazy Loaded via Services)
+local DataService -- Will be set from Services.DataService
 
 -- Constants
-local BRAINROT_TAG = "ActiveBrainrot"
+local _BRAINROT_TAG = "Brainrot"
 local _TILE_TAG = "GridTile"
 local CONFIG = {
 	TILE_SIZE = 10,
@@ -97,6 +97,14 @@ RemoveTileFunction.Parent = RemoteFunctions
 -- Module Table
 local GridManager = {}
 local Services = {}
+
+-- Getter for DataService (to avoid circular require)
+local function getDataService()
+	if not DataService then
+		DataService = rawget(Services, "DataService")
+	end
+	return DataService
+end
 
 -- Player Grid Data
 local PlayerGrids = {}
@@ -220,8 +228,13 @@ local function getSlotCFrame(player, slotIndex)
 end
 
 local function repositionUnitOnTile(player, brainrot, slotIndex)
-	if not brainrot then return end
+	if not brainrot then 
+		print("[DEBUG] repositionUnitOnTile: brainrot is nil!")
+		return 
+	end
 	local baseCFrame = getSlotCFrame(player, slotIndex)
+	print(string.format("[DEBUG] repositionUnitOnTile: Moving %s to slot %d at Y=%.1f", 
+		brainrot.Name, slotIndex, baseCFrame.Position.Y))
 	brainrot:PivotTo(baseCFrame)
 end
 
@@ -264,7 +277,8 @@ local function createTileVisual(player, slotIndex, tileId)
 end
 
 local function syncToProfile(player)
-	if DataService.IsLoaded(player) then
+	local ds = getDataService()
+	if ds and ds.IsLoaded(player) then
 		local gridData = getPlayerGrid(player)
 		local positions = {}
 		for idx, slotInfo in pairs(gridData.slots) do
@@ -285,7 +299,7 @@ local function syncToProfile(player)
 				positions[tostring(idx)] = entry
 			end
 		end
-		DataService.SetComponentData(player, "GridPlacements", positions)
+		ds.SetComponentData(player, "GridPlacements", positions)
 	end
 end
 
@@ -298,19 +312,27 @@ function GridManager.Init(services)
 	Services = services or {}
 	
 	-- Register Data Handler
-	DataService.RegisterHandler("GridPlacements", {
+	local ds = getDataService()
+	if not ds then
+		warn("GridManager: DataService not available during Init")
+		return
+	end
+	
+	ds.RegisterHandler("GridPlacements", {
 		DefaultData = {},
 		OnLoad = function(player, data)
 			-- Restore Grid
 			if not data then
-				local PlayerLifecycleManager = require(script.Parent.PlayerLifecycleManager)
-				PlayerLifecycleManager.SetGridRestored(player)
+				local PlayerLifecycleManager = rawget(Services, "PlayerLifecycleManager")
+				if PlayerLifecycleManager then
+					PlayerLifecycleManager.SetGridRestored(player)
+				end
 				return
 			end
 			
 			task.spawn(function()
-				local BrainrotManager = Services.BrainrotManager
-				local MapSystem = Services.MapSystem
+				local BrainrotManager = rawget(Services, "BrainrotManager")
+				local MapSystem = rawget(Services, "MapSystem")
 				
 				-- WAIT FOR PLOT (Fix Race Condition)
 				local plot = nil
@@ -358,8 +380,10 @@ function GridManager.Init(services)
 					end
 				end
 				
-				local PlayerLifecycleManager = require(script.Parent.PlayerLifecycleManager)
-				PlayerLifecycleManager.SetGridRestored(player)
+				local PlayerLifecycleManager = rawget(Services, "PlayerLifecycleManager")
+				if PlayerLifecycleManager then
+					PlayerLifecycleManager.SetGridRestored(player)
+				end
 			end)
 		end,
 		OnSave = function(player, data)
@@ -440,20 +464,25 @@ function GridManager.PlaceUnitFromInventory(player, unitName, arg2, arg3)
 	elseif type(arg3) == "number" then
 		slotIndex = arg3
 	else
+		print("[DEBUG] PlaceUnitFromInventory: Invalid arguments", unitName, arg2, arg3)
 		return false, "Invalid arguments"
 	end
 
+	print(string.format("[DEBUG] PlaceUnitFromInventory: %s -> slot %d", unitName, slotIndex))
+
 	-- Logic wrapper for Remote
-	local BrainrotManager = Services.BrainrotManager
-	local InventoryManager = Services.InventoryManager
+	local BrainrotManager = rawget(Services, "BrainrotManager")
+	local InventoryManager = rawget(Services, "InventoryManager")
 	
 	if not BrainrotManager or not InventoryManager then return false, "Server not ready" end
 	
 	-- 1. Ownership Check
 	local unitData = InventoryManager.GetUnit(player, unitName)
 	if not unitData then
+		print("[DEBUG] PlaceUnitFromInventory: Unit not owned -", unitName)
 		return false, "Unit not owned"
 	end
+	print(string.format("[DEBUG] PlaceUnitFromInventory: Ownership verified (level=%d)", unitData.level or 0))
 	
 	-- 2. Find Physical Unit
 	local plot = findPlayerPlot(player)
@@ -465,15 +494,31 @@ function GridManager.PlaceUnitFromInventory(player, unitName, arg2, arg3)
 		for _, child in brainrots:GetChildren() do
 			if child:GetAttribute("UnitType") == unitName then
 				unit = child
+				print(string.format("[DEBUG] PlaceUnitFromInventory: Found existing model at Y=%.1f", child:GetPivot().Position.Y))
 				break
 			end
 		end
 	end
 	
 	-- 3. Recovery if unit missing physically but owned
+	-- 3. Recovery if unit missing physically but owned
 	if not unit then
-		-- Force Spawn
-		unit = BrainrotManager.SpawnBrainrot(player, unitName)
+		-- Force Spawn using SpawnForGrid (avoids duplicate AddUnit call)
+		print("[DEBUG] PlaceUnitFromInventory: No model found, spawning new visual...")
+		
+		-- Construct data from inventory
+		local spawnData = {
+			level = unitData.level or 1,
+			rarity = unitData.rarity or "Normal",
+			unitId = unitData.unitId -- Vital to keep same ID
+		}
+		
+		unit = BrainrotManager.SpawnForGrid(player, unitName, spawnData)
+		if unit then
+			print(string.format("[DEBUG] PlaceUnitFromInventory: Spawned new model at Y=%.1f", unit:GetPivot().Position.Y))
+		else
+			print("[DEBUG] PlaceUnitFromInventory: Spawn failed!")
+		end
 	end
 	
 	if unit then
@@ -535,7 +580,7 @@ function GridManager.StashUnit(player, slotIndex)
 	local brainrot = slot.Unit
 	slot.Unit = nil
 	
-	local BrainrotManager = Services.BrainrotManager
+	local BrainrotManager = rawget(Services, "BrainrotManager")
 	if BrainrotManager then
 		BrainrotManager.StashBrainrot(player, brainrot)
 	end
@@ -591,6 +636,24 @@ function GridManager.PlaceTile(player, slotIndex, tileId)
 	
 	syncToProfile(player)
 	return true
+end
+
+function GridManager.ClearGrid(player)
+	local gridData = PlayerGrids[player.UserId]
+	if not gridData then return end
+	
+	-- Destroy tile visuals
+	for _, visual in pairs(gridData.tileInstances) do
+		if visual then visual:Destroy() end
+	end
+	gridData.tileInstances = {}
+	gridData.slots = {}
+	
+	-- Ensure the grid is cleared in DataService
+	syncToProfile(player)
+	
+	-- Notify client
+	GridUpdatedEvent:FireClient(player, 0, "", "cleared")
 end
 
 return GridManager

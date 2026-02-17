@@ -51,10 +51,10 @@ local function createStorageBox(player)
 	storage.Transparency = STORAGE_CONFIG.TRANSPARENCY
 	storage.Parent = plot
 	
-	local pl = Instance.new("PointLight"); pl.Color = STORAGE_CONFIG.COLOR; pl.Range = 15; pl.Brightness = 0.3; pl.Parent = storage
+	-- Tag for client-side HUD (Handles rich item display and capacity bar)
+	game:GetService("CollectionService"):AddTag(storage, "PhysicalStorageHUD")
 	
-	local bb = Instance.new("BillboardGui"); bb.Size = UDim2.new(0,100,0,30); bb.StudsOffset = Vector3.new(0,4,0); bb.Parent = storage
-	local lbl = Instance.new("TextLabel"); lbl.Size = UDim2.new(1,0,1,0); lbl.BackgroundTransparency = 1; lbl.Text = "📦 STORAGE"; lbl.TextColor3 = Color3.new(1,1,1); lbl.TextScaled = true; lbl.Parent = bb
+	local pl = Instance.new("PointLight"); pl.Color = STORAGE_CONFIG.COLOR; pl.Range = 15; pl.Brightness = 0.3; pl.Parent = storage
 	
 	return storage
 end

@@ -57,10 +57,17 @@ local PlayerCache = {}
 -- CACHE MANAGEMENT
 --------------------------------------------------------------------------------
 
+-- Helper for debug
+local function getKeys(t)
+	local keys = {}
+	for k in pairs(t) do table.insert(keys, tostring(k)) end
+	return keys
+end
+
 local function initPlayerCache(player)
 	PlayerCache[player] = {
-		CategoryCounts = {},
-		ProductionState = {}, -- Per category timing
+		UnitTypeCounts = {},
+		ProductionState = {}, -- Per unit type timing
 		lastStorageFullWarning = 0
 	}
 end
@@ -70,29 +77,61 @@ local function updatePlayerCache(player)
 	local cache = PlayerCache[player]
 	
 	-- Clear counts
-	cache.CategoryCounts = {}
+	cache.UnitTypeCounts = {}
 	
 	-- Rebuild from GridManager (Source of Truth for PLACED units)
-	if Services.GridManager and Services.GridManager.GetGridPositions then
-		local gridPos = Services.GridManager.GetGridPositions(player)
-		for _, data in pairs(gridPos) do
-			-- Extract unit data
-			local unitType, unitId
+	local GridManager = rawget(Services, "GridManager")
+	if not GridManager then
+		warn("[DEBUG] ItemProductionManager: GridManager not found in Services!")
+		return
+	end
+	
+	if not GridManager.GetGridPositions then
+		warn("[DEBUG] ItemProductionManager: GridManager.GetGridPositions is nil!")
+		return
+	end
+	
+	local gridPos = GridManager.GetGridPositions(player)
+	
+	-- DEBUG: Log what we got
+	local slotCount = 0
+	for _ in pairs(gridPos) do slotCount += 1 end
+	-- if slotCount > 0 then
+	-- 	print(string.format("[DEBUG] ItemProductionManager: Player %s has %d grid slots with data", player.Name, slotCount))
+	-- end
+	
+	for slotKey, data in pairs(gridPos) do
+		-- Extract unit data
+		local unitType, _unitId
+		if data.Unit then
+			unitType = data.Unit.unitType
+			_unitId = data.Unit.unitId
+		elseif data.unitType then
+			unitType = data.unitType -- Legacy fallback
+		end
+		
+		if unitType then
+			-- Update Unit Type Count
+			cache.UnitTypeCounts[unitType] = (cache.UnitTypeCounts[unitType] or 0) + 1
+			-- print(string.format("[DEBUG] ItemProductionManager: Slot %s has unit '%s' (count now: %d)", 
+			-- 	tostring(slotKey), unitType, cache.UnitTypeCounts[unitType]))
+		else
+			-- DEBUG: Log slots without unitType
 			if data.Unit then
-				unitType = data.Unit.unitType
-				unitId = data.Unit.unitId
-			elseif data.unitType then
-				unitType = data.unitType -- Legacy fallback
-			end
-			
-			if unitType then
-				-- Update Category Count
-				local category = ItemConfig.GetBrainrotCategory(unitType)
-				if category then
-					cache.CategoryCounts[category] = (cache.CategoryCounts[category] or 0) + 1
-				end
+				local unitKeys = getKeys(data.Unit)
+				warn(string.format("[DEBUG] ItemProductionManager: Slot %s has Unit table but NO unitType field! Keys: %s", 
+					tostring(slotKey), table.concat(unitKeys, ", ")))
 			end
 		end
+	end
+	
+	-- DEBUG: Summary
+	local modelCount = 0
+	for _, _ in pairs(cache.UnitTypeCounts) do
+		modelCount += 1
+	end
+	if modelCount == 0 and slotCount > 0 then
+		warn("[DEBUG] ItemProductionManager: Grid has slots but NO unit types were extracted!")
 	end
 end
 
@@ -102,11 +141,12 @@ end
 
 -- Helper to find physical instances for bonus calculation
 -- This avoids caching instance references which can leak or become stale
-local function findUnitInstances(player, category)
+local function findUnitInstances(player, unitType)
 	local units = {}
 	local plot = nil
-	if Services.BrainrotManager then
-		plot = Services.BrainrotManager.GetPlayerPlot(player)
+	local BrainrotManager = rawget(Services, "BrainrotManager")
+	if BrainrotManager then
+		plot = BrainrotManager.GetPlayerPlot(player)
 	end
 
 	if not plot then
@@ -125,7 +165,7 @@ local function findUnitInstances(player, category)
 	if brainrots then
 		for _, unit in brainrots:GetChildren() do
 			local uType = unit:GetAttribute("UnitType")
-			if uType and ItemConfig.GetBrainrotCategory(uType) == category then
+			if uType == unitType then
 				table.insert(units, unit)
 			end
 		end
@@ -147,21 +187,23 @@ local function calculateUnitBonuses(player, brainrot)
 	local slotIndex = brainrot:GetAttribute("GridSlot")
 	local unitGUID = brainrot:GetAttribute("UnitId")
 	local unitType = brainrot:GetAttribute("UnitType")
-	local category = ItemConfig.GetBrainrotCategory(unitType)
 	
 	-- Tile Bonus
-	if slotIndex and Services.GridManager and Services.GridManager.GetTileAtSlot then
-		local tileId = Services.GridManager.GetTileAtSlot(player, slotIndex)
-		if tileId and category then
-			local tileBonus = TileConfig.GetBonus(tileId, category)
+	local GridManager = rawget(Services, "GridManager")
+	if slotIndex and GridManager and GridManager.GetTileAtSlot then
+		local tileId = GridManager.GetTileAtSlot(player, slotIndex)
+		if tileId and unitType then
+			-- Pass unitType as "category" for legacy tile support
+			local tileBonus = TileConfig.GetBonus(tileId, unitType)
 			bonuses.speedMult = bonuses.speedMult * tileBonus.SpeedMult
 			bonuses.luckMult = bonuses.luckMult * tileBonus.LuckMult
 		end
 	end
 	
 	-- Artifact Bonus
-	if unitGUID and Services.ArtifactManager and Services.ArtifactManager.CalculateUnitArtifactStats then
-		local artifactStats = Services.ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
+	local ArtifactManager = rawget(Services, "ArtifactManager")
+	if unitGUID and ArtifactManager and ArtifactManager.CalculateUnitArtifactStats then
+		local artifactStats = ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
 		bonuses.speedMult = bonuses.speedMult * artifactStats.CycleTimeMult
 		bonuses.luckMult = bonuses.luckMult + artifactStats.LuckBonus
 		bonuses.tierBonus = bonuses.tierBonus + artifactStats.ItemTierBonus
@@ -172,21 +214,22 @@ local function calculateUnitBonuses(player, brainrot)
 end
 
 local function tryArtifactDrop(player, bonuses)
-	if not Services.ArtifactManager then return end
+	local ArtifactManager = rawget(Services, "ArtifactManager")
+	if not ArtifactManager then return end
 	
 	local dropChance = CONFIG.BASE_ARTIFACT_DROP_CHANCE * bonuses.luckMult
 	dropChance = math.min(dropChance, CONFIG.MAX_ARTIFACT_DROP_CHANCE)
 	
 	if math.random() < dropChance then
-		local artifact = Services.ArtifactManager.GenerateArtifact()
+		local artifact = ArtifactManager.GenerateArtifact()
 		if artifact then
-			Services.ArtifactManager.AddArtifact(player, artifact)
+			ArtifactManager.AddArtifact(player, artifact)
 		end
 	end
 end
 
 local function produceItems(player)
-	local ISM = Services.ItemStorageManager
+	local ISM = rawget(Services, "ItemStorageManager")
 	if not ISM then return end
 	
 	-- 1. Check Storage
@@ -197,6 +240,8 @@ local function produceItems(player)
 			if now - cache.lastStorageFullWarning > CONFIG.STORAGE_FULL_CHECK_INTERVAL then
 				cache.lastStorageFullWarning = now
 				StorageFullEvent:FireClient(player)
+				-- DEBUG: Storage Full
+				print("[DEBUG] Production paused: Storage Full")
 			end
 		end
 		return
@@ -208,38 +253,49 @@ local function produceItems(player)
 	
 	local now = tick()
 	
-	for category, ownedCount in pairs(cache.CategoryCounts) do
+	-- DEBUG: Trace loop (throttle to avoid spam, e.g. every 5s)
+	-- if now % 5 < 1 then
+	-- 	print("[DEBUG] Running produceItems for " .. player.Name)
+	-- end
+	
+	for unitType, ownedCount in pairs(cache.UnitTypeCounts) do
 		if ownedCount > 0 then
-			local productions = ItemConfig.GetProductions(category, ownedCount)
+			local productions = ItemConfig.GetProductions(unitType, ownedCount)
 			
 			-- Re-enable bonuses by scanning actual units
-			local activeUnits = findUnitInstances(player, category)
-			local categoryBonus = { speedMult = 1, luckMult = 1, tierBonus = 0 }
+			local activeUnits = findUnitInstances(player, unitType)
+			local unitBonus = { speedMult = 1, luckMult = 1, tierBonus = 0 }
 			
 			for _, unitModel in ipairs(activeUnits) do
 				local b = calculateUnitBonuses(player, unitModel)
-				categoryBonus.speedMult = math.min(categoryBonus.speedMult, b.speedMult)
-				categoryBonus.luckMult = categoryBonus.luckMult + (b.luckMult - 1)
-				categoryBonus.tierBonus = math.max(categoryBonus.tierBonus, b.tierBonus)
+				unitBonus.speedMult = math.min(unitBonus.speedMult, b.speedMult)
+				unitBonus.luckMult = unitBonus.luckMult + (b.luckMult - 1)
+				unitBonus.tierBonus = math.max(unitBonus.tierBonus, b.tierBonus)
 			end
 			
 			-- Production Timing
-			if not cache.ProductionState[category] then cache.ProductionState[category] = {} end
+			if not cache.ProductionState[unitType] then cache.ProductionState[unitType] = {} end
 			
 			for _, prod in ipairs(productions) do
-				local tier = (ItemConfig.Items[prod.itemId] and ItemConfig.Items[prod.itemId].tier or 1) + math.floor(categoryBonus.tierBonus)
+				local tier = (ItemConfig.Items[prod.itemId] and ItemConfig.Items[prod.itemId].tier or 1) + math.floor(unitBonus.tierBonus)
 				
-				local lastProd = cache.ProductionState[category][tier] or 0
-				local adjustedRate = math.max(0.1, prod.rate * categoryBonus.speedMult)
+				local lastProd = cache.ProductionState[unitType][tier] or 0
+				local adjustedRate = math.max(0.1, prod.rate * unitBonus.speedMult)
 				
 				if now - lastProd >= adjustedRate then
 					local added = ISM.AddToStorage(player, prod.itemId, 1)
 					if added > 0 then
-						cache.ProductionState[category][tier] = now
+						cache.ProductionState[unitType][tier] = now
 						ItemProducedEvent:FireClient(player, prod.itemId, 1)
 						
+						-- Update physical units with production timestamp for HUD sync
+						for _, unitModel in ipairs(activeUnits) do
+							unitModel:SetAttribute("LastProductionTime", now)
+							unitModel:SetAttribute("IncomeInterval", adjustedRate)
+						end
+						
 						-- Artifact Drop Roll
-						tryArtifactDrop(player, categoryBonus)
+						tryArtifactDrop(player, unitBonus)
 					end
 				end
 			end
@@ -274,7 +330,10 @@ function ItemProductionManager.Init(services)
 		while true do
 			task.wait(CONFIG.PRODUCTION_TICK)
 			for _, player in Players:GetPlayers() do
-				produceItems(player)
+				local success, err = pcall(produceItems, player)
+				if not success then
+					warn("ItemProductionManager: Error producing for " .. player.Name .. ": " .. tostring(err))
+				end
 			end
 		end
 	end)
@@ -290,7 +349,7 @@ end
 -- Export for compatibility
 ItemProductionManager.ProduceItems = produceItems
 ItemProductionManager.GetCategoryCounts = function(player)
-	return PlayerCache[player] and PlayerCache[player].CategoryCounts or {}
+	return PlayerCache[player] and PlayerCache[player].UnitTypeCounts or {}
 end
 
 return ItemProductionManager

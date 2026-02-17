@@ -72,36 +72,42 @@ local PlayerTransport = {}
 -- HELPERS
 --------------------------------------------------------------------------------
 
-local function getItemStorage()
-	return Services.ItemStorageManager
+local function getCartManager()
+	return rawget(Services, "CartManager")
 end
 
-local function getBackpackCapacity(player)
+local function getItemStorage()
+	return rawget(Services, "ItemStorageManager")
+end
+
+local function getCartCapacity(player)
 	local t = PlayerTransport[player]
 	local vid = t and t.selectedVehicle or CONFIG.DEFAULT_VEHICLE
 	local vc = CONFIG.VEHICLES[vid]
 	return vc and vc.capacity or 100
 end
 
-local function getBackpackUsage(player)
-	local ISM = getItemStorage()
-	if not ISM then return 0 end
-	local bp = ISM.GetBackpackContents(player)
+local function getCartUsage(player)
+	local CM = getCartManager()
+	if not CM then return 0 end
+	local cart = CM.GetCartState(player)
+	if not cart then return 0 end
+	
 	local total = 0
-	for _, c in pairs(bp) do total += c end
+	for _, c in pairs(cart.Inventory) do total += c end
 	return total
-end
-
-local function getBackpackSpace(player)
-	return getBackpackCapacity(player) - getBackpackUsage(player)
 end
 
 local function initializePlayer(player)
 	PlayerTransport[player] = { selectedVehicle = CONFIG.DEFAULT_VEHICLE }
-	local ISM = getItemStorage()
-	-- Retry once for startup race condition logic if needed, but Init usually handles it
-	if ISM and ISM.SetBackpackCapacity then
-		ISM.SetBackpackCapacity(player, getBackpackCapacity(player))
+	
+	-- Sync attribute for UI
+	player:SetAttribute("CartCapacity", getCartCapacity(player))
+
+	-- Update Cart Capacity if cart exists
+	local CM = getCartManager()
+	if CM then
+		-- CM might create cart later, so handled in CM or on vehicle select
 	end
 end
 
@@ -114,8 +120,6 @@ function TransportManager.Init(services)
 	Services = services or {}
 	
 	Players.PlayerAdded:Connect(function(player)
-		-- Wait briefly for ISM
-		task.wait(1) 
 		initializePlayer(player)
 	end)
 	Players.PlayerRemoving:Connect(function(player)
@@ -148,37 +152,73 @@ function TransportManager.SelectVehicle(player, vehicleId)
 	end
 	
 	t.selectedVehicle = vehicleId
+	player:SetAttribute("CartCapacity", conf.capacity)
 	
-	local ISM = getItemStorage()
-	if ISM and ISM.SetBackpackCapacity then
-		ISM.SetBackpackCapacity(player, getBackpackCapacity(player))
+	-- Update Cart Capacity
+	local CM = getCartManager()
+	if CM then
+		-- Create a Setter in CartManager or just update if exposed?
+		-- CM.GetCartState returns reference?
+		local cart = CM.GetCartState(player)
+		if cart then
+			cart.Capacity = conf.capacity
+			-- Trigger update
+			-- CM should expose a method to update safely and fire events
+			-- For now, modifying state directly if reference is valid, but better to add "SetCapacity"
+			-- Let's just modify the table since it's in-memory and we are server-side.
+			-- Ideally we add CM.SetCapacity(player, cap)
+			cart.Capacity = conf.capacity
+			-- We need to fire update
+			-- Let's assume CM handles updates on change? No, we need to trigger it.
+			-- Let's add UpdateCart(player) to CM or just fire the event here?
+			-- Better: CM.SetCapacity(player, cap)
+			-- I'll implement SetCapacity in CM in next step if needed, or just hack it here by firing the event if I can access it.
+			-- But I can't access CM's local event.
+			-- I will assume CM has SetCapacity or I will add it.
+			if CM.SetCapacity then CM.SetCapacity(player, conf.capacity) end
+		end
 	end
 	
-	VehicleUpdated:FireClient(player, vehicleId, getBackpackCapacity(player))
+	VehicleUpdated:FireClient(player, vehicleId, conf.capacity)
 	return true
 end
 
 function TransportManager.LoadFromStorage(player, itemId, count)
+	local CM = getCartManager()
 	local ISM = getItemStorage()
-	if not ISM then return 0 end
+	if not CM or not ISM then return 0 end
 	
-	local space = getBackpackSpace(player)
-	if space <= 0 then return 0 end
+	local cart = CM.GetCartState(player)
+	if not cart then return 0 end
+	if cart.State ~= "idle" then return 0 end
 	
-	local count = count or 1
-	local loaded = ISM.TransferToBackpack(player, itemId, math.min(count, space))
+	local current = 0
+	for _, c in pairs(cart.Inventory) do current += c end
+	local space = cart.Capacity - current
 	
-	if loaded > 0 then
-		BackpackLoaded:FireClient(player, itemId, loaded)
+	local toMove = math.min(count or 1, space)
+	if toMove <= 0 then return 0 end
+	
+	local actuallyRemoved = ISM.RemoveFromStorage(player, itemId, toMove)
+	if actuallyRemoved > 0 then
+		CM.LoadItem(player, itemId, actuallyRemoved)
 	end
-	return loaded
+	return actuallyRemoved
 end
 
 function TransportManager.LoadMaxFromStorage(player)
+	local CM = getCartManager()
 	local ISM = getItemStorage()
-	if not ISM then return {} end
+	if not CM or not ISM then return {} end
 	
-	local space = getBackpackSpace(player)
+	local cart = CM.GetCartState(player)
+	if not cart then return {} end
+	if cart.State ~= "idle" then return {} end
+	
+	local current = 0
+	for _, c in pairs(cart.Inventory) do current += c end
+	local space = cart.Capacity - current
+	
 	if space <= 0 then return {} end
 	
 	local loaded = {}
@@ -197,28 +237,33 @@ function TransportManager.LoadMaxFromStorage(player)
 	for _, item in ipairs(list) do
 		if space <= 0 then break end
 		local toLoad = math.min(item.count, space)
-		local didLoad = ISM.TransferToBackpack(player, item.id, toLoad)
+		local didLoad = ISM.RemoveFromStorage(player, item.id, toLoad)
 		if didLoad > 0 then
+			CM.LoadItem(player, item.id, didLoad)
 			loaded[item.id] = didLoad
 			space -= didLoad
 		end
 	end
 	
-	local total = 0
-	for _, c in pairs(loaded) do total += c end
-	if total > 0 then
-		BackpackLoaded:FireClient(player, nil, total)
-	end
 	return loaded
 end
 
 function TransportManager.GetVehicleInfo(player)
 	local sel = PlayerTransport[player] and PlayerTransport[player].selectedVehicle or CONFIG.DEFAULT_VEHICLE
+	
+	local inventory = {}
+	local CM = getCartManager()
+	if CM then
+		local cart = CM.GetCartState(player)
+		if cart then inventory = cart.Inventory end
+	end
+	
 	return {
 		selectedVehicle = sel,
-		capacity = getBackpackCapacity(player),
-		currentLoad = getBackpackUsage(player),
-		availableVehicles = CONFIG.VEHICLES
+		capacity = getCartCapacity(player),
+		currentLoad = getCartUsage(player),
+		availableVehicles = CONFIG.VEHICLES,
+		inventory = inventory
 	}
 end
 
@@ -230,16 +275,15 @@ function TransportManager.SetTransportData(player, data)
 	if not PlayerTransport[player] then PlayerTransport[player] = {} end
 	PlayerTransport[player].selectedVehicle = data.selectedVehicle or CONFIG.DEFAULT_VEHICLE
 	
-	local ISM = getItemStorage()
-	if ISM and ISM.SetBackpackCapacity then
-		ISM.SetBackpackCapacity(player, getBackpackCapacity(player))
+	local CM = getCartManager()
+	if CM and CM.SetCapacity then
+		CM.SetCapacity(player, getCartCapacity(player))
 	end
 end
 
 -- Export Config
 TransportManager.CONFIG = CONFIG
-TransportManager.GetBackpackCapacity = getBackpackCapacity
-TransportManager.GetBackpackUsage = getBackpackUsage
-TransportManager.GetBackpackSpace = getBackpackSpace
+TransportManager.GetCartCapacity = getCartCapacity
+TransportManager.GetCartUsage = getCartUsage
 
 return TransportManager

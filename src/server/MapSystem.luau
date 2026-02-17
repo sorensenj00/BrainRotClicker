@@ -23,7 +23,7 @@ local CONFIG = {
 }
 
 local TIER_CONFIG = {
-	MODELS_PER_TIER = 12,
+	MODELS_PER_TIER = 16,
 	MAX_TIERS = 6,
 	TIER_HEIGHT_MIN = 20,
 	TIER_HEIGHT_MAX = 60,
@@ -68,7 +68,7 @@ local function calculateBridgeCFrame(plotCFrame)
 	local plotPos = plotCFrame.Position
 	local dir2D = Vector3.new(plotPos.X, 0, plotPos.Z).Unit
 	local hubEdge = Vector3.new(dir2D.X * 50, CONFIG.MAIN_ISLAND_HEIGHT + 10, dir2D.Z * 50)
-	local plotEdge = Vector3.new(plotPos.X - dir2D.X * 40, plotPos.Y + 10, plotPos.Z - dir2D.Z * 40)
+	local plotEdge = Vector3.new(plotPos.X - dir2D.X * 40, plotPos.Y + 6.5, plotPos.Z - dir2D.Z * 40)
 	return CFrame.new((hubEdge + plotEdge) / 2, plotEdge), (plotEdge - hubEdge).Magnitude
 end
 
@@ -227,8 +227,10 @@ local function assignPlotToPlayer(player, idx)
 	}
 	print("✓ Assigned Plot " .. idx .. " to " .. player.Name)
 	
-	local PlayerLifecycleManager = require(script.Parent.PlayerLifecycleManager)
-	PlayerLifecycleManager.SetMapReady(player)
+	local PlayerLifecycleManager = rawget(Services, "PlayerLifecycleManager")
+	if PlayerLifecycleManager then
+		PlayerLifecycleManager.SetMapReady(player)
+	end
 end
 
 local function teleportPlayer(player)

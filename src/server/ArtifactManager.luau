@@ -16,7 +16,7 @@ local function getArtifactConfig()
 	end
 	return ArtifactConfig
 end
-local DataService = require(script.Parent.DataService)
+local DataService -- Will be set from Services.DataService
 
 local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
 RemoteEvents.Name = "RemoteEvents"
@@ -48,18 +48,30 @@ GetArtifactsFunction.Parent = RemoteFunctions
 
 local COMPONENT_KEY = "Artifacts"
 local ArtifactManager = {}
-local Services = {}
+local Services = {} 
+
+-- Getter for DataService (to avoid circular require)
+local function getDataService()
+	if not DataService then
+		-- Use rawget to avoid strict table metatable errors
+		DataService = rawget(Services, "DataService")
+	end
+	return DataService
+end
 
 --------------------------------------------------------------------------------
 -- HELPERS
 --------------------------------------------------------------------------------
 
 local function getPlayerArtifacts(player)
-	local data = DataService.GetComponentData(player, COMPONENT_KEY)
+	local ds = getDataService()
+	if not ds then return {} end
+	
+	local data = ds.GetComponentData(player, COMPONENT_KEY)
 	if data then return data end
-	if DataService.IsLoaded(player) then
-		DataService.SetComponentData(player, COMPONENT_KEY, {})
-		return DataService.GetComponentData(player, COMPONENT_KEY)
+	if ds.IsLoaded(player) then
+		ds.SetComponentData(player, COMPONENT_KEY, {})
+		return ds.GetComponentData(player, COMPONENT_KEY)
 	end
 	return {}
 end
@@ -114,13 +126,18 @@ function ArtifactManager.Init(services)
 	print("   ArtifactManager (Module) - Initializing")
 	Services = services or {}
 	
-	DataService.RegisterHandler(COMPONENT_KEY, {
-		DefaultData = {},
-		OnLoad = function(p, d) 
-			-- No-op logging
-		end,
-		OnSave = function(p, d) return d end
-	})
+	local ds = getDataService()
+	if ds then
+		ds.RegisterHandler(COMPONENT_KEY, {
+			DefaultData = {},
+			OnLoad = function(p, d) 
+				-- No-op logging
+			end,
+			OnSave = function(p, d) return d end
+		})
+	else
+		warn("ArtifactManager: DataService not available during Init")
+	end
 	
 	EquipArtifactFunction.OnServerInvoke = ArtifactManager.EquipArtifact
 	UnequipArtifactFunction.OnServerInvoke = ArtifactManager.UnequipArtifact

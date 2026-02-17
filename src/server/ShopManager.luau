@@ -123,7 +123,7 @@ function ShopManager.Init(services)
 end
 
 function ShopManager.GetOwnedCount(player, unitName)
-	local InvMgr = Services.InventoryManager
+	local InvMgr = rawget(Services, "InventoryManager")
 	if InvMgr then return InvMgr.GetUnitLevel(player, unitName) end
 	return 0
 end
@@ -154,7 +154,7 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	if getMoney(player) < price then return false, "Not enough cash" end
 	if not deductMoney(player, price) then return false, "Transaction failed" end
 	
-	local InvMgr = Services.InventoryManager
+	local InvMgr = rawget(Services, "InventoryManager")
 	if not InvMgr then return false, "Inventory System Offline" end
 	
 	local rarity = RarityConfig.RollRarity()

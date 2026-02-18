@@ -27,60 +27,12 @@ local RunService = game:GetService("RunService")
 local HttpService = game:GetService("HttpService")
 local MemoryStoreService = game:GetService("MemoryStoreService")
 
---------------------------------------------------------------------------------
--- CONFIGURATION
---------------------------------------------------------------------------------
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local MarketConfig = require(Shared:WaitForChild("MarketConfig"))
+local MarketVolatilityService = require(script.Parent:WaitForChild("MarketVolatilityService"))
 
-local CONFIG = {
-	-- Timing
-	READ_INTERVAL = 5,       -- seconds between MemoryStore reads
-	WRITE_INTERVAL = 10,     -- seconds between buffer flushes
-	LOCAL_UPDATE_INTERVAL = 20, -- fallback local update rate (Studio mode)
-	
-	-- Sharding
-	NUM_SHARDS = 5,
-	SHARD_EXPIRATION = 300,  -- MemoryStore key TTL (5 minutes)
-	
-	-- Pricing
-	MIN_RATE = 0.3,
-	MAX_RATE = 4.0,
-	STARTING_RATE = 1.0,
-	BAILOUT_FLOOR = 0.8,     -- Minimum rate for welfare-protected players
-	IMPACT_FACTOR = 0.00005, -- How much each sold unit depresses price
-	RECOVERY_RATE = 0.005,    -- Natural price recovery per read cycle
-	
-	-- Synthetic Volatility (keeps market alive at low player count)
-	JITTER_SPEED = 0.3,      -- Perlin noise time multiplier (lower = slower waves)
-	JITTER_AMPLITUDE = 0.12, -- ±12% micro-fluctuation
-	TREND_PERIOD = 120,      -- seconds per synthetic trend cycle (2 minutes)
-	TREND_DAMPING = 0.05,    -- Smoothing factor (per second). Higher = faster reaction.
-	HYPE_CHANCE = 0.20,      -- 20% chance of a bull run per cycle
-	HYPE_MULTIPLIER = 2.3,   -- Bull run rate multiplier
-	CRASH_CHANCE = 0.15,     -- 15% chance of a bear run (crash)
-	CRASH_MULTIPLIER = 0.4,  -- Price drops to 40%
-	TREND_MIN = 0.6,         -- Normal drift minimum
-	TREND_MAX = 1.7,         -- Normal drift maximum
-	DEAD_MARKET_THRESHOLD = 1000, -- Volume below this triggers ghost trading
-	
-	-- Fallback (old random pricing for Studio)
-	BASE_VOLATILITY = 0.25,
-	SPIKE_CHANCE = 0.10,
-	SPIKE_MULTIPLIER = 2.5,
-	MEAN_REVERSION = 0.05,
-	
-	-- History
-	MAX_HISTORY = 60,
-}
-
-local SECTOR_VOLATILITY = {
-	Food = 0.20, Animals = 0.25, Entertainment = 0.30,
-	Mystic = 0.40, Tech = 0.35, Action = 0.45,
-}
-local SECTORS = {"Food", "Animals", "Entertainment", "Mystic", "Tech", "Action"}
-local SECTOR_COLORS = {
-	Food = {227, 119, 194}, Animals = {44, 160, 44}, Entertainment = {255, 127, 14},
-	Mystic = {148, 103, 189}, Tech = {31, 119, 180}, Action = {214, 39, 40},
-}
+local CONFIG = MarketConfig.CONFIG
+local SECTORS = MarketConfig.SECTORS
 
 --------------------------------------------------------------------------------
 -- STATE
@@ -92,7 +44,6 @@ local Services = {}
 local sectorRates = {}        -- { [sector] = currentMarketRate }
 local bailoutRates = {}       -- { [sector] = bailoutRate }
 local sectorHistories = {}
-local sectorTrends = {}       -- { [sector] = currentSmoothedTrend }
 local stockMarketFolder = nil
 
 -- MemoryStore state
@@ -137,58 +88,11 @@ end
 -- Fallback random pricing (same as old logic, used in Studio)
 local function calculateLocalRate(sector)
 	local current = sectorRates[sector]
-	local vol = SECTOR_VOLATILITY[sector] or CONFIG.BASE_VOLATILITY
+	local vol = MarketConfig.SECTOR_VOLATILITY[sector] or CONFIG.BASE_VOLATILITY
 	local base = (math.random() - 0.5) * 2 * vol
 	if math.random() < CONFIG.SPIKE_CHANCE then base *= CONFIG.SPIKE_MULTIPLIER end
 	local rev = (CONFIG.STARTING_RATE - current) * CONFIG.MEAN_REVERSION
 	return math.clamp(current + base + rev, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
-end
-
---------------------------------------------------------------------------------
--- SYNTHETIC VOLATILITY
---------------------------------------------------------------------------------
-
--- Generate a unique numeric seed from a sector name
-local function getSectorSeed(sectorName: string): number
-	local seed = 0
-	for i = 1, #sectorName do
-		seed = seed + string.byte(sectorName, i) * i
-	end
-	return seed
-end
-
---[[
-	Perlin Noise Jitter: smooth ±5% micro-fluctuations.
-	Uses math.noise for natural-looking waves instead of jagged random spikes.
-	Each sector has a unique seed so they don't move in lockstep.
-]]
-local function getJitter(sectorName: string): number
-	local seed = getSectorSeed(sectorName)
-	local timeOffset = os.clock() * CONFIG.JITTER_SPEED
-	local noise = math.noise(timeOffset, seed * 0.1, 0) -- Returns -0.5 to 0.5
-	return 1 + (noise * CONFIG.JITTER_AMPLITUDE)
-end
-
---[[
-	Synthetic Trend ("Market Maker Bot"): deterministic wave shared by all servers.
-	Every TREND_PERIOD seconds, each sector gets a new trend direction.
-	20% chance of a BULL RUN (1.4x), otherwise normal drift (0.9-1.1x).
-	Deterministic via timeKey + seed so all servers agree.
-]]
-local function getSyntheticTrend(sectorName: string): number
-	local timeKey = math.floor(os.time() / CONFIG.TREND_PERIOD)
-	local seed = getSectorSeed(sectorName)
-	local rng = Random.new(timeKey + seed)
-	
-	local roll = rng:NextNumber()
-	
-	if roll < CONFIG.HYPE_CHANCE then
-		return CONFIG.HYPE_MULTIPLIER -- BULL RUN! (Stonks)
-	elseif roll < (CONFIG.HYPE_CHANCE + CONFIG.CRASH_CHANCE) then
-		return CONFIG.CRASH_MULTIPLIER -- BEAR RUN! (Crash)
-	else
-		return rng:NextNumber(CONFIG.TREND_MIN, CONFIG.TREND_MAX) -- Normal drift
-	end
 end
 
 --------------------------------------------------------------------------------
@@ -218,7 +122,6 @@ end
 
 local function computeGlobalRates(totalVolumes: {[string]: number})
 	local dt = CONFIG.READ_INTERVAL
-	local alpha = math.clamp(CONFIG.TREND_DAMPING * dt, 0, 1)
 
 	for _, sector in ipairs(SECTORS) do
 		local vol = totalVolumes[sector] or 0
@@ -227,15 +130,8 @@ local function computeGlobalRates(totalVolumes: {[string]: number})
 		local rawRate = CONFIG.STARTING_RATE * (1 - (vol * CONFIG.IMPACT_FACTOR))
 		rawRate += CONFIG.RECOVERY_RATE
 		
-		-- SYNTHETIC VOLATILITY: Apply Market Maker (Smoothed)
-		-- We calculate trend regardless of volume, but might only apply it fully if volume is low.
-		-- Ideally, the trend influences the price as a multiplier always, to keep it fun.
-		local targetTrend = getSyntheticTrend(sector)
-		local currentTrend = sectorTrends[sector] or 1.0
-		
-		-- Smoothly move current trend towards target
-		local smoothedTrend = currentTrend + (targetTrend - currentTrend) * alpha
-		sectorTrends[sector] = smoothedTrend
+		-- Get volatility from service
+		local smoothedTrend, jitter = MarketVolatilityService.CalculateVolatility(sector, dt)
 		
 		if vol < CONFIG.DEAD_MARKET_THRESHOLD then
 			rawRate *= smoothedTrend
@@ -246,7 +142,6 @@ local function computeGlobalRates(totalVolumes: {[string]: number})
 		end
 		
 		-- JITTER: Always-on Perlin noise micro-fluctuation
-		local jitter = getJitter(sector)
 		rawRate *= jitter
 		
 		-- Final clamp
@@ -330,7 +225,7 @@ local function replicateToClients()
 	stockMarketFolder:SetAttribute("SectorRates", serializeSectorRates())
 	stockMarketFolder:SetAttribute("SectorHistories", serializeSectorHistories())
 	stockMarketFolder:SetAttribute("Sectors", HttpService:JSONEncode(SECTORS))
-	stockMarketFolder:SetAttribute("SectorColors", HttpService:JSONEncode(SECTOR_COLORS))
+	stockMarketFolder:SetAttribute("SectorColors", HttpService:JSONEncode(MarketConfig.SECTOR_COLORS))
 	
 	-- Legacy compat
 	stockMarketFolder:SetAttribute("CurrentRate", avgRate)
@@ -354,21 +249,17 @@ end
 -- Fallback: old-style random local update (with jitter for liveliness)
 local function updateMarketLocal()
 	local dt = CONFIG.LOCAL_UPDATE_INTERVAL
-	local alpha = math.clamp(CONFIG.TREND_DAMPING * dt, 0, 1)
 
 	for _, cat in ipairs(SECTORS) do
 		local nr = calculateLocalRate(cat)
 		
-		-- ALSO apply Synthetic Trend in local mode now, so we can test Hype/Crash logic
-		local targetTrend = getSyntheticTrend(cat)
-		local currentTrend = sectorTrends[cat] or 1.0
-		local smoothedTrend = currentTrend + (targetTrend - currentTrend) * alpha
-		sectorTrends[cat] = smoothedTrend
+		-- Get volatility from service
+		local smoothedTrend, jitter = MarketVolatilityService.CalculateVolatility(cat, dt)
 		
 		nr *= smoothedTrend
 		
 		-- Apply jitter even in fallback mode for smooth wiggling
-		nr *= getJitter(cat)
+		nr *= jitter
 		nr = math.clamp(nr, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
 		sectorRates[cat] = nr
 		bailoutRates[cat] = math.max(nr, CONFIG.BAILOUT_FLOOR)
@@ -388,6 +279,8 @@ function StockMarketManager.Init(services)
 	print("   StockMarketManager (Module) - Initializing")
 	Services = services or {}
 	
+	MarketVolatilityService.Init()
+
 	-- Create or find the ReplicatedStorage folder for client access
 	stockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket") or Instance.new("Folder")
 	stockMarketFolder.Name = "StockMarket"
@@ -402,7 +295,6 @@ function StockMarketManager.Init(services)
 			table.insert(sectorHistories[cat], CONFIG.STARTING_RATE)
 		end
 		ServerSalesBuffer[cat] = 0
-		sectorTrends[cat] = 1.0
 	end
 	
 	-- Static attributes

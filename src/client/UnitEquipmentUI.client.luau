@@ -1,3 +1,5 @@
+if true then return end -- DISABLED in favor of MachineConfigUI
+
 --[[
 	UnitEquipmentUI Client Script
 	
@@ -10,7 +12,7 @@
 	- Glassmorphism theme matching existing UI
 ]]
 
---[[ SCRIPT DISABLED BY USER REQUEST
+
 
 -- Services
 local Players = game:GetService("Players")
@@ -72,9 +74,6 @@ local dragGhost = nil  -- The floating visual
 -- HELPER FUNCTIONS
 --------------------------------------------------------------------------------
 
---[[
-	Styles a panel with the glassmorphism theme.
-]]
 local function stylePanel(frame, radius)
 	frame.BackgroundColor3 = CONFIG.THEME_BG
 	frame.BackgroundTransparency = 0.1
@@ -981,4 +980,4 @@ UserInputService.InputEnded:Connect(function(input)
 	end
 end)
 
-]]
+

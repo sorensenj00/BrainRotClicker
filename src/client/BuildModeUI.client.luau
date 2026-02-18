@@ -353,12 +353,12 @@ renderBuildGrid = function()
 		local posX = plotCenter.X + corner.x + (localCol - 0.5) * TILE_SPACING
 		local posZ = plotCenter.Z + corner.z + (localRow - 0.5) * TILE_SPACING
 		
-		-- Handle new layered slot format: {unitType = string?, tileId = string?}
+		-- Handle slot data (unit occupancy)
 		local slotData = gridState.slots[slotIndex]
 		local unitName = nil
 		
 		if type(slotData) == "table" then
-			unitName = slotData.unitType
+			unitName = slotData.UnitName or slotData.unitType
 		elseif type(slotData) == "string" then
 			unitName = slotData
 		end

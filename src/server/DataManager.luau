@@ -5,7 +5,7 @@
 	Acts as a bridge/adapter to the new DataService (ProfileService).
 ]]
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local _ReplicatedStorage = game:GetService("ReplicatedStorage")
 local DataService -- Will be set from Services.DataService
 
 -- Module Table
@@ -211,9 +211,8 @@ local function applyLegacyData(player: Player, data: any)
 		
 		-- Restore Grid / Brainrot Placements
 		local gridData = data.GridPlacements or data.gridPositions
-		
 		local BrainrotManager = rawget(Services, "BrainrotManager")
-		local GridManager = rawget(Services, "GridManager")
+		
 		if gridData and next(gridData) ~= nil and BrainrotManager and BrainrotManager.SpawnBrainrotAtSlot then
 			for slotIndexStr, slotData in pairs(gridData) do
 				local slotIndex = tonumber(slotIndexStr)
@@ -227,9 +226,6 @@ local function applyLegacyData(player: Player, data: any)
 						unitInfo.level or 1,
 						unitInfo.unitId
 					)
-				end
-				if slotData.Tile and GridManager and GridManager.PlaceTile then
-					GridManager.PlaceTile(player, slotIndex, slotData.Tile)
 				end
 			end
 		end

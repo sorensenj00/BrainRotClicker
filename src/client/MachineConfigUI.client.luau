@@ -4,10 +4,14 @@
 	Shows when a player interacts with a placed brainrot unit.
 	Allows selecting production mode, shows RPS for each mode,
 	highlights BEST mode, and displays active synergy info.
+	
+	Now includes Equipment tab for managing artifacts.
 ]]
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -15,14 +19,24 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- Shared configs
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+local ViewportPreview = require(Shared:WaitForChild("ViewportPreview"))
 
 -- Remotes
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local OpenUnitUIEvent = RemoteEvents:WaitForChild("OpenUnitUI")
 local ModeChangedEvent = RemoteEvents:WaitForChild("ModeChanged")
+local ArtifactDroppedEvent = RemoteEvents:WaitForChild("ArtifactDropped")
+local ArtifactEquippedEvent = RemoteEvents:WaitForChild("ArtifactEquipped")
 
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 local SetUnitModeFunction = RemoteFunctions:WaitForChild("SetUnitMode")
+local GetArtifacts = RemoteFunctions:WaitForChild("GetArtifacts")
+local EquipArtifact = RemoteFunctions:WaitForChild("EquipArtifact")
+local UnequipArtifact = RemoteFunctions:WaitForChild("UnequipArtifact")
+
+-- Assets
+local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
 
 --------------------------------------------------------------------------------
 -- STYLE CONSTANTS
@@ -41,10 +55,15 @@ local COLORS = {
 	ACCENT = Color3.fromRGB(80, 140, 255),
 	ACCENT_GREEN = Color3.fromRGB(60, 200, 120),
 	ACCENT_GOLD = Color3.fromRGB(255, 200, 60),
+	ACCENT_PURPLE = Color3.fromRGB(140, 80, 255),
+	ACCENT_PINK = Color3.fromRGB(255, 100, 180),
 	SYNERGY = Color3.fromRGB(200, 100, 255),
 	DANGER = Color3.fromRGB(255, 80, 80),
 	BORDER = Color3.fromRGB(50, 55, 75),
 	CLOSE_BTN = Color3.fromRGB(200, 60, 60),
+	TAB_ACTIVE = Color3.fromRGB(40, 45, 60),
+	TAB_INACTIVE = Color3.fromRGB(20, 22, 30),
+	OVERLAY_BG = Color3.fromRGB(20, 20, 30),
 }
 
 local FONT = {
@@ -60,6 +79,9 @@ local FONT = {
 local currentData = nil  -- Unit data from server
 local screenGui = nil
 local isOpen = false
+local currentTab = "Production" -- "Production" or "Equipment"
+local previewInstance = nil -- ViewportPreview instance
+local statsLabels = {} -- {Base = label, Multipliers = label, Total = label}
 
 --------------------------------------------------------------------------------
 -- UI BUILDER HELPERS
@@ -127,6 +149,10 @@ local function createButton(props)
 	return b
 end
 
+local function getRarityColor(rarity)
+	return ArtifactConfig.RarityColors[rarity] or COLORS.TEXT_DIM
+end
+
 --------------------------------------------------------------------------------
 -- MAIN UI CONSTRUCTION
 --------------------------------------------------------------------------------
@@ -155,7 +181,7 @@ local function buildUI()
 	local panel = createFrame({
 		Name = "Panel",
 		Color = COLORS.PANEL,
-		Size = UDim2.new(0, 480, 0, 580),
+		Size = UDim2.new(0, 500, 0, 600),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
 		Anchor = Vector2.new(0.5, 0.5),
 		Corner = 16,
@@ -177,7 +203,7 @@ local function buildUI()
 		Name = "Header",
 		Color = COLORS.PANEL,
 		Transparency = 1,
-		Size = UDim2.new(1, -32, 0, 70),
+		Size = UDim2.new(1, -32, 0, 60),
 		Position = UDim2.new(0, 16, 0, 16),
 		Parent = panel,
 	})
@@ -187,7 +213,7 @@ local function buildUI()
 		Text = "⚙️ Production Config",
 		Font = FONT.TITLE,
 		Size = 22,
-		FrameSize = UDim2.new(1, -40, 0, 28),
+		FrameSize = UDim2.new(1, -80, 0, 28),
 		Parent = header,
 	})
 	
@@ -200,27 +226,6 @@ local function buildUI()
 		Position = UDim2.new(0, 0, 0, 30),
 		Parent = header,
 	})
-	
-	local synergyBanner = createFrame({
-		Name = "SynergyBanner",
-		Color = COLORS.SYNERGY,
-		Size = UDim2.new(1, 0, 0, 28),
-		Position = UDim2.new(0, 0, 0, 54),
-		Corner = 6,
-		Parent = header,
-	})
-	synergyBanner.BackgroundTransparency = 0.8
-	
-	local synergyLabel = createLabel({
-		Name = "SynergyText",
-		Text = "✨ Synergy Active: Avocado Toast (+50%)",
-		Color = COLORS.SYNERGY,
-		Size = 13,
-		AlignX = Enum.TextXAlignment.Center,
-		FrameSize = UDim2.new(1, 0, 1, 0),
-		Parent = synergyBanner,
-	})
-	synergyBanner.Visible = false  -- Hidden by default
 	
 	-- Close button
 	local closeBtn = createButton({
@@ -237,13 +242,57 @@ local function buildUI()
 	})
 	closeBtn.AnchorPoint = Vector2.new(1, 0)
 	
-	-- Mode cards container
+	-- Tabs Container
+	local tabsContainer = createFrame({
+		Name = "TabsContainer",
+		Color = COLORS.BG,
+		Transparency = 1,
+		Size = UDim2.new(1, -32, 0, 36),
+		Position = UDim2.new(0, 16, 0, 80),
+		Parent = panel,
+	})
+	
+	local tabLayout = Instance.new("UIListLayout")
+	tabLayout.FillDirection = Enum.FillDirection.Horizontal
+	tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	tabLayout.Padding = UDim.new(0, 8)
+	tabLayout.Parent = tabsContainer
+	
+	local prodTab = createButton({
+		Name = "ProductionTab",
+		Text = "⚙️ Production",
+		Color = COLORS.TAB_ACTIVE,
+		Size = 14,
+		FrameSize = UDim2.new(0.5, -4, 1, 0),
+		Corner = 8,
+		Parent = tabsContainer,
+	})
+	
+	local equipTab = createButton({
+		Name = "EquipmentTab",
+		Text = "📿 Equipment",
+		Color = COLORS.TAB_INACTIVE,
+		Size = 14,
+		FrameSize = UDim2.new(0.5, -4, 1, 0),
+		Corner = 8,
+		Parent = tabsContainer,
+	})
+	
+	-- Content Area
+	local contentArea = createFrame({
+		Name = "ContentArea",
+		Transparency = 1,
+		Size = UDim2.new(1, -32, 1, -140),
+		Position = UDim2.new(0, 16, 0, 126),
+		Parent = panel,
+	})
+	
+	-- 1. Modes Container (Production Tab)
 	local modesContainer = createFrame({
 		Name = "ModesContainer",
 		Transparency = 1,
-		Size = UDim2.new(1, -32, 1, -160),
-		Position = UDim2.new(0, 16, 0, 100),
-		Parent = panel,
+		Size = UDim2.new(1, 0, 1, 0),
+		Parent = contentArea,
 	})
 	
 	local listLayout = Instance.new("UIListLayout")
@@ -251,7 +300,7 @@ local function buildUI()
 	listLayout.Padding = UDim.new(0, 8)
 	listLayout.Parent = modesContainer
 	
-	-- Apply button at bottom
+	-- Apply button (Production Tab)
 	local applyBtn = createButton({
 		Name = "ApplyBtn",
 		Text = "✓ Apply Mode",
@@ -265,17 +314,145 @@ local function buildUI()
 		Parent = panel,
 	})
 	
+	-- 2. Equipment Container (Equipment Tab)
+	local equipmentContainer = createFrame({
+		Name = "EquipmentContainer",
+		Transparency = 1,
+		Size = UDim2.new(1, 0, 1, 30), -- Taller to use apply button space
+		Parent = contentArea,
+	})
+	equipmentContainer.Visible = false
+	
+	-- Top: Preview + Slots
+	local splitContainer = createFrame({
+		Name = "Split",
+		Transparency = 1,
+		Size = UDim2.new(1, 0, 0, 200),
+		Parent = equipmentContainer,
+	})
+	
+	-- Left: Preview
+	local previewFrame = createFrame({
+		Name = "Preview",
+		Color = COLORS.BG,
+		Size = UDim2.new(0.4, -4, 1, 0),
+		Corner = 8,
+		Stroke = COLORS.BORDER,
+		Parent = splitContainer,
+	})
+	
+	-- Right: Slots
+	local slotsFrame = createFrame({
+		Name = "Slots",
+		Transparency = 1,
+		Size = UDim2.new(0.6, -4, 1, 0),
+		Position = UDim2.new(0.4, 8, 0, 0),
+		Parent = splitContainer,
+	})
+	
+	local slotLayout = Instance.new("UIListLayout")
+	slotLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	slotLayout.Padding = UDim.new(0, 6)
+	slotLayout.Parent = slotsFrame
+	
+	-- Stats Overlay in Preview
+	local statsOverlay = createFrame({
+		Name = "StatsOverlay",
+		Color = COLORS.OVERLAY_BG,
+		Transparency = 0.2,
+		Size = UDim2.new(1, -16, 0, 80),
+		Position = UDim2.new(0, 8, 1, -8),
+		Anchor = Vector2.new(0, 1),
+		Corner = 8,
+		Parent = previewFrame,
+	})
+	
+	statsLabels.Base = createLabel({
+		Name = "BaseStats",
+		Text = "Base: --",
+		Color = COLORS.TEXT_DIM,
+		Size = 10,
+		FrameSize = UDim2.new(1, -10, 0, 16),
+		Position = UDim2.new(0, 5, 0, 4),
+		Parent = statsOverlay,
+	})
+	
+	statsLabels.Multipliers = createLabel({
+		Name = "Multipliers",
+		Text = "Artifacts: --",
+		Color = COLORS.ACCENT_GOLD,
+		Size = 10,
+		FrameSize = UDim2.new(1, -10, 0, 32), -- Multiline
+		Position = UDim2.new(0, 5, 0, 20),
+		Parent = statsOverlay,
+	})
+	statsLabels.Multipliers.TextYAlignment = Enum.TextYAlignment.Top
+	statsLabels.Multipliers.TextWrapped = true
+	
+	statsLabels.Total = createLabel({
+		Name = "TotalStats",
+		Text = "Total: --",
+		Color = COLORS.ACCENT_GREEN,
+		Size = 11,
+		Font = FONT.TITLE,
+		FrameSize = UDim2.new(1, -10, 0, 20),
+		Position = UDim2.new(0, 5, 1, -24),
+		Parent = statsOverlay,
+	})
+	
+	-- Bottom: Inventory
+	local invFrame = createFrame({
+		Name = "Inventory",
+		Color = COLORS.BG,
+		Size = UDim2.new(1, 0, 1, -210),
+		Position = UDim2.new(0, 0, 0, 210),
+		Corner = 8,
+		Stroke = COLORS.BORDER,
+		Parent = equipmentContainer,
+	})
+	
+	local invLabel = createLabel({
+		Name = "Title",
+		Text = "Inventory",
+		Color = COLORS.TEXT_DIM,
+		Size = 12,
+		FrameSize = UDim2.new(1, -16, 0, 24),
+		Position = UDim2.new(0, 8, 0, 0),
+		Parent = invFrame,
+	})
+	
+	local invScroll = Instance.new("ScrollingFrame")
+	invScroll.Name = "Scroll"
+	invScroll.Size = UDim2.new(1, -10, 1, -30)
+	invScroll.Position = UDim2.new(0, 5, 0, 25)
+	invScroll.BackgroundTransparency = 1
+	invScroll.BorderSizePixel = 0
+	invScroll.ScrollBarThickness = 4
+	invScroll.ScrollBarImageColor3 = COLORS.ACCENT
+	invScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	invScroll.Parent = invFrame
+	
+	local invLayout = Instance.new("UIListLayout")
+	invLayout.SortOrder = Enum.SortOrder.Name
+	invLayout.Padding = UDim.new(0, 4)
+	invLayout.Parent = invScroll
+	
 	return {
 		gui = screenGui,
 		backdrop = backdrop,
 		panel = panel,
 		titleLabel = titleLabel,
 		subtitleLabel = subtitleLabel,
-		synergyBanner = synergyBanner,
-		synergyLabel = synergyLabel,
 		closeBtn = closeBtn,
+		prodTab = prodTab,
+		equipTab = equipTab,
 		modesContainer = modesContainer,
+		equipmentContainer = equipmentContainer,
 		applyBtn = applyBtn,
+		previewFrame = previewFrame,
+		slotsFrame = slotsFrame,
+		invScroll = invScroll,
+		invLayout = invLayout,
 	}
 end
 
@@ -286,6 +463,32 @@ end
 local ui = buildUI()
 local selectedMode = 1
 local modeCards = {}
+
+-- Helper to switch tabs
+local function switchTab(tabName)
+	currentTab = tabName
+	
+	if tabName == "Production" then
+		ui.prodTab.BackgroundColor3 = COLORS.TAB_ACTIVE
+		ui.equipTab.BackgroundColor3 = COLORS.TAB_INACTIVE
+		ui.modesContainer.Visible = true
+		ui.equipmentContainer.Visible = false
+		ui.applyBtn.Visible = true
+	else
+		ui.prodTab.BackgroundColor3 = COLORS.TAB_INACTIVE
+		ui.equipTab.BackgroundColor3 = COLORS.TAB_ACTIVE
+		ui.modesContainer.Visible = false
+		ui.equipmentContainer.Visible = true
+		ui.applyBtn.Visible = false
+	end
+end
+
+ui.prodTab.MouseButton1Click:Connect(function() switchTab("Production") end)
+ui.equipTab.MouseButton1Click:Connect(function() switchTab("Equipment") end)
+
+--------------------------------------------------------------------------------
+-- PRODUCTION TAB LOGIC
+--------------------------------------------------------------------------------
 
 local function createModeCard(modeInfo, index, isCurrent, isBest)
 	local isUnlocked = modeInfo.isUnlocked
@@ -350,16 +553,15 @@ local function createModeCard(modeInfo, index, isCurrent, isBest)
 	-- RPS or Lock info
 	if isUnlocked then
 		local rps = 1 / modeInfo.rate
-		local revenue = rps * basePrice
 		
 		createLabel({
 			Name = "RPS",
-			Text = string.format("%.1f/s • $%.0f/s", rps, revenue),
+			Text = string.format("%.1f %s / s", rps, displayName),
 			Font = FONT.MONO,
 			Size = 14,
 			Color = COLORS.ACCENT_GREEN,
 			AlignX = Enum.TextXAlignment.Right,
-			FrameSize = UDim2.new(0, 110, 0, 20),
+			FrameSize = UDim2.new(0, 160, 0, 20),
 			Position = UDim2.new(1, -16, 0, 14),
 			Parent = card,
 		})
@@ -486,6 +688,304 @@ function refreshModeCards()
 	end
 end
 
+--------------------------------------------------------------------------------
+-- EQUIPMENT TAB LOGIC
+--------------------------------------------------------------------------------
+
+local function setupPreview(unitType)
+	-- Clear old
+	if previewInstance then
+		previewInstance:Destroy()
+		previewInstance = nil
+	end
+	
+	-- Find model
+	local modelTemplate = BrainrotsFolder:FindFirstChild(unitType)
+	if not modelTemplate then
+		local assets = ReplicatedStorage:FindFirstChild("Assets")
+		if assets then
+			local brainrots = assets:FindFirstChild("Brainrots")
+			if brainrots then
+				modelTemplate = brainrots:FindFirstChild(unitType)
+			end
+		end
+	end
+
+	if not modelTemplate then return end
+	
+	-- Create preview
+	previewInstance = ViewportPreview.Create(modelTemplate, ui.previewFrame)
+end
+
+local function refreshEquipment()
+	if not currentData then return end
+	
+	-- Get artifacts from server
+	local success, data = pcall(function()
+		return GetArtifacts:InvokeServer()
+	end)
+	
+	if not success or not data then return end
+	
+	-- Clear lists
+	for _, c in ui.slotsFrame:GetChildren() do
+		if c:IsA("Frame") then c:Destroy() end
+	end
+	for _, c in ui.invScroll:GetChildren() do
+		if c:IsA("Frame") then c:Destroy() end
+	end
+	
+	-- 1. EQUIPMENT SLOTS & STATS CALCULATION
+	local equippedToUnit = {}
+	local combinedStats = {
+		CycleTimeMult = 1,
+		LuckBonus = 0,
+		ItemTierBonus = 0,
+		SynergyRangeBonus = 0,
+	}
+	
+	for guid, artifact in pairs(data.all or {}) do
+		if artifact.EquippedTo == currentData.unitGUID then
+			equippedToUnit[artifact.Slot] = artifact
+			local stats = ArtifactConfig.CalculateArtifactStats(artifact)
+			combinedStats.CycleTimeMult = combinedStats.CycleTimeMult * stats.CycleTimeMult
+			combinedStats.LuckBonus = combinedStats.LuckBonus + stats.LuckBonus
+			combinedStats.ItemTierBonus = combinedStats.ItemTierBonus + stats.ItemTierBonus
+			combinedStats.SynergyRangeBonus = combinedStats.SynergyRangeBonus + stats.SynergyRangeBonus
+		end
+	end
+	
+	-- Update Stats Overlay
+	local modeInfo = ItemConfig.GetMode(currentData.unitType, currentData.level, currentData.currentMode)
+	if modeInfo then
+		local baseRps = 1 / modeInfo.rate
+		local itemDef = ItemConfig.Items[modeInfo.itemId]
+		local displayName = itemDef and itemDef.displayName or "Item"
+		
+		statsLabels.Base.Text = string.format("Base: %.2f/s", baseRps)
+		
+		local mults = {}
+		if combinedStats.CycleTimeMult < 1 then
+			table.insert(mults, string.format("⚡+%.0f%% Spd", (1/combinedStats.CycleTimeMult - 1) * 100))
+		end
+		if combinedStats.LuckBonus > 0 then
+			table.insert(mults, string.format("🍀+%.0f%% Luck", combinedStats.LuckBonus * 100))
+		end
+		if combinedStats.SynergyRangeBonus > 0 then
+			table.insert(mults, string.format("🔗+%d Rng", combinedStats.SynergyRangeBonus))
+		end
+		
+		if #mults > 0 then
+			statsLabels.Multipliers.Text = table.concat(mults, " • ")
+		else
+			statsLabels.Multipliers.Text = "No artifact bonuses"
+		end
+		
+		local finalRps = baseRps / combinedStats.CycleTimeMult
+		statsLabels.Total.Text = string.format("Total: %.2f %s/s", finalRps, displayName)
+	end
+	
+	-- Helper to format bonuses
+	local function getBonusText(artifact)
+		local stats = ArtifactConfig.CalculateArtifactStats(artifact)
+		local parts = {}
+		if stats.CycleTimeMult < 1 then
+			table.insert(parts, string.format("⚡+%.0f%% Spd", (1/stats.CycleTimeMult - 1) * 100))
+		end
+		if stats.LuckBonus > 0 then
+			table.insert(parts, string.format("🍀+%.0f%% Luck", stats.LuckBonus * 100))
+		end
+		if stats.SynergyRangeBonus > 0 then
+			table.insert(parts, string.format("🔗+%d Rng", stats.SynergyRangeBonus))
+		end
+		if stats.ItemTierBonus > 0 then
+			table.insert(parts, string.format("💎+%d Tier", stats.ItemTierBonus))
+		end
+		return table.concat(parts, " • ")
+	end
+
+	for i, slotName in ipairs({"Head", "Body", "Accessory"}) do
+		local slotFrame = createFrame({
+			Name = "Slot_" .. slotName,
+			Color = COLORS.CARD,
+			Size = UDim2.new(1, 0, 0, 50),
+			Corner = 8,
+			Parent = ui.slotsFrame,
+		})
+		slotFrame.LayoutOrder = i
+		
+		local artifact = equippedToUnit[slotName]
+		local iconStr = ArtifactConfig.SlotIcons[slotName]
+		local nameStr = "Empty"
+		local color = COLORS.TEXT_DIM
+		local bonusStr = ""
+		
+		if artifact then
+			-- Fix for blank icon: Ensure we have a valid string, otherwise fallback to slot icon
+			if artifact.BaseIcon and artifact.BaseIcon ~= "" then
+				iconStr = artifact.BaseIcon
+			end
+			nameStr = artifact.Name
+			color = getRarityColor(artifact.Rarity)
+			bonusStr = getBonusText(artifact)
+		end
+		
+		createLabel({
+			Name = "Icon",
+			Text = iconStr,
+			Size = 24,
+			AlignX = Enum.TextXAlignment.Center,
+			FrameSize = UDim2.new(0, 40, 1, 0),
+			Parent = slotFrame,
+		})
+		
+		createLabel({
+			Name = "SlotLabel",
+			Text = slotName:upper(),
+			Size = 9,
+			Color = COLORS.TEXT_DIM,
+			FrameSize = UDim2.new(1, -60, 0, 12),
+			Position = UDim2.new(0, 42, 0, 4),
+			Parent = slotFrame,
+		})
+		
+		createLabel({
+			Name = "NameLabel",
+			Text = nameStr,
+			Size = 12,
+			Color = color,
+			FrameSize = UDim2.new(1, -60, 0, 16),
+			Position = UDim2.new(0, 42, 0, 16),
+			Parent = slotFrame,
+		})
+		
+		if bonusStr ~= "" then
+			createLabel({
+				Name = "BonusLabel",
+				Text = bonusStr,
+				Size = 9,
+				Color = COLORS.ACCENT_GREEN,
+				FrameSize = UDim2.new(1, -60, 0, 12),
+				Position = UDim2.new(0, 42, 0, 32),
+				Parent = slotFrame,
+			})
+		end
+		
+		if artifact then
+			local removeBtn = createButton({
+				Name = "RemoveBtn",
+				Text = "Remove",
+				Color = COLORS.CLOSE_BTN,
+				Size = 10,
+				FrameSize = UDim2.new(0, 50, 0, 24),
+				Position = UDim2.new(1, -55, 0.5, -12),
+				Corner = 4,
+				Parent = slotFrame,
+			})
+			
+			removeBtn.MouseButton1Click:Connect(function()
+				UnequipArtifact:InvokeServer(currentData.unitGUID, slotName)
+				task.wait(0.2) -- Increased wait to ensure server sync
+				refreshEquipment()
+			end)
+		end
+	end
+	
+	-- 2. INVENTORY LIST
+	local unequipped = data.unequipped or {}
+	
+	if #unequipped == 0 then
+		createLabel({
+			Text = "No artifacts available...",
+			Color = COLORS.TEXT_DIM,
+			Size = 12,
+			AlignX = Enum.TextXAlignment.Center,
+			Parent = ui.invScroll,
+		})
+	else
+		for _, artifact in ipairs(unequipped) do
+			local itemFrame = createFrame({
+				Name = "Artifact",
+				Color = COLORS.CARD,
+				Size = UDim2.new(1, 0, 0, 50), -- Increased height for stats
+				Corner = 6,
+				Parent = ui.invScroll,
+			})
+			
+			-- Rarity bar
+			local bar = Instance.new("Frame")
+			bar.Size = UDim2.new(0, 4, 1, 0)
+			bar.BackgroundColor3 = getRarityColor(artifact.Rarity)
+			bar.BorderSizePixel = 0
+			bar.Parent = itemFrame
+			local c = Instance.new("UICorner")
+			c.CornerRadius = UDim.new(0, 2)
+			c.Parent = bar
+			
+			createLabel({
+				Text = artifact.BaseIcon or "📦",
+				Size = 20,
+				AlignX = Enum.TextXAlignment.Center,
+				FrameSize = UDim2.new(0, 30, 1, 0),
+				Position = UDim2.new(0, 8, 0, 0),
+				Parent = itemFrame,
+			})
+			
+			createLabel({
+				Text = artifact.Name,
+				Size = 12,
+				Color = getRarityColor(artifact.Rarity),
+				FrameSize = UDim2.new(1, -100, 0, 16),
+				Position = UDim2.new(0, 40, 0, 6),
+				Parent = itemFrame,
+			})
+			
+			createLabel({
+				Text = (ArtifactConfig.SlotIcons[artifact.Slot] or "") .. " " .. artifact.Slot,
+				Size = 10,
+				Color = COLORS.TEXT_DIM,
+				FrameSize = UDim2.new(1, -100, 0, 14),
+				Position = UDim2.new(0, 40, 0, 20),
+				Parent = itemFrame,
+			})
+			
+			local bonusStr = getBonusText(artifact)
+			if bonusStr ~= "" then
+				createLabel({
+					Text = bonusStr,
+					Size = 9,
+					Color = COLORS.ACCENT_GREEN,
+					FrameSize = UDim2.new(1, -100, 0, 12),
+					Position = UDim2.new(0, 40, 0, 34),
+					Parent = itemFrame,
+				})
+			end
+			
+			local equipBtn = createButton({
+				Text = "Equip",
+				Color = COLORS.ACCENT,
+				Size = 10,
+				FrameSize = UDim2.new(0, 50, 0, 24),
+				Position = UDim2.new(1, -55, 0.5, -12),
+				Corner = 4,
+				Parent = itemFrame,
+			})
+			
+			equipBtn.MouseButton1Click:Connect(function()
+				EquipArtifact:InvokeServer(currentData.unitGUID, artifact.GUID, artifact.Slot)
+				task.wait(0.2)
+				refreshEquipment()
+			end)
+		end
+	end
+	
+	ui.invScroll.CanvasSize = UDim2.new(0, 0, 0, ui.invLayout.AbsoluteContentSize.Y + 10)
+end
+
+--------------------------------------------------------------------------------
+-- MAIN LOGIC
+--------------------------------------------------------------------------------
+
 local function openUI(unitData)
 	currentData = unitData
 	selectedMode = unitData.currentMode or 1
@@ -494,12 +994,13 @@ local function openUI(unitData)
 	ui.titleLabel.Text = "⚙️ " .. (unitData.unitType or "Unknown")
 	ui.subtitleLabel.Text = string.format("Lv. %d • %s", unitData.level or 1, unitData.rarity or "Normal")
 	
-	-- Check synergy (client-side preview)
-	-- For now hide synergy banner — server handles actual synergy logic
-	ui.synergyBanner.Visible = false
-	
-	-- Populate mode cards
+	-- Setup both tabs
 	refreshModeCards()
+	setupPreview(unitData.unitType)
+	refreshEquipment()
+	
+	-- Reset tab to Production
+	switchTab("Production")
 	
 	-- Show
 	ui.gui.Enabled = true
@@ -510,6 +1011,10 @@ local function closeUI()
 	ui.gui.Enabled = false
 	isOpen = false
 	currentData = nil
+	if previewInstance then
+		previewInstance:Destroy()
+		previewInstance = nil
+	end
 end
 
 local function applyMode()
@@ -520,7 +1025,9 @@ local function applyMode()
 	if success then
 		-- Update local data
 		currentData.currentMode = selectedMode
-		refreshModeCards()
+		if isOpen and currentTab == "Production" then
+			refreshModeCards()
+		end
 		
 		-- Brief flash to confirm
 		ui.applyBtn.Text = "✓ Applied!"
@@ -571,5 +1078,21 @@ ModeChangedEvent.OnClientEvent:Connect(function(slotIndex, modeIndex, itemId)
 		currentData.currentMode = modeIndex
 		selectedMode = modeIndex
 		refreshModeCards()
+	end
+end)
+
+ui.invLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+	ui.invScroll.CanvasSize = UDim2.new(0, 0, 0, ui.invLayout.AbsoluteContentSize.Y + 10)
+end)
+
+-- Auto refresh artifact list if changes occur
+ArtifactDroppedEvent.OnClientEvent:Connect(function()
+	if isOpen and currentTab == "Equipment" then
+		refreshEquipment()
+	end
+end)
+ArtifactEquippedEvent.OnClientEvent:Connect(function()
+	if isOpen and currentTab == "Equipment" then
+		refreshEquipment()
 	end
 end)

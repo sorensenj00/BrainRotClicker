@@ -86,6 +86,7 @@ local cartCapacity = 0
 local cartState = "idle"
 local marketPrices = {}         -- {[itemId] = {currentPrice, sector, sectorRate, ...}}
 local sectorRates = {}          -- {[sector] = rate}
+local itemRates = {}            -- {[itemId] = rate}
 local sectorHistories = {}      -- {[sector] = {number}}
 local sectorSparklines = {}     -- {[sector] = SparklineRenderer}
 local inspectedItem = nil       -- itemId currently inspected (nil = sector view)
@@ -163,22 +164,26 @@ local function getItemSector(itemId)
 	return "Neutral"
 end
 
--- Get live sector rate for an item
-local function getItemSectorRate(itemId)
+-- Get live rate for an item (prefers individual item rate, falls back to sector)
+local function getItemRate(itemId)
+	-- If we have an individual rate, use it
+	if itemRates[itemId] then return itemRates[itemId] end
+	
+	-- Fallback to sector rate
 	local sector = getItemSector(itemId)
 	return sectorRates[sector] or 1.0
 end
 
--- Compute live market price for an item (basePrice × sectorRate)
+-- Compute live market price for an item (basePrice × rate)
 local function getLivePrice(itemId)
 	local info = ItemConfig.Items[itemId]
 	if not info then return 0 end
-	local rate = getItemSectorRate(itemId)
+	local rate = getItemRate(itemId)
 	return math.floor((info.basePrice or 1) * rate)
 end
 
 local function getTrendForItem(itemId)
-	return getItemSectorRate(itemId)
+	return getItemRate(itemId)
 end
 
 local function parseSectorRates()
@@ -826,7 +831,7 @@ function showItemInspector(itemId)
 
 	local itemInfo = ItemConfig.Items[itemId] or {}
 	local sector = getItemSector(itemId)
-	local rate = getItemSectorRate(itemId)
+	local rate = getItemRate(itemId)
 	local price = getLivePrice(itemId)
 	local trending = rate >= 1.0
 

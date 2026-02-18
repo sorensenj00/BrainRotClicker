@@ -90,6 +90,7 @@ local StockMarketManager = {}
 local Services = {}
 
 local sectorRates = {}        -- { [sector] = currentMarketRate }
+local itemRates = {}          -- { [itemId] = currentItemRate }
 local bailoutRates = {}       -- { [sector] = bailoutRate }
 local sectorHistories = {}
 local sectorTrends = {}       -- { [sector] = currentSmoothedTrend }
@@ -116,6 +117,12 @@ end
 local function serializeSectorRates()
 	local t = {}
 	for c, r in pairs(sectorRates) do t[c] = math.floor(r * 1000) / 1000 end
+	return HttpService:JSONEncode(t)
+end
+
+local function serializeItemRates()
+	local t = {}
+	for id, r in pairs(itemRates) do t[id] = math.floor(r * 1000) / 1000 end
 	return HttpService:JSONEncode(t)
 end
 
@@ -167,6 +174,15 @@ local function getJitter(sectorName: string): number
 	local timeOffset = os.clock() * CONFIG.JITTER_SPEED
 	local noise = math.noise(timeOffset, seed * 0.1, 0) -- Returns -0.5 to 0.5
 	return 1 + (noise * CONFIG.JITTER_AMPLITUDE)
+end
+
+-- Item-specific jitter (faster and more volatile)
+local function getItemJitter(itemId: string, volatility: number): number
+	local seed = getSectorSeed(itemId) -- Reuse string hash
+	local timeOffset = os.clock() * (CONFIG.JITTER_SPEED * 1.5)
+	local noise = math.noise(timeOffset, seed * 0.15, 42) -- Different salt
+	-- Volatility scales the amplitude
+	return 1 + (noise * volatility * 0.5) 
 end
 
 --[[
@@ -261,6 +277,22 @@ local function computeGlobalRates(totalVolumes: {[string]: number})
 			table.remove(sectorHistories[sector], 1)
 		end
 	end
+	
+	-- Update Item Rates based on new Sector Rates
+	local ItemConfig = require(ReplicatedStorage.Shared.ItemConfig)
+	for itemId, itemDef in pairs(ItemConfig.Items) do
+		local sector = ItemConfig.GetSector(itemDef.displayName) -- Optimization: Cache this if slow
+		local baseRate = sectorRates[sector] or 1.0
+		
+		-- Apply individual item volatility
+		-- Items with high volatility (Tier 4) deviate more from the sector average
+		local divergence = getItemJitter(itemId, itemDef.volatility or 0.1)
+		
+		local finalRate = baseRate * divergence
+		finalRate = math.clamp(finalRate, CONFIG.MIN_RATE, 5.0) -- Items can go slightly higher than sector cap
+		
+		itemRates[itemId] = finalRate
+	end
 end
 
 local function performGlobalRead()
@@ -328,6 +360,7 @@ local function replicateToClients()
 	local avgRate = sum / #SECTORS
 	
 	stockMarketFolder:SetAttribute("SectorRates", serializeSectorRates())
+	stockMarketFolder:SetAttribute("ItemRates", serializeItemRates())
 	stockMarketFolder:SetAttribute("SectorHistories", serializeSectorHistories())
 	stockMarketFolder:SetAttribute("Sectors", HttpService:JSONEncode(SECTORS))
 	stockMarketFolder:SetAttribute("SectorColors", HttpService:JSONEncode(SECTOR_COLORS))
@@ -377,6 +410,18 @@ local function updateMarketLocal()
 			table.remove(sectorHistories[cat], 1)
 		end
 	end
+	
+	-- Update Item Rates (Local Fallback)
+	local ItemConfig = require(ReplicatedStorage.Shared.ItemConfig)
+	for itemId, itemDef in pairs(ItemConfig.Items) do
+		local sector = ItemConfig.GetSector(itemDef.displayName)
+		local baseRate = sectorRates[sector] or 1.0
+		local divergence = getItemJitter(itemId, itemDef.volatility or 0.1)
+		local finalRate = baseRate * divergence
+		
+		itemRates[itemId] = math.clamp(finalRate, CONFIG.MIN_RATE, 5.0)
+	end
+	
 	replicateToClients()
 end
 
@@ -403,6 +448,12 @@ function StockMarketManager.Init(services)
 		end
 		ServerSalesBuffer[cat] = 0
 		sectorTrends[cat] = 1.0
+	end
+	
+	-- Initialize item rates
+	local ItemConfig = require(ReplicatedStorage.Shared.ItemConfig)
+	for itemId, _ in pairs(ItemConfig.Items) do
+		itemRates[itemId] = CONFIG.STARTING_RATE
 	end
 	
 	-- Static attributes
@@ -487,6 +538,7 @@ end
 
 -- Getters (backward compatible)
 StockMarketManager.GetSectorRate = function(c) return sectorRates[c] or 1.0 end
+StockMarketManager.GetItemRate = function(id) return itemRates[id] or 1.0 end
 StockMarketManager.GetBailoutRate = function(c) return bailoutRates[c] or CONFIG.BAILOUT_FLOOR end
 StockMarketManager.GetAllSectorRates = function() return table.clone(sectorRates) end
 StockMarketManager.GetAllBailoutRates = function() return table.clone(bailoutRates) end

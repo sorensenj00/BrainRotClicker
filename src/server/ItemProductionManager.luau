@@ -14,13 +14,12 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Lazy Configs
-local ItemConfig, TileConfig, ArtifactConfig
+local ItemConfig, ArtifactConfig
 
 local function loadConfigs()
 	if not ItemConfig then
 		local Shared = ReplicatedStorage:WaitForChild("Shared")
 		ItemConfig = require(Shared:WaitForChild("ItemConfig"))
-		TileConfig = require(Shared:WaitForChild("TileConfig"))
 		ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
 	end
 end
@@ -106,20 +105,11 @@ local function calculateUnitBonuses(player, brainrot)
 	
 	if not brainrot then return bonuses end
 
-	local slotIndex = brainrot:GetAttribute("GridSlot")
+	local _slotIndex = brainrot:GetAttribute("GridSlot")
 	local unitGUID = brainrot:GetAttribute("UnitId")
-	local unitType = brainrot:GetAttribute("UnitType")
+	local _unitType = brainrot:GetAttribute("UnitType")
 	
-	-- Tile Bonus
-	local GridManager = rawget(Services, "GridManager")
-	if slotIndex and GridManager and GridManager.GetTileAtSlot then
-		local tileId = GridManager.GetTileAtSlot(player, slotIndex)
-		if tileId and unitType then
-			local tileBonus = TileConfig.GetBonus(tileId, unitType)
-			bonuses.speedMult = bonuses.speedMult * tileBonus.SpeedMult
-			bonuses.luckMult = bonuses.luckMult * tileBonus.LuckMult
-		end
-	end
+	-- Tile Bonus (REMOVED)
 	
 	-- Artifact Bonus
 	local ArtifactManager = rawget(Services, "ArtifactManager")

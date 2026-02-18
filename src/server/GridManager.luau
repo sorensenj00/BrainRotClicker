@@ -11,16 +11,7 @@ local _CollectionService = game:GetService("CollectionService")
 
 -- Shared configs
 -- Shared configs (Lazy Loaded)
-local TileConfig
 local ItemConfig
-
-local function getTileConfig()
-	if not TileConfig then
-		local Shared = ReplicatedStorage:WaitForChild("Shared")
-		TileConfig = require(Shared:WaitForChild("TileConfig"))
-	end
-	return TileConfig
-end
 
 local function getItemConfig()
 	if not ItemConfig then
@@ -35,7 +26,6 @@ local DataService -- Will be set from Services.DataService
 
 -- Constants
 local _BRAINROT_TAG = "Brainrot"
-local _TILE_TAG = "GridTile"
 local CONFIG = {
 	TILE_SIZE = 10,
 	GRID_SIZES = {
@@ -95,14 +85,6 @@ local RemoveBrainrotFunction = RemoteEvents:FindFirstChild("RemoveBrainrot") or 
 RemoveBrainrotFunction.Name = "RemoveBrainrot"
 RemoveBrainrotFunction.Parent = RemoteEvents
 
-local PlaceTileFunction = RemoteFunctions:FindFirstChild("PlaceTile") or Instance.new("RemoteFunction")
-PlaceTileFunction.Name = "PlaceTile"
-PlaceTileFunction.Parent = RemoteFunctions
-
-local RemoveTileFunction = RemoteFunctions:FindFirstChild("RemoveTile") or Instance.new("RemoteFunction")
-RemoveTileFunction.Name = "RemoveTile"
-RemoveTileFunction.Parent = RemoteFunctions
-
 local SetUnitModeFunction = RemoteFunctions:FindFirstChild("SetUnitMode") or Instance.new("RemoteFunction")
 SetUnitModeFunction.Name = "SetUnitMode"
 SetUnitModeFunction.Parent = RemoteFunctions
@@ -135,7 +117,6 @@ local function getPlayerGrid(player)
 		PlayerGrids[player.UserId] = {
 			gridSize = CONFIG.DEFAULT_GRID,
 			slots = {},
-			tileInstances = {},
 		}
 	end
 	return PlayerGrids[player.UserId]
@@ -143,7 +124,7 @@ end
 
 local function getSlotData(gridData, slotIndex)
 	if not gridData.slots[slotIndex] then
-		gridData.slots[slotIndex] = { Unit = nil, Tile = nil, CurrentMode = 1 }
+		gridData.slots[slotIndex] = { Unit = nil, CurrentMode = 1 }
 	end
 	-- Migration: ensure CurrentMode exists for legacy data
 	if gridData.slots[slotIndex].CurrentMode == nil then
@@ -189,13 +170,7 @@ local function getPlotSize(plot)
 	return Vector3.new(50, 10, 50)
 end
 
-local function getTileAtSlot(player, slotIndex)
-	local gridData = getPlayerGrid(player)
-	local slot = gridData.slots[slotIndex]
-	return slot and slot.Tile
-end
-
-local function getFloorTopY(player)
+local function _getFloorTopY(player)
 	local plot = findPlayerPlot(player)
 	if not plot then return 10 end
 	local floor = plot:FindFirstChild("Island") or plot:FindFirstChild("PlotFloor") or plot:FindFirstChild("Floor") or plot:FindFirstChildWhichIsA("BasePart")
@@ -213,11 +188,6 @@ local function getSlotCFrame(player, slotIndex)
 	local plotSize = getPlotSize(plot)
 	
 	local posY = plotCenter.Y + (plotSize.Y / 2) + CONFIG.GRID_OFFSET_Y
-	local tileId = getTileAtSlot(player, slotIndex)
-	if tileId then 
-		local tc = getTileConfig()
-		posY = posY + tc.TileHeight 
-	end
 	
 	local CLUSTER_SIZE = 2
 	local TILE_SPACING = CONFIG.TILE_SIZE
@@ -259,63 +229,23 @@ local function repositionUnitOnTile(player, brainrot, slotIndex)
 	brainrot:PivotTo(baseCFrame)
 end
 
-local function createTileVisual(player, slotIndex, tileId)
-	local tc = getTileConfig()
-	local tileData = tc.GetTile(tileId)
-	if not tileData then return nil end
-	local plot = findPlayerPlot(player)
-	if not plot then return nil end
-	
-	local baseCFrame = getSlotCFrame(player, slotIndex)
-	local floorTopY = getFloorTopY(player)
-	local tileY = floorTopY + (tc.TileHeight / 2)
-	
-	local tilePart = Instance.new("Part")
-	tilePart.Name = "GridTile_" .. slotIndex
-	tilePart.Size = Vector3.new(tc.TileSize, tc.TileHeight, tc.TileSize)
-	tilePart.Anchored = true
-	tilePart.CanCollide = false
-	tilePart.Material = Enum.Material.SmoothPlastic
-	tilePart.Color = tileData.Color
-	tilePart.Transparency = 0.2
-	tilePart.Position = Vector3.new(baseCFrame.Position.X, tileY, baseCFrame.Position.Z)
-	
-	local highlight = Instance.new("SurfaceLight")
-	highlight.Color = tileData.Color
-	highlight.Brightness = 0.3
-	highlight.Range = 4
-	highlight.Face = Enum.NormalId.Top
-	highlight.Parent = tilePart
-	
-	tilePart:SetAttribute("TileId", tileId)
-	tilePart:SetAttribute("SlotIndex", slotIndex)
-	
-	local tilesFolder = plot:FindFirstChild("GridTiles") or Instance.new("Folder", plot)
-	tilesFolder.Name = "GridTiles"
-	tilePart.Parent = tilesFolder
-	
-	return tilePart
-end
-
 local function syncToProfile(player)
 	local ds = getDataService()
 	if ds and ds.IsLoaded(player) then
 		local gridData = getPlayerGrid(player)
 		local positions = {}
 		for idx, slotInfo in pairs(gridData.slots) do
-			if slotInfo.Unit or slotInfo.Tile then
-				local entry = { Unit = nil, Tile = slotInfo.Tile, CurrentMode = slotInfo.CurrentMode or 1 }
-				if slotInfo.Unit then
-					local u = slotInfo.Unit
-					local uType = u:GetAttribute("UnitType")
-					if uType then
-						entry.Unit = {
-							unitType = uType,
-							rarity = u:GetAttribute("Rarity") or "Normal",
-							level = u:GetAttribute("Level") or 1,
-							unitId = u:GetAttribute("UnitId"),
-						}
-					end
+			if slotInfo.Unit then
+				local entry = { Unit = nil, CurrentMode = slotInfo.CurrentMode or 1 }
+				local u = slotInfo.Unit
+				local uType = u:GetAttribute("UnitType")
+				if uType then
+					entry.Unit = {
+						unitType = uType,
+						rarity = u:GetAttribute("Rarity") or "Normal",
+						level = u:GetAttribute("Level") or 1,
+						unitId = u:GetAttribute("UnitId"),
+					}
 				end
 				positions[tostring(idx)] = entry
 			end
@@ -381,11 +311,6 @@ function GridManager.Init(services)
 				for slotIndexStr, slotData in pairs(data) do
 					local slotIndex = tonumber(slotIndexStr)
 					if slotIndex then
-						-- Restore Tile
-						if slotData.Tile then
-							GridManager.PlaceTile(player, slotIndex, slotData.Tile)
-						end
-						
 						-- Restore CurrentMode (default to 1 for migration)
 						local slot = getSlotData(gridData, slotIndex)
 						slot.CurrentMode = slotData.CurrentMode or 1
@@ -437,10 +362,9 @@ function GridManager.Init(services)
 			slots = {}
 		}
 		for k, v in pairs(gridData.slots) do
-			if v.Unit or v.Tile then
+			if v.Unit then
 				serialized.slots[k] = {
-					Tile = v.Tile,
-					UnitName = v.Unit and v.Unit.Name or nil
+					UnitName = v.Unit.Name
 				}
 			end
 		end
@@ -527,7 +451,6 @@ function GridManager.PlaceUnitFromInventory(player, unitName, arg2, arg3)
 		end
 	end
 	
-	-- 3. Recovery if unit missing physically but owned
 	-- 3. Recovery if unit missing physically but owned
 	if not unit then
 		-- Force Spawn using SpawnForGrid (avoids duplicate AddUnit call)
@@ -629,11 +552,8 @@ function GridManager.GetGridPositions(player)
 					level = v.Unit:GetAttribute("Level"),
 					unitId = v.Unit:GetAttribute("UnitId")
 				},
-				Tile = v.Tile,
 				CurrentMode = v.CurrentMode or 1,
 			}
-		elseif v.Tile then
-			export[tostring(k)] = { Tile = v.Tile, CurrentMode = v.CurrentMode or 1 }
 		end
 	end
 	return export
@@ -682,41 +602,10 @@ function GridManager.SetUnitMode(player, slotIndex, modeIndex)
 	return true
 end
 
-function GridManager.GetTileAtSlot(player, slotIndex)
-	return getTileAtSlot(player, slotIndex)
-end
-
-function GridManager.PlaceTile(player, slotIndex, tileId)
-	local tc = getTileConfig()
-	if not tc.GetTile(tileId) then return false end
-	local gridData = getPlayerGrid(player)
-	local slot = getSlotData(gridData, slotIndex)
-	
-	-- Remove old
-	if gridData.tileInstances[slotIndex] then
-		gridData.tileInstances[slotIndex]:Destroy()
-		gridData.tileInstances[slotIndex] = nil
-	end
-	
-	slot.Tile = tileId
-	local visual = createTileVisual(player, slotIndex, tileId)
-	if visual then gridData.tileInstances[slotIndex] = visual end
-	
-	if slot.Unit then repositionUnitOnTile(player, slot.Unit, slotIndex) end
-	
-	syncToProfile(player)
-	return true
-end
-
 function GridManager.ClearGrid(player)
 	local gridData = PlayerGrids[player.UserId]
 	if not gridData then return end
 	
-	-- Destroy tile visuals
-	for _, visual in pairs(gridData.tileInstances) do
-		if visual then visual:Destroy() end
-	end
-	gridData.tileInstances = {}
 	gridData.slots = {}
 	
 	-- Ensure the grid is cleared in DataService

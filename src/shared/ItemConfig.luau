@@ -699,6 +699,33 @@ function ItemConfig.GetAvailableModes(modelName: string, level: number): {{modeI
 end
 
 --[[
+    V3: Get full info for a specific mode.
+    Used by UI to get details for the currently active mode.
+]]
+function ItemConfig.GetMode(modelName: string, level: number, modeIndex: number)
+    local modes = ItemConfig.BrainrotModes[modelName]
+    if not modes then return nil end
+    
+    -- Default to mode 1 if index is invalid or nil
+    modeIndex = modeIndex or 1
+    local mode = modes[math.clamp(modeIndex, 1, #modes)]
+    if not mode then return nil end
+    
+    local isUnlocked = level >= mode.unlockLevel
+    local speedMult = ItemConfig.SpeedExponent ^ (level - 1)
+    local adjustedRate = mode.rate / speedMult
+    adjustedRate = math.max(adjustedRate, 0.1)
+    
+    return {
+        modeIndex = modeIndex,
+        itemId = mode.itemId,
+        unlockLevel = mode.unlockLevel,
+        isUnlocked = isUnlocked,
+        rate = adjustedRate,
+    }
+end
+
+--[[
     Determines the stock market Sector for a brainrot based on its name.
     Replaces the old hardcoded Category system.
 ]]

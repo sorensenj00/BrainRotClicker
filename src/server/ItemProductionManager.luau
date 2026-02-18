@@ -69,9 +69,16 @@ end
 -- Find the physical brainrot model for a given slot
 local function findUnitInSlot(player, slotIndex)
 	local plot = nil
-	local BrainrotManager = rawget(Services, "BrainrotManager")
-	if BrainrotManager then
-		plot = BrainrotManager.GetPlayerPlot(player)
+	local MapSystem = rawget(Services, "MapSystem")
+	if MapSystem and MapSystem.GetPlayerPlot then
+		plot = MapSystem.GetPlayerPlot(player)
+	end
+
+	if not plot then
+		local BrainrotManager = rawget(Services, "BrainrotManager")
+		if BrainrotManager then
+			plot = BrainrotManager.GetPlayerPlot(player)
+		end
 	end
 
 	if not plot then

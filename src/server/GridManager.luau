@@ -13,6 +13,7 @@ local _CollectionService = game:GetService("CollectionService")
 -- Shared configs (Lazy Loaded)
 local TileConfig
 local ItemConfig
+local GridTopology
 
 local function getTileConfig()
 	if not TileConfig then
@@ -20,6 +21,14 @@ local function getTileConfig()
 		TileConfig = require(Shared:WaitForChild("TileConfig"))
 	end
 	return TileConfig
+end
+
+local function getGridTopology()
+	if not GridTopology then
+		local Shared = ReplicatedStorage:WaitForChild("Shared")
+		GridTopology = require(Shared:WaitForChild("GridTopology"))
+	end
+	return GridTopology
 end
 
 local function getItemConfig()
@@ -164,6 +173,12 @@ local function getTotalSlots(player)
 end
 
 local function findPlayerPlot(player)
+	local MapSystem = rawget(Services, "MapSystem")
+	if MapSystem and MapSystem.GetPlayerPlot then
+		local p = MapSystem.GetPlayerPlot(player)
+		if p then return p end
+	end
+
 	-- Assumes plots are in Workspace.Plots and have OwnerId attribute
 	local plotsFolder = workspace:FindFirstChild("Plots")
 	if not plotsFolder then return nil end
@@ -173,20 +188,15 @@ local function findPlayerPlot(player)
 	return nil
 end
 
-local function getPlotCenter(plot)
+local function getPlotCFrameAndSize(plot)
 	local floor = plot:FindFirstChild("Island") or plot:FindFirstChild("PlotFloor") or plot:FindFirstChild("Floor") or plot:FindFirstChildWhichIsA("BasePart")
-	if floor and floor:IsA("BasePart") then return floor.Position end
-	if plot:IsA("Model") then return plot:GetBoundingBox().Position end
-	if plot:IsA("BasePart") then return plot.Position end
-	return Vector3.new(0, 5, 0)
-end
-
-local function getPlotSize(plot)
-	local floor = plot:FindFirstChild("Island") or plot:FindFirstChild("PlotFloor") or plot:FindFirstChild("Floor") or plot:FindFirstChildWhichIsA("BasePart")
-	if floor and floor:IsA("BasePart") then return floor.Size end
-	if plot:IsA("BasePart") then return plot.Size end
-	if plot:IsA("Model") then local _, size = plot:GetBoundingBox(); return size end
-	return Vector3.new(50, 10, 50)
+	if floor and floor:IsA("BasePart") then return floor.CFrame, floor.Size end
+	if plot:IsA("Model") then
+		local cf, size = plot:GetBoundingBox()
+		return cf, size
+	end
+	if plot:IsA("BasePart") then return plot.CFrame, plot.Size end
+	return CFrame.new(0, 5, 0), Vector3.new(50, 10, 50)
 end
 
 local function getTileAtSlot(player, slotIndex)
@@ -209,43 +219,16 @@ local function getSlotCFrame(player, slotIndex)
 	local plot = findPlayerPlot(player)
 	if not plot then return CFrame.new(0, 10, 0) end
 	
-	local plotCenter = getPlotCenter(plot)
-	local plotSize = getPlotSize(plot)
+	local plotCF, plotSize = getPlotCFrameAndSize(plot)
 	
-	local posY = plotCenter.Y + (plotSize.Y / 2) + CONFIG.GRID_OFFSET_Y
 	local tileId = getTileAtSlot(player, slotIndex)
+	local tileHeight = 0
 	if tileId then 
 		local tc = getTileConfig()
-		posY = posY + tc.TileHeight 
+		tileHeight = tc.TileHeight
 	end
 	
-	local CLUSTER_SIZE = 2
-	local TILE_SPACING = CONFIG.TILE_SIZE
-	local cornerOffsetX = (plotSize.X / 2) - (CLUSTER_SIZE * TILE_SPACING / 2) - TILE_SPACING
-	local cornerOffsetZ = (plotSize.Z / 2) - (CLUSTER_SIZE * TILE_SPACING / 2) - TILE_SPACING
-	
-	local cornerIndex = math.floor((slotIndex - 1) / 4)
-	local posInCorner = (slotIndex - 1) % 4
-	
-	local localRow = math.floor(posInCorner / 2)
-	local localCol = posInCorner % 2
-	
-	local cornerPositions = {
-		{x = -cornerOffsetX, z = -cornerOffsetZ},
-		{x = cornerOffsetX, z = -cornerOffsetZ},
-		{x = -cornerOffsetX, z = cornerOffsetZ},
-		{x = cornerOffsetX, z = cornerOffsetZ},
-	}
-	local corner = cornerPositions[cornerIndex + 1] or cornerPositions[1]
-	
-	local posX = plotCenter.X + corner.x + (localCol - 0.5) * TILE_SPACING
-	local posZ = plotCenter.Z + corner.z + (localRow - 0.5) * TILE_SPACING
-	
-	local unitPos = Vector3.new(posX, posY, posZ)
-	local lookDirection = (plotCenter - unitPos) * Vector3.new(1, 0, 1)
-	
-	if lookDirection.Magnitude == 0 then lookDirection = Vector3.new(0, 0, -1) end
-	return CFrame.lookAt(unitPos, unitPos + lookDirection)
+	return getGridTopology().GetSlotCFrame(plotCF, plotSize, slotIndex, tileHeight)
 end
 
 local function repositionUnitOnTile(player, brainrot, slotIndex)
@@ -640,9 +623,7 @@ function GridManager.GetGridPositions(player)
 end
 
 function GridManager.GetClusterSlots(slotIndex)
-	local clusterIdx = math.floor((slotIndex - 1) / 4)
-	local baseSlot = clusterIdx * 4 + 1
-	return { baseSlot, baseSlot + 1, baseSlot + 2, baseSlot + 3 }
+	return getGridTopology().GetClusterSlots(slotIndex)
 end
 
 function GridManager.SetUnitMode(player, slotIndex, modeIndex)

@@ -13,6 +13,7 @@ local TweenService = game:GetService("TweenService")
 local CollectionService = game:GetService("CollectionService")
 
 local BuildGridVisualizer = require(script.Parent.BuildGridVisualizer)
+local Signal = require(ReplicatedStorage.Shared.Signal)
 
 local BuildInteractionService = {}
 export type BuildInteractionService = {
@@ -24,18 +25,18 @@ export type BuildInteractionService = {
 	IsDragging: () -> boolean,
 	GetHoveredSlot: () -> number?,
 	GetDraggedFromSlot: () -> number?,
-	StatusChanged: RBXScriptSignal,
-	UnitDropped: RBXScriptSignal,
-	UnitMoved: RBXScriptSignal,
+	StatusChanged: Signal.Signal,
+	UnitDropped: Signal.Signal,
+	UnitMoved: Signal.Signal,
 }
 
 
 -- Events
-local StatusChanged = Instance.new("BindableEvent")
-BuildInteractionService.StatusChanged = StatusChanged.Event
+local StatusChanged = Signal.new()
+BuildInteractionService.StatusChanged = StatusChanged
 
-local UnitDropped = Instance.new("BindableEvent")
-BuildInteractionService.UnitDropped = UnitDropped.Event
+local UnitDropped = Signal.new()
+BuildInteractionService.UnitDropped = UnitDropped
 
 -- Config
 local CONFIG = {
@@ -209,22 +210,14 @@ local draggedFromSlot = nil
 local originalUnitModel = nil
 
 -- New Event
-local UnitMoved = Instance.new("BindableEvent")
-BuildInteractionService.UnitMoved = UnitMoved.Event
+local UnitMoved = Signal.new()
+BuildInteractionService.UnitMoved = UnitMoved
 
 --------------------------------------------------------------------------------
 -- HELPERS
 --------------------------------------------------------------------------------
 
-local function getPlayerPlot()
-	local player = Players.LocalPlayer
-	local plots = workspace:FindFirstChild("Plots")
-	if not plots then return nil end
-	for _, p in plots:GetChildren() do
-		if p:GetAttribute("OwnerId") == player.UserId then return p end
-	end
-	return nil
-end
+-- (getPlayerPlot is already defined above)
 
 -- ... (Existing helpers: getMousePlanePosition, getSlotUnderMouse, setModelTransparency, setModelColor, createGhost) ...
 

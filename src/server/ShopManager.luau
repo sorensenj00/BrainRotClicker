@@ -45,12 +45,44 @@ GetOwnershipRemote.Parent = RemoteEvents
 local ShopManager = {}
 local Services = {}
 
+local CollectionService = game:GetService("CollectionService")
+
 -- State
 local PlayerUnlockProgress = {} 
 
 --------------------------------------------------------------------------------
 -- HELPER FUNCTIONS
 --------------------------------------------------------------------------------
+
+local function setupShopVendor()
+	local mainIsland = workspace:WaitForChild("MainIsland", 30)
+	if not mainIsland then return end
+	
+	local shopsFolder = mainIsland:WaitForChild("Shops", 30)
+	if not shopsFolder then return end
+	
+	-- Look for "UnitShop" in the Shops folder
+	local existingVendor = shopsFolder:WaitForChild("UnitShop", 30)
+	if not existingVendor then return end
+	
+	if CollectionService:HasTag(existingVendor, "UnitShopVisual") then
+		return
+	end
+	
+	CollectionService:AddTag(existingVendor, "UnitShopVisual")
+	
+	-- Ensure it has a prompt
+	local primary = existingVendor.PrimaryPart or existingVendor:FindFirstChildWhichIsA("BasePart")
+	if primary and not existingVendor:FindFirstChild("ShopPrompt", true) then
+		local pp = Instance.new("ProximityPrompt")
+		pp.Name = "ShopPrompt"
+		pp.ActionText = "Open Shop"
+		pp.ObjectText = "Brainrot Shop"
+		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.Parent = primary
+	end
+end
+
 
 local function initializePlayerData(player)
 	PlayerUnlockProgress[player] = ShopConfig.INITIAL_UNLOCKED
@@ -113,6 +145,8 @@ function ShopManager.Init(services)
 	
 	-- Preload Configs
 	getConfigs()
+	
+	task.spawn(setupShopVendor)
 	
 	for _, p in Players:GetPlayers() do initializePlayerData(p) end
 

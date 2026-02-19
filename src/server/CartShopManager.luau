@@ -36,53 +36,28 @@ local PlayerCartUpgrades = {}
 -- HELPERS
 --------------------------------------------------------------------------------
 
-local function createCartShopVendor()
+local function setupCartShopVendor()
 	local mainIsland = workspace:WaitForChild("MainIsland", 10)
 	if not mainIsland then return end
-	if mainIsland:FindFirstChild("CartShopVendor") then return end
 	
-	local center = Vector3.new(0, 30, 0)
-	local ip = mainIsland:FindFirstChild("Island") or mainIsland:FindFirstChildWhichIsA("BasePart")
-	if ip then center = ip.Position end
+	local shopsFolder = mainIsland:WaitForChild("Shops", 10)
+	if not shopsFolder then return end
 	
-	local part = Instance.new("Part")
-	part.Name = "CartShopVendor"
-	part.Size = Vector3.new(6, 8, 6)
-	part.BrickColor = BrickColor.new("Bright yellow")
-	part.Material = Enum.Material.Neon
-	part.Anchored = true
-	-- Offset from center, maybe opposite side of storage/island shop
-	part.Position = center + Vector3.new(30, 10, 30) 
+	local vendor = shopsFolder:WaitForChild("CartShop", 10)
+	if not vendor then return end
 	
-	local bb = Instance.new("BillboardGui")
-	bb.Name = "ShopDisplay"
-	bb.Size = UDim2.new(6,0,3,0)
-	bb.StudsOffset = Vector3.new(0,6,0)
-	bb.Parent = part
+	CollectionService:AddTag(vendor, "CartShopVendor")
 	
-	local bg = Instance.new("Frame")
-	bg.BackgroundColor3 = Color3.fromRGB(60,60,20)
-	bg.BackgroundTransparency = 0.2
-	bg.Size = UDim2.new(1,0,1,0)
-	bg.Parent = bb
-	Instance.new("UICorner", bg).CornerRadius = UDim.new(0.1,0)
-	
-	local t = Instance.new("TextLabel")
-	t.Size = UDim2.new(1,0,0.4,0)
-	t.BackgroundTransparency = 1
-	t.Text = "🛒 CART SHOP"
-	t.TextColor3 = Color3.fromRGB(255,255,100)
-	t.TextScaled = true
-	t.Parent = bg
-	
-	local pp = Instance.new("ProximityPrompt")
-	pp.ActionText = "Upgrade Cart"
-	pp.ObjectText = "Cart Shop"
-	pp.KeyboardKeyCode = Enum.KeyCode.E
-	pp.Parent = part
-	
-	part.Parent = mainIsland
-	CollectionService:AddTag(part, "CartShopVendor")
+	-- Ensure prompt exists
+	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart")
+	if primary and not vendor:FindFirstChild("ShopPrompt", true) then
+		local pp = Instance.new("ProximityPrompt")
+		pp.Name = "ShopPrompt"
+		pp.ActionText = "Upgrade Cart"
+		pp.ObjectText = "Cart Shop"
+		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.Parent = primary
+	end
 end
 
 local function getMoney(player)
@@ -132,7 +107,7 @@ function CartShopManager.Init(services)
 	
 	task.spawn(function()
 		task.wait(2)
-		createCartShopVendor()
+		setupCartShopVendor()
 	end)
 	
 	PurchaseCartUpgradeEvent.OnServerEvent:Connect(function(player, upgradeType)

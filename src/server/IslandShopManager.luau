@@ -6,7 +6,7 @@
 	2. View their current tier status
 ]]
 
-local Players = game:GetService("Players")
+local _Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
@@ -41,52 +41,28 @@ local function getTierPrice(tierNumber)
 	return SHOP_CONFIG.BASE_TIER_PRICE * (SHOP_CONFIG.PRICE_MULTIPLIER ^ (tierNumber - 2))
 end
 
-local function createIslandShopVendor()
+local function setupIslandShopVendor()
 	local mainIsland = workspace:WaitForChild("MainIsland", 10)
 	if not mainIsland then return end
-	if mainIsland:FindFirstChild("IslandShopVendor") then return end
 	
-	local center = Vector3.new(0, 30, 0)
-	local ip = mainIsland:FindFirstChild("Island") or mainIsland:FindFirstChildWhichIsA("BasePart")
-	if ip then center = ip.Position end
+	local shopsFolder = mainIsland:WaitForChild("Shops", 10)
+	if not shopsFolder then return end
 	
-	local part = Instance.new("Part")
-	part.Name = "IslandShopVendor"
-	part.Size = SHOP_CONFIG.VENDOR_SIZE
-	part.BrickColor = BrickColor.new("Bright violet")
-	part.Material = Enum.Material.Neon
-	part.Anchored = true
-	part.Position = center + SHOP_CONFIG.VENDOR_POSITION_OFFSET
+	local vendor = shopsFolder:WaitForChild("IslandShop", 10)
+	if not vendor then return end
 	
-	local bb = Instance.new("BillboardGui")
-	bb.Name = "ShopDisplay"
-	bb.Size = UDim2.new(6,0,3,0)
-	bb.StudsOffset = Vector3.new(0,6,0)
-	bb.Parent = part
+	CollectionService:AddTag(vendor, "IslandShopVendor")
 	
-	local bg = Instance.new("Frame")
-	bg.BackgroundColor3 = Color3.fromRGB(40,20,60)
-	bg.BackgroundTransparency = 0.2
-	bg.Size = UDim2.new(1,0,1,0)
-	bg.Parent = bb
-	Instance.new("UICorner", bg).CornerRadius = UDim.new(0.1,0)
-	
-	local t = Instance.new("TextLabel")
-	t.Size = UDim2.new(1,0,0.4,0)
-	t.BackgroundTransparency = 1
-	t.Text = "🏝️ ISLAND SHOP"
-	t.TextColor3 = Color3.fromRGB(255,200,255)
-	t.TextScaled = true
-	t.Parent = bg
-	
-	local pp = Instance.new("ProximityPrompt")
-	pp.ActionText = "Open Island Shop"
-	pp.ObjectText = "Island Shop"
-	pp.KeyboardKeyCode = Enum.KeyCode.E
-	pp.Parent = part
-	
-	part.Parent = mainIsland
-	CollectionService:AddTag(part, "IslandShopVendor")
+	-- Ensure prompt exists
+	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart")
+	if primary and not vendor:FindFirstChild("ShopPrompt", true) then
+		local pp = Instance.new("ProximityPrompt")
+		pp.Name = "ShopPrompt"
+		pp.ActionText = "Open Island Shop"
+		pp.ObjectText = "Island Shop"
+		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.Parent = primary
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -97,10 +73,7 @@ function IslandShopManager.Init(services)
 	print("   IslandShopManager (Module) - Initializing")
 	Services = services or {}
 	
-	task.spawn(function()
-		task.wait(2)
-		createIslandShopVendor()
-	end)
+	task.spawn(setupIslandShopVendor)
 	
 	PurchaseTierEvent.OnServerEvent:Connect(function(player)
 		local s, m = IslandShopManager.HandleTierPurchase(player)

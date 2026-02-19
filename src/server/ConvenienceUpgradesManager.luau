@@ -16,7 +16,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ConvenienceUpgradesConfig = require(Shared:WaitForChild("ConvenienceUpgradesConfig"))
 
 -- Config
-local SHOP_CONFIG = {
+local _SHOP_CONFIG = {
 	VENDOR_SIZE = Vector3.new(6, 8, 6),
 	VENDOR_POSITION_OFFSET = Vector3.new(30, 10, -30),
 	BOT_SPEED = 30,
@@ -243,52 +243,28 @@ end
 -- VENDOR
 --------------------------------------------------------------------------------
 
-local function createConvenienceShopVendor()
+local function setupConvenienceShopVendor()
 	local mainIsland = workspace:WaitForChild("MainIsland", 10)
 	if not mainIsland then return end
-	if mainIsland:FindFirstChild("ConvenienceShopVendor") then return end
 	
-	local center = Vector3.new(0, 30, 0)
-	local ip = mainIsland:FindFirstChild("Island") or mainIsland:FindFirstChildWhichIsA("BasePart")
-	if ip then center = ip.Position end
+	local shopsFolder = mainIsland:WaitForChild("Shops", 10)
+	if not shopsFolder then return end
 	
-	local part = Instance.new("Part")
-	part.Name = "ConvenienceShopVendor"
-	part.Size = SHOP_CONFIG.VENDOR_SIZE
-	part.BrickColor = BrickColor.new("Bright orange")
-	part.Material = Enum.Material.Neon
-	part.Anchored = true
-	part.Position = center + SHOP_CONFIG.VENDOR_POSITION_OFFSET
+	local vendor = shopsFolder:WaitForChild("ConvenienceShop", 10)
+	if not vendor then return end
 	
-	local bb = Instance.new("BillboardGui")
-	bb.Name = "ShopDisplay"
-	bb.Size = UDim2.new(6,0,3,0)
-	bb.StudsOffset = Vector3.new(0,6,0)
-	bb.Parent = part
+	CollectionService:AddTag(vendor, "ConvenienceShopVendor")
 	
-	local bg = Instance.new("Frame")
-	bg.Size = UDim2.new(1,0,1,0)
-	bg.BackgroundColor3 = Color3.fromRGB(60,40,20)
-	bg.BackgroundTransparency = 0.2
-	bg.Parent = bb
-	Instance.new("UICorner", bg).CornerRadius = UDim.new(0.1,0)
-	
-	local t = Instance.new("TextLabel")
-	t.Size = UDim2.new(1,0,0.4,0)
-	t.BackgroundTransparency = 1
-	t.Text = "⚡ UPGRADES"
-	t.TextColor3 = Color3.fromRGB(255,200,100)
-	t.TextScaled = true
-	t.Parent = bg
-	
-	local pp = Instance.new("ProximityPrompt")
-	pp.ActionText = "Open Upgrades"
-	pp.ObjectText = "Convenience Shop"
-	pp.KeyboardKeyCode = Enum.KeyCode.E
-	pp.Parent = part
-	
-	part.Parent = mainIsland
-	CollectionService:AddTag(part, "ConvenienceShopVendor")
+	-- Ensure prompt exists
+	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart")
+	if primary and not vendor:FindFirstChild("ShopPrompt", true) then
+		local pp = Instance.new("ProximityPrompt")
+		pp.Name = "ShopPrompt"
+		pp.ActionText = "Open Upgrades"
+		pp.ObjectText = "Convenience Shop"
+		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.Parent = primary
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -349,7 +325,7 @@ function ConvenienceUpgradesManager.Init(services)
 		if p.Character then applyCharacterEffects(p) end
 	end
 	
-	task.spawn(createConvenienceShopVendor)
+	task.spawn(setupConvenienceShopVendor)
 	
 	PurchaseUpgradeEvent.OnServerEvent:Connect(function(player, name)
 		local s, m = ConvenienceUpgradesManager.HandleUpgradePurchase(player, name)

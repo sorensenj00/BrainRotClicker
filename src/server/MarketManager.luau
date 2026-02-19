@@ -125,11 +125,26 @@ local function reportSalesVolume(itemId, count)
 	if SM and SM.AddSalesVolume then
 		local sector = getItemSector(itemId)
 		if sector and sector ~= "Neutral" then
-			SM.AddSalesVolume(sector, count)
+			-- FIX: Weight the impact by the base price of the item!
+			local itemInfo = ItemConfig.Items[itemId]
+			local basePrice = itemInfo and itemInfo.basePrice or 1
+			
+			-- 10 items worth $5 = 50 volume weight. 1 item worth $50 = 50 volume weight.
+			local economicWeight = count * basePrice 
+			SM.AddSalesVolume(sector, economicWeight)
 		end
 	end
 end
 
+
+local function isNearMarket(player)
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return false end
+	
+	local distance = (hrp.Position - CONFIG.MARKET_POSITION).Magnitude
+	return distance <= 30 -- Verified 30 stud radius
+end
 
 --------------------------------------------------------------------------------
 -- API
@@ -148,6 +163,11 @@ function MarketManager.Init(services)
 end
 
 function MarketManager.SellItem(player, itemId, count)
+	if not isNearMarket(player) then
+		warn(player.Name .. " attempted to sell while far away from the market!")
+		return 0, 0
+	end
+
 	local ISM = rawget(Services, "ItemStorageManager")
 	if not ISM then return 0, 0 end
 	
@@ -175,6 +195,11 @@ function MarketManager.SellItem(player, itemId, count)
 end
 
 function MarketManager.SellAll(player)
+	if not isNearMarket(player) then
+		warn(player.Name .. " attempted to SellAll while far away from the market!")
+		return 0, 0
+	end
+
 	local ISM = rawget(Services, "ItemStorageManager")
 	if not ISM then return 0,0 end
 	

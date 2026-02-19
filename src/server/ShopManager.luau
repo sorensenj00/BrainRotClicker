@@ -166,12 +166,15 @@ function ShopManager.GetUnlockProgress(player)
 end
 
 function ShopManager.HandleBuyUnit(player, unitName)
-	-- Distance Check
+	-- Distance Check FIX
 	local mainIsland = workspace:FindFirstChild("MainIsland")
-	local shopVendor = mainIsland and mainIsland:FindFirstChild("ShopVendor")
+	local shopsFolder = mainIsland and mainIsland:FindFirstChild("Shops")
+	local shopVendor = shopsFolder and shopsFolder:FindFirstChild("UnitShop")
+	
 	if shopVendor and player.Character then
 		local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-		if hrp and (hrp.Position - shopVendor.Position).Magnitude > 20 then
+		-- Use GetPivot() to safely get the center of the shop model
+		if hrp and (hrp.Position - shopVendor:GetPivot().Position).Magnitude > 20 then
 			return false, "Too far from shop!"
 		end
 	end

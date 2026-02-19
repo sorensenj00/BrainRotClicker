@@ -7,7 +7,6 @@
 ]]
 
 local Players = game:GetService("Players")
-local DataStoreService = game:GetService("DataStoreService")
 
 local ProfileService = require(script.Parent.ProfileService)
 
@@ -36,6 +35,8 @@ type DataHandler = {
 	-- Note: ProfileService auto-saves the 'Data' table, so if you keep that table up-to-date,
 	-- you don't technically need this. But for legacy adapters, it's useful.
 	OnSave: (player: Player, data: any) -> (),
+	-- Called when data is unloaded/released. Use this to clear cache.
+	OnRelease: (player: Player) -> (),
 	-- Default data for this component (if structure is partitioned)
 	DefaultData: any?
 }
@@ -453,6 +454,15 @@ local function onPlayerRemoving(player: Player)
 		sanitizeInPlace(profile.Data)
 
 		profile:Release()
+		
+		-- Notify Handlers of release/cleanup
+		for key, handler in pairs(Handlers) do
+			if handler.OnRelease then
+				task.spawn(function()
+					handler.OnRelease(player)
+				end)
+			end
+		end
 	end
 end
 

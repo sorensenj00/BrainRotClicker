@@ -33,7 +33,9 @@ end
 ]]
 local function getJitter(sectorName: string): number
 	local seed = getSectorSeed(sectorName)
-	local timeOffset = os.clock() * CONFIG.JITTER_SPEED
+	-- FIX: Synchronized global time (workspace:GetServerTimeNow() is synced via NTP)
+	local globalTime = workspace:GetServerTimeNow() 
+	local timeOffset = globalTime * CONFIG.JITTER_SPEED
 	local noise = math.noise(timeOffset, seed * 0.1, 0) -- Returns -0.5 to 0.5
 	return 1 + (noise * CONFIG.JITTER_AMPLITUDE)
 end
@@ -45,9 +47,13 @@ end
 	Deterministic via timeKey + seed so all servers agree.
 ]]
 local function getSyntheticTrend(sectorName: string): number
-	local timeKey = math.floor(os.time() / CONFIG.TREND_PERIOD)
 	local seed = getSectorSeed(sectorName)
-	local rng = Random.new(timeKey + seed)
+	local globalTime = workspace:GetServerTimeNow()
+	
+	-- FIX: Add the seed to the time so sectors drift independently
+	local timeKey = math.floor((globalTime + seed) / CONFIG.TREND_PERIOD)
+	
+	local rng = Random.new(timeKey)
 
 	local roll = rng:NextNumber()
 

@@ -39,9 +39,10 @@ local SECTORS = MarketConfig.SECTORS
 --------------------------------------------------------------------------------
 
 local StockMarketManager = {}
-local Services = {}
+local _Services = {}
 
-local sectorRates = {}        -- { [sector] = currentMarketRate }
+local sectorRates = {}        -- { [sector] = currentMarketRate (DISPLAY RATE) }
+local baseSectorRates = {}    -- { [sector] = underlyingBaseRate (REAL VALUE) }
 local itemRates = {}          -- { [itemId] = currentItemRate }
 local bailoutRates = {}       -- { [sector] = bailoutRate }
 local sectorHistories = {}
@@ -157,32 +158,38 @@ local function computeGlobalRates(totalVolumes: {[string]: number})
 	for _, sector in ipairs(SECTORS) do
 		local vol = totalVolumes[sector] or 0
 		
-		-- Base rate from real player volume
-		local rawRate = CONFIG.STARTING_RATE * (1 - (vol * CONFIG.IMPACT_FACTOR))
-		rawRate += CONFIG.RECOVERY_RATE
+		-- FIX: Get the LAST rate, not the STARTING rate. Use a separate base rate to avoid feedback loops from jitter.
+		-- Note: We need to ensure baseSectorRates is initialized in Init. For now, fall back to current sectorRates or Start.
+		local currentBaseRate = baseSectorRates[sector] or sectorRates[sector] or CONFIG.STARTING_RATE
+		
+		-- Subtract impact and add recovery
+		-- Note: Impact depends on Volume * ImpactFactor. Since volume is now value-weighted, this works.
+		local rawRate = currentBaseRate - (vol * CONFIG.IMPACT_FACTOR) + (CONFIG.RECOVERY_RATE * dt)
 		
 		-- Get volatility from service
-		local smoothedTrend, jitter = MarketVolatilityService.CalculateVolatility(sector, dt)
+		-- rawRate is the "real" economic value. targetTrend is the "market maker" target.
+		local targetTrend, jitter = MarketVolatilityService.CalculateVolatility(sector, dt)
 		
+		-- Smoothly drift the real economy towards the artificial trend (Market Maker) when volume is low
 		if vol < CONFIG.DEAD_MARKET_THRESHOLD then
-			rawRate *= smoothedTrend
-		else
-			-- Even if players are trading, let the trend have *some* influence (e.g. 50%)
-			-- so Bear/Bull runs can fight player volume.
-			rawRate *= (1 + (smoothedTrend - 1) * 0.5)
+			rawRate = rawRate + (targetTrend - rawRate) * (CONFIG.TREND_DAMPING * dt)
 		end
 		
-		-- JITTER: Always-on Perlin noise micro-fluctuation
-		rawRate *= jitter
-		
-		-- Final clamp
+		-- Final clamp on the BASE rate
 		rawRate = math.clamp(rawRate, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
 		
-		sectorRates[sector] = rawRate
-		bailoutRates[sector] = math.max(rawRate, CONFIG.BAILOUT_FLOOR)
+		-- Save the REAL underlying value for next time
+		baseSectorRates[sector] = rawRate
+		
+		-- Apply JITTER: Always-on Perlin noise micro-fluctuation
+		-- This is the "Display Rate" / "Actual Sale Price"
+		local displayRate = math.clamp(rawRate * jitter, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
+		
+		sectorRates[sector] = displayRate
+		bailoutRates[sector] = math.max(displayRate, CONFIG.BAILOUT_FLOOR)
 		
 		-- Record history
-		table.insert(sectorHistories[sector], rawRate)
+		table.insert(sectorHistories[sector], displayRate)
 		if #sectorHistories[sector] > CONFIG.MAX_HISTORY then
 			table.remove(sectorHistories[sector], 1)
 		end
@@ -349,6 +356,7 @@ function StockMarketManager.Init(services)
 	-- Initialize all sector rates
 	for _, cat in ipairs(SECTORS) do
 		sectorRates[cat] = CONFIG.STARTING_RATE
+		baseSectorRates[cat] = CONFIG.STARTING_RATE
 		bailoutRates[cat] = CONFIG.STARTING_RATE
 		sectorHistories[cat] = {}
 		for i = 1, CONFIG.MAX_HISTORY do

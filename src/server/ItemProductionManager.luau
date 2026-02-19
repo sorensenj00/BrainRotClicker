@@ -197,6 +197,8 @@ local function produceItems(player)
 	if not cache then return end
 	
 	local now = tick()
+	local itemsProducedThisTick = {} -- Buffer for batching
+	local totalAdded = 0
 	
 	-- 3. Iterate each occupied slot
 	for slotKey, slotData in pairs(gridPositions) do
@@ -247,10 +249,14 @@ local function produceItems(player)
 			local slotState = cache.SlotProduction[slotIndex]
 			
 			if now - slotState.lastProd >= adjustedRate then
-				local added = ISM.AddToStorage(player, outputItemId, 1)
+				-- SILENT ADD: Pass true to suppress immediate event firing
+				local added = ISM.AddToStorage(player, outputItemId, 1, true)
 				if added > 0 then
 					slotState.lastProd = now
-					ItemProducedEvent:FireClient(player, outputItemId, 1)
+					
+					-- Batch the event data
+					itemsProducedThisTick[outputItemId] = (itemsProducedThisTick[outputItemId] or 0) + 1
+					totalAdded += 1
 					
 					-- Update physical unit with production timestamp
 					if unitModel then
@@ -263,6 +269,25 @@ local function produceItems(player)
 					tryArtifactDrop(player, bonuses)
 				end
 			end
+		end
+	end
+	
+	-- BATCH FIRE: Send exactly ONE remote event per second for all production
+	if totalAdded > 0 then
+		-- Update the client's popups all at once (or sequentially if the client expects single items, but here we iterate keys)
+		for itemId, count in pairs(itemsProducedThisTick) do
+			ItemProducedEvent:FireClient(player, itemId, count)
+		end
+		
+		-- Force one master storage update instead of many
+		local storageContents = ISM.GetStorageContents(player)
+		local currentTotal = 0
+		for _, c in pairs(storageContents) do currentTotal += c end
+		local capacity = ISM.GetStorageCapacity(player)
+		
+		local StorageUpdatedEvent = ReplicatedStorage:FindFirstChild("RemoteEvents") and ReplicatedStorage.RemoteEvents:FindFirstChild("StorageUpdated")
+		if StorageUpdatedEvent then
+			StorageUpdatedEvent:FireClient(player, storageContents, currentTotal, capacity)
 		end
 	end
 end

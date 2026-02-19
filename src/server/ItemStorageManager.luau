@@ -162,6 +162,9 @@ function ItemStorageManager.Init(services)
 				return PlayerStorage[player].items
 			end
 			return {}
+		end,
+		OnRelease = function(player)
+			PlayerStorage[player] = nil
 		end
 	})
 	
@@ -181,6 +184,9 @@ function ItemStorageManager.Init(services)
 				return PlayerBackpack[player].items
 			end
 			return {}
+		end,
+		OnRelease = function(player)
+			PlayerBackpack[player] = nil
 		end
 	})
 	
@@ -216,7 +222,7 @@ end
 	   Do NOT use this for BrainrotUnits (permanent collection assets).
 	   BrainrotUnits should go to InventoryManager.AddUnit() instead.
 ]]
-function ItemStorageManager.AddToStorage(player: Player, itemId: string, count: number): number
+function ItemStorageManager.AddToStorage(player: Player, itemId: string, count: number, silent: boolean?): number
 	-- GUARD: Reject if this looks like a BrainrotUnit (has level/rarity/unitId pattern)
 	-- This catches accidental misuse of the wrong manager
 	if type(itemId) == "table" then
@@ -240,7 +246,10 @@ function ItemStorageManager.AddToStorage(player: Player, itemId: string, count: 
 	if toAdd <= 0 then return 0 end
 	
 	storage.items[itemId] = (storage.items[itemId] or 0) + toAdd
-	StorageUpdatedEvent:FireClient(player, storage.items, current + toAdd, storage.capacity)
+	
+	if not silent then
+		StorageUpdatedEvent:FireClient(player, storage.items, current + toAdd, storage.capacity)
+	end
 	return toAdd
 end
 

@@ -54,7 +54,7 @@ local function setupIslandShopVendor()
 	CollectionService:AddTag(vendor, "IslandShopVendor")
 	
 	-- Ensure prompt exists
-	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart")
+	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart", true)
 	if primary and not vendor:FindFirstChild("ShopPrompt", true) then
 		local pp = Instance.new("ProximityPrompt")
 		pp.Name = "ShopPrompt"
@@ -91,13 +91,16 @@ end
 
 function IslandShopManager.HandleTierPurchase(player)
 	local MapSystem = rawget(Services, "MapSystem")
-	if not MapSystem then return false, "Shop system not ready" end
+	local PlotManager = rawget(Services, "PlotManager") -- Add this
+	
+	if not MapSystem or not PlotManager then return false, "Shop system not ready" end
 	local ts = MapSystem.GetPlayerTierSystem(player)
 	if not ts then return false, "No plot assigned" end
 	
 	local currentCount = #ts.Tiers
 	local nextNum = currentCount + 1
-	local CONF = MapSystem.TIER_CONFIG
+	local CONF = PlotManager.TIER_CONFIG -- Changed this line
+	
 	if nextNum > CONF.MAX_TIERS then return false, "Max islands reached" end
 	
 	local price = getTierPrice(nextNum)
@@ -124,11 +127,13 @@ end
 
 function IslandShopManager.GetTierInfo(player)
 	local MapSystem = rawget(Services, "MapSystem")
-	if not MapSystem then return nil end
+	local PlotManager = rawget(Services, "PlotManager") -- Add this
+	
+	if not MapSystem or not PlotManager then return nil end
 	local ts = MapSystem.GetPlayerTierSystem(player)
 	if not ts then return nil end
 	local cnt = #ts.Tiers
-	local Conf = MapSystem.TIER_CONFIG
+	local Conf = PlotManager.TIER_CONFIG -- Changed this line
 	return {
 		CurrentTiers = cnt,
 		MaxTiers = Conf.MAX_TIERS,

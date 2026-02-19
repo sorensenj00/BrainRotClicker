@@ -272,4 +272,7 @@ function PlotManager.GetPlayerTierSystem(player)
 	return PlayerTierSystems[player]
 end
 
+-- ADD THIS LINE:
+PlotManager.TIER_CONFIG = TIER_CONFIG
+
 return PlotManager

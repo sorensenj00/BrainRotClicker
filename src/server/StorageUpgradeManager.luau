@@ -107,17 +107,22 @@ local function setupStorageVendor()
 	local mainIsland = workspace:WaitForChild("MainIsland", 10)
 	if not mainIsland then return end
 	
-	local vendor = mainIsland:WaitForChild("StorageVendor", 10)
+	-- FIX: Look in the Shops folder!
+	local shopsFolder = mainIsland:WaitForChild("Shops", 10)
+	if not shopsFolder then return end
+	
+	-- FIX: Look for StorageShop, not StorageVendor
+	local vendor = shopsFolder:WaitForChild("StorageShop", 10)
 	if not vendor then return end
 	
 	local CollectionService = game:GetService("CollectionService")
 	CollectionService:AddTag(vendor, "StorageUpgradeVendor")
 	
-	-- Ensure prompt exists
-	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart")
-	if primary and not vendor:FindFirstChild("StoragePrompt", true) then
+	-- Ensure prompt exists (Added 'true' to recursive search)
+	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart", true)
+	if primary and not vendor:FindFirstChild("ShopPrompt", true) then
 		local pp = Instance.new("ProximityPrompt")
-		pp.Name = "StoragePrompt"
+		pp.Name = "ShopPrompt" -- Fixed: Must be "ShopPrompt" for ShopInteraction to find it
 		pp.ActionText = "Upgrade Storage"
 		pp.ObjectText = "Storage Shop"
 		pp.KeyboardKeyCode = Enum.KeyCode.E

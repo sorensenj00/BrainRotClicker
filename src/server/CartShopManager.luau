@@ -43,7 +43,7 @@ local function setupCartShopVendor()
 	CollectionService:AddTag(vendor, "CartShopVendor")
 	
 	-- Ensure prompt exists
-	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart")
+	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart", true)
 	if primary and not vendor:FindFirstChild("ShopPrompt", true) then
 		local pp = Instance.new("ProximityPrompt")
 		pp.Name = "ShopPrompt"

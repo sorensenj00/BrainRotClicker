@@ -122,19 +122,16 @@ end
 function ViewportPreview:StartSpin()
 	if self.spinConnection then return end
 	
-	self.spinConnection = RunService.RenderStepped:Connect(function(dt)
+	self.spinConnection = RunService.Heartbeat:Connect(function(dt)
 		if not self.model or not self.model.Parent then
 			self:Destroy()
 			return
 		end
 		
-		-- Update rotation
-		self.rotation = self.rotation + CONFIG.SPIN_SPEED * dt
-		
-		-- Rotate model around Y axis
-		local centerCF = self.modelCenter
-		local rotationCF = CFrame.Angles(0, math.rad(self.rotation), 0)
-		self.model:PivotTo(CFrame.new(centerCF.Position) * rotationCF)
+		-- Simple rotation for preview
+		if self.model.PrimaryPart then
+			self.model.PrimaryPart.CFrame *= CFrame.Angles(0, dt * CONFIG.SPIN_SPEED, 0)
+		end
 	end)
 end
 

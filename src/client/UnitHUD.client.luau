@@ -526,7 +526,8 @@ local function initialize()
 	CollectionService:GetInstanceRemovedSignal(BRAINROT_TAG):Connect(cleanupBrainrotHUD)
 	
 	-- Update progress bars every frame
-	RunService.RenderStepped:Connect(updateProgressBars)
+	-- FIX: Use Heartbeat instead of RenderStepped to avoid blocking the render pipeline
+	RunService.Heartbeat:Connect(updateProgressBars)
 	
 	print("UnitHUD: Ready!")
 end

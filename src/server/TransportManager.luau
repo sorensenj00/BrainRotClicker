@@ -6,7 +6,6 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Shared -- = ReplicatedStorage:WaitForChild("Shared") -- Moved to lazy
 local ItemConfig -- = require(Shared:WaitForChild("ItemConfig"))
 
 local function getItemConfig()
@@ -183,6 +182,19 @@ function TransportManager.LoadFromStorage(player, itemId, count)
 	local cart = CM.GetCartState(player)
 	if not cart then return 0 end
 	if cart.State ~= "idle" then return 0 end
+	if not cart.Model then return 0 end -- Safety: Cart must exist physically
+	
+	-- FIX: Distance Check
+	-- Player must be near their cart to load it
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if hrp and cart.Model and cart.Model.PrimaryPart then
+		local dist = (hrp.Position - cart.Model.PrimaryPart.Position).Magnitude
+		if dist > 30 then
+			warn(player.Name .. " tried to load cart from too far away ("..math.floor(dist).." studs)")
+			return 0
+		end
+	end
 	
 	local current = 0
 	for _, c in pairs(cart.Inventory) do current += c end

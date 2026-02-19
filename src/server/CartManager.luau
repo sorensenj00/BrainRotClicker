@@ -11,10 +11,9 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
-local TweenService = game:GetService("TweenService")
+local Shared -- = ReplicatedStorage:WaitForChild("Shared") -- Moved to lazy load
 
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
-local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 
 -- Create specific remotes for Cart system
 -- (Using existing Transport hooks where possible, but adding specific events for cart state)
@@ -293,22 +292,23 @@ local function moveCart(player, targetState)
 	-- Calculate time
 	local dist = (startP - endP).Magnitude
 	local speed = data.Speed or CONFIG.ROLL_SPEED
-	local time = dist / speed
-	print("CartManager: Starting tween, time:", time, "dist:", dist)
+	local travelTime = dist / speed
+	print("CartManager: Starting transport, time:", travelTime, "dist:", dist)
 	
-	-- Correct orientation: Facing movement direction
-	local lookCF = CFrame.new(startP, endP)
+	-- FIX: NO SERVER TWEENING.
+	-- Instantly teleport to destination (or hide inside geometry if needed)
+	-- The client will handle visual interpolation via CartUpdateEvent.
+	-- For simplicty here, we just pivot to end position immediately but keep state as "rolling"
+	-- In a real production environment, you might want to hide the cart or move it under the map
+	-- so it doesn't just "pop" to the end. But for now, popping is better than lagging the whole server.
+	
+	-- Let's just create a CFrame lookAt for the end position
+	local lookCF = CFrame.new(endP, endP + (endP - startP).Unit)
 	data.Model:PivotTo(lookCF)
 	
-	-- Tween
-	local tweenInfo = TweenInfo.new(time, Enum.EasingStyle.Linear)
-	local tween = TweenService:Create(data.Model.PrimaryPart, tweenInfo, {
-		CFrame = CFrame.new(endP, endP + (endP - startP).Unit) -- Maintain look direction approximately
-	})
-	
-	tween:Play()
-	tween.Completed:Connect(function()
-		print("CartManager: Tween completed")
+	-- Schedule arrival
+	task.delay(travelTime, function()
+		print("CartManager: Transport completed")
 		if targetState == "rolling_to_market" then
 			data.State = "at_market"
 			-- Auto Sell

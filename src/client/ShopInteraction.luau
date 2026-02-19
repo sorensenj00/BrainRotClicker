@@ -79,14 +79,20 @@ function ShopInteraction:SetupPromptListener()
 	local function onInstanceAdded(instance)
 		if not instance:IsDescendantOf(workspace) then return end
 		
+		print("[ShopInteraction] Found potential vendor:", instance.Name, "for tag:", self.Config.PromptTag)
+		
 		-- Wait for prompt to exist (it might be added by server script slightly after tag)
 		local prompt = instance:WaitForChild("ShopPrompt", 10)
 		if prompt and prompt:IsA("ProximityPrompt") then
+			print("[ShopInteraction] Found ShopPrompt for:", instance.Name)
 			table.insert(self.Connections, prompt.Triggered:Connect(function(playerWhoTriggered)
 				if playerWhoTriggered == Player then
+					print("[ShopInteraction] Prompt triggered by local player for:", instance.Name)
 					self:Toggle()
 				end
 			end))
+		else
+			warn("[ShopInteraction] ShopPrompt NOT found or not a ProximityPrompt for:", instance.Name)
 		end
 	end
 

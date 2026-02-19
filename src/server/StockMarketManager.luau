@@ -103,6 +103,27 @@ local function calculateLocalRate(sector)
 end
 
 --------------------------------------------------------------------------------
+-- ITEM JITTER (Missing Global Fix)
+--------------------------------------------------------------------------------
+
+local function getItemJitter(itemId, volatility)
+	-- Generate deterministic seed from ItemId
+	local seed = 0
+	for i = 1, #itemId do
+		seed = seed + string.byte(itemId, i)
+	end
+	
+	-- Use a slightly different time & scale so items don't sync perfectly with sectors
+	local timeOffset = os.clock() * (CONFIG.JITTER_SPEED or 1) * 1.5
+	
+	-- Perlin noise returns -0.5 to 0.5
+	local noise = math.noise(timeOffset, seed * 0.13, 0)
+	
+	-- Volatility is the amplitude (e.g. 0.1 means ±5%)
+	return 1 + (noise * (volatility or 0.1))
+end
+
+--------------------------------------------------------------------------------
 -- MEMORYSTORE: SHARDED READER
 --------------------------------------------------------------------------------
 

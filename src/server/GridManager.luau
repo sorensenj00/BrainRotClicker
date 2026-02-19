@@ -202,14 +202,7 @@ local function getSlotCFrame(player, slotIndex)
 	
 	local plotCF, plotSize = getPlotCFrameAndSize(plot)
 	
-	local tileId = getTileAtSlot(player, slotIndex)
-	local tileHeight = 0
-	if tileId then 
-		local tc = getTileConfig()
-		tileHeight = tc.TileHeight
-	end
-	
-	return getGridTopology().GetSlotCFrame(plotCF, plotSize, slotIndex, tileHeight)
+	return getGridTopology().GetSlotCFrame(plotCF, plotSize, slotIndex)
 end
 
 local function repositionUnitOnTile(player, brainrot, slotIndex)

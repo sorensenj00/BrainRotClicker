@@ -91,7 +91,7 @@ local function getPlayerRate(player, itemId)
 	end
 	
 	if isEndgame(player) then
-		return SM.GetSectorRate(sector) or 1.0
+		return SM.GetItemRate(itemId) or 1.0
 	else
 		return SM.GetBailoutRate(sector) or 1.0
 	end
@@ -101,10 +101,7 @@ end
 local function getMarketRate(itemId)
 	local SM = rawget(Services, "StockMarketManager")
 	if itemId and SM then
-		local sector = getItemSector(itemId)
-		if sector and sector ~= "Neutral" then 
-			return SM.GetSectorRate(sector) or 1.0 
-		end
+		return SM.GetItemRate(itemId) or 1.0
 	end
 	return stockMarketFolder:GetAttribute("CurrentRate") or 1.0
 end

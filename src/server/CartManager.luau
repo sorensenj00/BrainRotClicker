@@ -140,10 +140,16 @@ local function createPlaceholderCart()
 end
 
 local function getCartTemplate()
-	local t = ServerStorage:FindFirstChild("TransportCart")
+	local models = ReplicatedStorage:FindFirstChild("Models")
+	local carts = models and models:FindFirstChild("Carts")
+	local t = carts and carts:FindFirstChild("CartTier1")
+
 	if not t then
-		t = createPlaceholderCart()
-		t.Parent = ServerStorage
+		t = ServerStorage:FindFirstChild("TransportCart")
+		if not t then
+			t = createPlaceholderCart()
+			t.Parent = ServerStorage
+		end
 	end
 	return t
 end
@@ -264,7 +270,8 @@ local function moveCart(player, targetState)
 	
 	-- Calculate time
 	local dist = (startP - endP).Magnitude
-	local time = dist / CONFIG.ROLL_SPEED
+	local speed = data.Speed or CONFIG.ROLL_SPEED
+	local time = dist / speed
 	print("CartManager: Starting tween, time:", time, "dist:", dist)
 	
 	-- Correct orientation: Facing movement direction
@@ -299,6 +306,35 @@ end
 --------------------------------------------------------------------------------
 -- API
 --------------------------------------------------------------------------------
+
+function CartManager.ApplyUpgrades(player, upgrades)
+	local data = PlayerCarts[player]
+	if not data then return end
+	
+	-- We need to access CartShopConfig here, but it might be circular if we require it at top level?
+	-- It's largely safe if we lazy load or assume values passed in are raw numbers
+	-- But CartShopManager passes raw tier indices. Let's lazy load config.
+	
+	local Shared = ReplicatedStorage:WaitForChild("Shared")
+	local Config = require(Shared:WaitForChild("CartShopConfig"))
+	
+	-- Capacity
+	local capVal = Config.GetValue("Capacity", upgrades.Capacity or 0)
+	if capVal > 0 then
+		data.Capacity = capVal
+	end
+	
+	-- Speed (We need to store this in data to use during moveCart)
+	local speedVal = Config.GetValue("Speed", upgrades.Speed or 0)
+	if speedVal > 0 then
+		data.Speed = speedVal
+	else
+		data.Speed = CONFIG.ROLL_SPEED
+	end
+	
+	updateCartVisuals(data)
+	CartUpdateEvent:FireClient(player, data.State, data.Inventory, data.Capacity)
+end
 
 function CartManager.Init(services)
 	Services = services

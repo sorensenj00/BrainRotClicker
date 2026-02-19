@@ -96,6 +96,7 @@ registerService("IslandShopManager", script.Parent.IslandShopManager)
 registerService("MewingManager", script.Parent.MewingManager)
 registerService("UnitInteractionManager", script.Parent.UnitInteractionManager)
 registerService("AdminService", script.Parent.AdminService)
+registerService("CartShopManager", script.Parent.CartShopManager)
 
 -- 2. Initialize All Systems (In Order)
 
@@ -131,6 +132,7 @@ initService("IslandShopManager")
 initService("MewingManager")
 initService("UnitInteractionManager")
 initService("AdminService")
+initService("CartShopManager")
 
 print("---------------------------------------------")
 print("✓ Server Bootstrap Complete")

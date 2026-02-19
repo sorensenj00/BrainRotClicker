@@ -5,6 +5,7 @@
 ]]
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local STORAGE_CONFIG = {
 	SIZE = Vector3.new(8, 6, 8),
@@ -15,7 +16,7 @@ local STORAGE_CONFIG = {
 }
 
 local StorageBoxManager = {}
-local Services = {}
+local _Services = {}
 
 --------------------------------------------------------------------------------
 -- STORAGE LOGIC
@@ -38,23 +39,39 @@ local function createStorageBox(player)
 	
 	local fp = floor.Position
 	local fs = floor.Size
-	local sy = fp.Y + (fs.Y / 2) + STORAGE_CONFIG.OFFSET_Y + (STORAGE_CONFIG.SIZE.Y / 2)
 	
-	local storage = Instance.new("Part")
-	storage.Name = "Storage"
-	storage.Size = STORAGE_CONFIG.SIZE
-	storage.Position = Vector3.new(fp.X, sy, fp.Z)
-	storage.Anchored = true
-	storage.CanCollide = false
-	storage.Color = STORAGE_CONFIG.COLOR
-	storage.Material = STORAGE_CONFIG.MATERIAL
-	storage.Transparency = STORAGE_CONFIG.TRANSPARENCY
+	-- Try to load model
+	local models = ReplicatedStorage:FindFirstChild("Models")
+	local psModels = models and models:FindFirstChild("PlayerStorage")
+	local template = psModels and psModels:FindFirstChild("PlayerStorageTier1")
+	
+	local storage
+	if template then
+		storage = template:Clone()
+		storage.Name = "Storage"
+		-- If model, just place it on top. Assuming PrimaryPart is bottom-center or we adjust
+		local sy = fp.Y + (fs.Y / 2)
+		storage:PivotTo(CFrame.new(fp.X, sy, fp.Z))
+	else
+		-- Fallback
+		local sy = fp.Y + (fs.Y / 2) + STORAGE_CONFIG.OFFSET_Y + (STORAGE_CONFIG.SIZE.Y / 2)
+		storage = Instance.new("Part")
+		storage.Name = "Storage"
+		storage.Size = STORAGE_CONFIG.SIZE
+		storage.Position = Vector3.new(fp.X, sy, fp.Z)
+		storage.Anchored = true
+		storage.CanCollide = false
+		storage.Color = STORAGE_CONFIG.COLOR
+		storage.Material = STORAGE_CONFIG.MATERIAL
+		storage.Transparency = STORAGE_CONFIG.TRANSPARENCY
+		
+		local pl = Instance.new("PointLight"); pl.Color = STORAGE_CONFIG.COLOR; pl.Range = 15; pl.Brightness = 0.3; pl.Parent = storage
+	end
+	
 	storage.Parent = plot
 	
 	-- Tag for client-side HUD (Handles rich item display and capacity bar)
 	game:GetService("CollectionService"):AddTag(storage, "PhysicalStorageHUD")
-	
-	local pl = Instance.new("PointLight"); pl.Color = STORAGE_CONFIG.COLOR; pl.Range = 15; pl.Brightness = 0.3; pl.Parent = storage
 	
 	return storage
 end

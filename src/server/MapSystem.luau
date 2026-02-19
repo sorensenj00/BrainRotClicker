@@ -67,8 +67,8 @@ end
 local function calculateBridgeCFrame(plotCFrame)
 	local plotPos = plotCFrame.Position
 	local dir2D = Vector3.new(plotPos.X, 0, plotPos.Z).Unit
-	local hubEdge = Vector3.new(dir2D.X * 100, CONFIG.MAIN_ISLAND_HEIGHT + 10, dir2D.Z * 100)
-	local plotEdge = Vector3.new(plotPos.X - dir2D.X * 60, plotPos.Y + 6.5, plotPos.Z - dir2D.Z * 60)
+	local hubEdge = Vector3.new(dir2D.X * 100, CONFIG.MAIN_ISLAND_HEIGHT, dir2D.Z * 100)
+	local plotEdge = Vector3.new(plotPos.X - dir2D.X * 60, plotPos.Y, plotPos.Z - dir2D.Z * 60)
 	return CFrame.new((hubEdge + plotEdge) / 2, plotEdge), (plotEdge - hubEdge).Magnitude
 end
 

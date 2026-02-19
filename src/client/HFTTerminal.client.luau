@@ -213,6 +213,17 @@ local function parseSectorHistories()
 	end
 end
 
+local function parseItemRates()
+	local raw = stockMarketFolder:GetAttribute("ItemRates")
+	if not raw then return end
+	local ok, decoded = pcall(HttpService.JSONDecode, HttpService, raw)
+	if ok and decoded then
+		for itemId, rate in pairs(decoded) do
+			itemRates[itemId] = rate
+		end
+	end
+end
+
 --------------------------------------------------------------------------------
 -- MAIN CONTAINER
 --------------------------------------------------------------------------------
@@ -1044,6 +1055,7 @@ local function fetchData()
 
 	-- Sector rates
 	parseSectorRates()
+	parseItemRates()
 end
 
 local function openUI()
@@ -1177,9 +1189,20 @@ local function initialize()
 	stockMarketFolder:GetAttributeChangedSignal("SectorRates"):Connect(function()
 		if isOpen then
 			parseSectorRates()
+			parseItemRates()
 			updateSectorCards()
 			updateRightColumn()
 			-- Refresh inspector if an item is being viewed
+			if inspectedItem then
+				showItemInspector(inspectedItem)
+			end
+		end
+	end)
+
+	stockMarketFolder:GetAttributeChangedSignal("ItemRates"):Connect(function()
+		if isOpen then
+			parseItemRates()
+			updateRightColumn()
 			if inspectedItem then
 				showItemInspector(inspectedItem)
 			end

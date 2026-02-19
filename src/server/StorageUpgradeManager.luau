@@ -107,32 +107,64 @@ local function createStorageVendor()
 	if not mainIsland then return end
 	if mainIsland:FindFirstChild("StorageVendor") then return end
 	
-	local part = Instance.new("Part")
+	-- Try to load model
+	local models = ReplicatedStorage:FindFirstChild("Models")
+	local shops = models and models:FindFirstChild("Shops")
+	local template = shops and shops:FindFirstChild("StorageShop")
+	
+	local part
+	if template then
+		part = template:Clone()
+	else
+		-- Fallback
+		part = Instance.new("Part")
+		part.Size = Vector3.new(6, 8, 6)
+		part.BrickColor = BrickColor.new("Deep orange")
+		part.Material = Enum.Material.Neon
+	end
+	
 	part.Name = "StorageVendor"
-	part.Size = Vector3.new(6, 8, 6)
-	part.BrickColor = BrickColor.new("Deep orange")
-	part.Material = Enum.Material.Neon
 	part.Anchored = true
 	
 	local sv = mainIsland:FindFirstChild("ShopVendor")
 	if sv then
-		part.Position = sv.Position + Vector3.new(15, 0, 0)
+		if part:IsA("Model") then
+			part:PivotTo(sv.CFrame * CFrame.new(15, 0, 0))
+		else
+			part.Position = sv.Position + Vector3.new(15, 0, 0)
+		end
 	else
 		local pp = mainIsland.PrimaryPart or mainIsland:FindFirstChildWhichIsA("BasePart")
-		if pp then part.Position = pp.Position + Vector3.new(35, 10, 0) 
-		else part.Position = Vector3.new(35, 40, 0) end
+		local pos
+		if pp then pos = pp.Position + Vector3.new(35, 10, 0) 
+		else pos = Vector3.new(35, 40, 0) end
+		
+		if part:IsA("Model") then
+			part:PivotTo(CFrame.new(pos))
+		else
+			part.Position = pos
+		end
 	end
 	
 	part.Parent = mainIsland
 	
-	local bb = Instance.new("BillboardGui"); bb.Size=UDim2.new(5,0,2,0); bb.StudsOffset=Vector3.new(0,6,0); bb.Parent=part
-	local lbl = Instance.new("TextLabel"); lbl.Size=UDim2.new(1,0,1,0); lbl.BackgroundTransparency=1; lbl.Text="📦 STORAGE"; lbl.TextColor3=Color3.fromRGB(255,200,100); lbl.TextScaled=true; lbl.Parent=bb
+	-- Add prompt to PrimaryPart or the part itself
+	local promptParent = part
+	if part:IsA("Model") then
+		promptParent = part.PrimaryPart or part:FindFirstChildWhichIsA("BasePart") or part
+	end
+	
+	-- Only add visual GUI if it's the fallback part (Model usually has its own)
+	if not template then
+		local bb = Instance.new("BillboardGui"); bb.Size=UDim2.new(5,0,2,0); bb.StudsOffset=Vector3.new(0,6,0); bb.Parent=part
+		local lbl = Instance.new("TextLabel"); lbl.Size=UDim2.new(1,0,1,0); lbl.BackgroundTransparency=1; lbl.Text="📦 STORAGE"; lbl.TextColor3=Color3.fromRGB(255,200,100); lbl.TextScaled=true; lbl.Parent=bb
+	end
 	
 	local pp = Instance.new("ProximityPrompt")
 	pp.ActionText = "Upgrade Storage"
 	pp.ObjectText = "Storage"
 	pp.KeyboardKeyCode = Enum.KeyCode.E
-	pp.Parent = part
+	pp.Parent = promptParent
 end
 
 --------------------------------------------------------------------------------

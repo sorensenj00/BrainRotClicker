@@ -42,7 +42,7 @@ local TIER_CONFIG = {
 	},
 }
 
-local MainIslandTemplate, PlayerPlotTemplate, BridgeTemplate
+local MainIslandTemplate, BridgeTemplate
 local Plots = {}
 local PlayerToPlot = {}
 local PlotsFolder
@@ -67,9 +67,196 @@ end
 local function calculateBridgeCFrame(plotCFrame)
 	local plotPos = plotCFrame.Position
 	local dir2D = Vector3.new(plotPos.X, 0, plotPos.Z).Unit
-	local hubEdge = Vector3.new(dir2D.X * 50, CONFIG.MAIN_ISLAND_HEIGHT + 10, dir2D.Z * 50)
-	local plotEdge = Vector3.new(plotPos.X - dir2D.X * 40, plotPos.Y + 6.5, plotPos.Z - dir2D.Z * 40)
+	local hubEdge = Vector3.new(dir2D.X * 100, CONFIG.MAIN_ISLAND_HEIGHT + 10, dir2D.Z * 100)
+	local plotEdge = Vector3.new(plotPos.X - dir2D.X * 60, plotPos.Y + 6.5, plotPos.Z - dir2D.Z * 60)
 	return CFrame.new((hubEdge + plotEdge) / 2, plotEdge), (plotEdge - hubEdge).Magnitude
+end
+
+--------------------------------------------------------------------------------
+-- PROCEDURAL GENERATION
+--------------------------------------------------------------------------------
+
+local function generateUniquePlayerPlot()
+	local rng = Random.new()
+	local topDiameter = 120 
+	local topY = 50 
+
+	local model = Instance.new("Model")
+	model.Name = "PlayerPlot_BridgeSafe"
+	model.Parent = game.Workspace
+
+	-- THE FIX: An invisible Root part to handle flawless orientation
+	local root = Instance.new("Part")
+	root.Name = "Root"
+	root.Size = Vector3.new(1, 1, 1)
+	root.CFrame = CFrame.new(0, topY, 0)
+	root.Transparency = 1
+	root.Anchored = true
+	root.CanCollide = false
+	root.Parent = model
+	model.PrimaryPart = root
+
+	-- Folders to keep your Explorer clean
+	local visualsFolder = Instance.new("Folder")
+	visualsFolder.Name = "VisualDetails"
+	visualsFolder.Parent = model
+
+	local rockFolder = Instance.new("Folder")
+	rockFolder.Name = "RockBase"
+	rockFolder.Parent = model
+
+	-- Randomize island base tone
+	local themeVal = rng:NextInteger(1, 3)
+	local baseR, baseG, baseB
+	if themeVal == 1 then baseR, baseG, baseB = 120, 110, 100 -- Sandstone
+	elseif themeVal == 2 then baseR, baseG, baseB = 90, 95, 110 -- Slate Blue
+	else baseR, baseG, baseB = 80, 80, 80 end -- Dark Gray
+
+	-- 1. Grass Top
+	local grass = Instance.new("Part")
+	grass.Name = "MainPlatform"
+	grass.Shape = Enum.PartType.Cylinder
+	grass.Size = Vector3.new(2, topDiameter, topDiameter)
+	grass.CFrame = CFrame.new(0, topY, 0) * CFrame.Angles(0, 0, math.rad(90))
+	grass.Material = Enum.Material.Grass
+	grass.Color = Color3.fromRGB(91, 154, 76)
+	grass.Anchored = true
+	grass.Parent = model
+
+	-- 2. Dirt Base 
+	local dirt = Instance.new("Part")
+	dirt.Name = "DirtBase"
+	dirt.Shape = Enum.PartType.Cylinder
+	dirt.Size = Vector3.new(3, topDiameter - 2, topDiameter - 2) 
+	dirt.CFrame = CFrame.new(0, topY - 2.5, 0) * CFrame.Angles(0, 0, math.rad(90))
+	dirt.Material = Enum.Material.Fabric
+	dirt.Color = Color3.fromRGB(105, 64, 40)
+	dirt.Anchored = true
+	dirt.Parent = model
+
+	-- 3. The Balanced Rock Cone (ANTI-CLIP MATH APPLIED)
+	local depth = 45 
+	local numRockLayers = 15
+	local layerHeight = depth / numRockLayers
+	local lastY = topY - 3
+
+	for layer = 1, numRockLayers do
+		local progress = layer / numRockLayers
+		local curve = 1 - math.pow(progress, 1.5)
+		local maxAllowedDiameter = (topDiameter - 6) * curve
+		if maxAllowedDiameter < 5 then maxAllowedDiameter = 5 end
+
+		local safeWidth = maxAllowedDiameter / 1.45 
+		
+		-- FIX: Push the entire cone down further from the grass
+		lastY = topY - 5 - (layer * layerHeight)
+
+		local darken = 1 - (progress * 0.6)
+		local rColor = Color3.fromRGB(baseR * darken, baseG * darken, baseB * darken)
+
+		-- Solid Core
+		local core = Instance.new("Part")
+		core.Shape = Enum.PartType.Cylinder
+		core.Size = Vector3.new(layerHeight * 1.5, safeWidth * 1.3, safeWidth * 1.3)
+		core.CFrame = CFrame.new(0, lastY, 0) * CFrame.Angles(0, 0, math.rad(90))
+		core.Material = Enum.Material.Slate
+		core.Color = rColor
+		core.Anchored = true
+		core.Parent = rockFolder
+
+		-- Exterior jagged rocks
+		local numRocks = rng:NextInteger(6, 9) 
+		for r = 1, numRocks do
+			local rock = Instance.new("Part")
+			rock.Shape = Enum.PartType.Block
+			
+			-- FIX: Reduce the max height slightly to prevent tall spikes
+			rock.Size = Vector3.new(safeWidth * rng:NextNumber(0.8, 1.1), layerHeight * rng:NextNumber(1.0, 1.6), safeWidth * rng:NextNumber(0.8, 1.1))
+			
+			-- FIX: Random offset is ONLY allowed to go down (-1.5 to 0), never up!
+			rock.CFrame = CFrame.new(0, lastY + rng:NextNumber(-1.5, 0), 0) * CFrame.Angles(rng:NextNumber(-0.1, 0.1), rng:NextNumber(0, math.pi * 2), rng:NextNumber(-0.1, 0.1))
+			
+			rock.Material = Enum.Material.Slate
+			rock.Color = rColor
+			rock.Anchored = true
+			rock.Parent = rockFolder
+		end
+	end
+
+	-- 4. Overgrown Vines
+	for v = 1, rng:NextInteger(5, 8) do
+		local vine = Instance.new("Part")
+		local vLength = rng:NextNumber(6, 14)
+		vine.Size = Vector3.new(rng:NextNumber(0.8, 1.5), vLength, rng:NextNumber(0.8, 1.5))
+		local angle = rng:NextNumber(0, math.pi * 2)
+		local dist = (topDiameter / 2) - 2 
+		local vx = math.cos(angle) * dist
+		local vz = math.sin(angle) * dist
+		vine.CFrame = CFrame.new(vx, topY - 2 - (vLength/2), vz) * CFrame.Angles(rng:NextNumber(-0.1, 0.1), 0, rng:NextNumber(-0.1, 0.1))
+		vine.Material = Enum.Material.Grass
+		vine.Color = Color3.fromRGB(70, 120, 55)
+		vine.Anchored = true
+		vine.Parent = visualsFolder
+	end
+
+	-- 5. Glowing Magic Core & Underglow Light
+	local magicCore = Instance.new("Part")
+	magicCore.Shape = Enum.PartType.Block
+	magicCore.Size = Vector3.new(4, 6, 4)
+	magicCore.CFrame = CFrame.new(0, lastY - 2, 0) * CFrame.Angles(rng:NextNumber(0,3), rng:NextNumber(0,3), rng:NextNumber(0,3))
+	magicCore.Material = Enum.Material.Neon
+	magicCore.Color = Color3.fromRGB(85, 255, 255)
+	magicCore.Anchored = true
+	magicCore.Parent = visualsFolder
+
+	local coreLight = Instance.new("PointLight")
+	coreLight.Color = Color3.fromRGB(85, 255, 255)
+	coreLight.Range = 35
+	coreLight.Brightness = 3
+	coreLight.Parent = magicCore
+
+	local particles = Instance.new("ParticleEmitter")
+	particles.Color = ColorSequence.new(Color3.fromRGB(85, 255, 255))
+	particles.Size = NumberSequence.new({NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(1, 0)})
+	particles.Lifetime = NumberRange.new(3, 6)
+	particles.Rate = 20
+	particles.Speed = NumberRange.new(2, 5)
+	particles.EmissionDirection = Enum.NormalId.Bottom
+	particles.Parent = magicCore
+
+	-- 6. Floating Debris Halo
+	for d = 1, rng:NextInteger(12, 18) do
+		local angle = rng:NextNumber(0, math.pi * 2)
+		local dist = (topDiameter / 2) * rng:NextNumber(1.05, 1.6) 
+		local dx = math.cos(angle) * dist
+		local dz = math.sin(angle) * dist
+		
+		-- FIX: Push debris start height further down (from 5 to 15) so rotated debris corners don't clip the grass
+		local dy = topY - rng:NextNumber(15, 45) 
+		
+		local debris = Instance.new("Part")
+		debris.Shape = Enum.PartType.Block
+		local baseSize = rng:NextNumber(3, 9) 
+		debris.Size = Vector3.new(baseSize * rng:NextNumber(0.6, 1.4), baseSize * rng:NextNumber(0.6, 1.4), baseSize * rng:NextNumber(0.6, 1.4))
+		debris.CFrame = CFrame.new(dx, dy, dz) * CFrame.Angles(rng:NextNumber(0,3), rng:NextNumber(0,3), rng:NextNumber(0,3))
+		debris.Material = Enum.Material.Slate
+		debris.Color = Color3.fromRGB(baseR * 0.8, baseG * 0.8, baseB * 0.8)
+		debris.Anchored = true
+		debris.Parent = visualsFolder
+	end
+
+	-- 7. Visual Guide for 80x80 Build Area
+	local plotGuide = Instance.new("Part")
+	plotGuide.Name = "PlotBounds_80x80"
+	plotGuide.Size = Vector3.new(80, 1, 80)
+	plotGuide.CFrame = CFrame.new(0, topY + 1.5, 0) 
+	plotGuide.Color = Color3.fromRGB(255, 0, 0)
+	plotGuide.Transparency = 0.8
+	plotGuide.Anchored = true
+	plotGuide.CanCollide = false
+	plotGuide.Parent = model
+
+	return model
 end
 
 --------------------------------------------------------------------------------
@@ -114,7 +301,7 @@ local function spawnTierPlot(player, parentTier)
 	local newPos = parentCF.Position + (offset * dist)
 	newPos = Vector3.new(newPos.X, parentCF.Position.Y + hOff, newPos.Z)
 	
-	local newModel = PlayerPlotTemplate:Clone()
+	local newModel = generateUniquePlayerPlot()
 	newModel.Name = string.format("Plot_%d_Tier_%d", sys.BasePlotIndex, nextIdx)
 	
 	local lookDir = parentCF.Position - newPos
@@ -183,7 +370,7 @@ local function generatePlots()
 	PlotsFolder = Instance.new("Folder"); PlotsFolder.Name = "Plots"; PlotsFolder.Parent = workspace
 	for i = 1, CONFIG.MAX_PLAYERS do
 		local cf = calculatePlotCFrame(i)
-		local pm = PlayerPlotTemplate:Clone(); pm.Name = "Plot_"..i; pm:PivotTo(cf); pm.Parent = PlotsFolder
+		local pm = generateUniquePlayerPlot(); pm.Name = "Plot_"..i; pm:PivotTo(cf); pm.Parent = PlotsFolder
 		
 		local bcf, bdist = calculateBridgeCFrame(cf)
 		local bm = BridgeTemplate:Clone(); bm.Name = "Bridge_"..i
@@ -192,12 +379,7 @@ local function generatePlots()
 		
 		Plots[i] = { Index = i, Model = pm, Bridge = bm, Position = cf, Owner = nil, ClaimPart = createClaimPart(pm) }
 		
-		if workspace:FindFirstChild("MainIsland") then
-			local zp = Instance.new("Part"); zp.Name="Zipline_"..i; zp.Size=Vector3.new(4,8,4); zp.Anchored=true; zp.CanCollide=false; zp.Transparency=0.5
-			local dir = (cf.Position - Vector3.new(0,CONFIG.MAIN_ISLAND_HEIGHT,0)).Unit
-			zp.Position = Vector3.new(0,CONFIG.MAIN_ISLAND_HEIGHT,0) + dir*45
-			zp.Parent = workspace.MainIsland
-		end
+
 	end
 end
 
@@ -275,17 +457,16 @@ function MapSystem.Init(services)
 	print("   MapSystem (Module) - Initializing")
 	Services = services or {}
 	
-	MainIslandTemplate = ServerStorage:FindFirstChild("MainIsland") or ReplicatedStorage:FindFirstChild("MainIsland")
-	PlayerPlotTemplate = ServerStorage:FindFirstChild("PlayerPlot") or ReplicatedStorage:FindFirstChild("PlayerPlot")
+	local models = ReplicatedStorage:FindFirstChild("Models")
+	MainIslandTemplate = (models and models:FindFirstChild("MainIsland")) or ServerStorage:FindFirstChild("MainIsland") or ReplicatedStorage:FindFirstChild("MainIsland")
+
 	BridgeTemplate = ServerStorage:FindFirstChild("Bridge") or ReplicatedStorage:FindFirstChild("Bridge")
 	
 	-- Placeholders
 	if not MainIslandTemplate then
 		local m = Instance.new("Model"); m.Name="MainIsland"; local p = Instance.new("Part"); p.Name="Island"; p.Size=Vector3.new(100,20,100); p.Anchored=true; p.Color=Color3.new(0,1,0); p.Parent=m; m.PrimaryPart=p; m.Parent=ServerStorage; MainIslandTemplate=m
 	end
-	if not PlayerPlotTemplate then
-		local m = Instance.new("Model"); m.Name="PlayerPlot"; local p = Instance.new("Part"); p.Name="Island"; p.Size=Vector3.new(80,15,80); p.Anchored=true; p.Color=Color3.new(0,1,0); p.Parent=m; m.PrimaryPart=p; m.Parent=ServerStorage; PlayerPlotTemplate=m
-	end
+
 	if not BridgeTemplate then
 		local m = Instance.new("Model"); m.Name="Bridge"; local p = Instance.new("Part"); p.Name="BridgePart"; p.Size=Vector3.new(10,2,50); p.Anchored=true; p.Color=Color3.new(0.6,0.4,0.2); p.Parent=m; m.PrimaryPart=p; m.Parent=ServerStorage; BridgeTemplate=m
 	end

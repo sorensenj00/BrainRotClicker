@@ -96,19 +96,27 @@ function StorageBoxManager.Init(services)
 	print("   StorageBoxManager (Module) - Initializing")
 	_Services = services or {}
 	
-	for _, player in Players:GetPlayers() do
-		task.defer(function()
-			task.wait(1)
+	-- Initial players handled by PLM
+	-- for _, player in Players:GetPlayers() do
+	-- 	task.defer(function()
+	-- 		task.wait(1)
+	-- 		createStorageBox(player)
+	-- 	end)
+	-- end
+	
+	local PLM = _Services.PlayerLifecycleManager
+	if PLM and PLM.PlayerReady then
+		PLM.PlayerReady:Connect(function(player)
 			createStorageBox(player)
+		end)
+	else
+		Players.PlayerAdded:Connect(function(player)
+			task.defer(function()
+				task.wait(2)
+				createStorageBox(player)
+			end)
 		end)
 	end
-	
-	Players.PlayerAdded:Connect(function(player)
-		task.defer(function()
-			task.wait(2)
-			createStorageBox(player)
-		end)
-	end)
 	
 	print("✓ StorageBoxManager Initialized")
 end

@@ -130,13 +130,20 @@ function BuildGridVisualizer.Render(gridState)
 	for slotIndex = 1, 16 do
 		local cframe = GridTopology.GetSlotCFrame(plotCF, plotSize, slotIndex, 0.1)
 		
-		local slotData = gridState.slots[slotIndex] or {}
+		-- FIX: Safely check for number key (1) OR string key ("1")
+		local slotData = gridState.slots[slotIndex]
+		if not slotData then
+			slotData = gridState.slots[tostring(slotIndex)]
+		end
+		slotData = slotData or {}
+		
 		local unitName = nil
 		if type(slotData) == "table" then
-			unitName = slotData.UnitName or slotData.unitType
+			-- Ensure we catch different naming conventions your database might use
+			unitName = slotData.UnitName or slotData.unitType or slotData.unitName
 		end
 		
-		local isOccupied = unitName ~= nil
+		local isOccupied = (unitName ~= nil)
 		local tile = createGridTile(slotIndex, cframe, isOccupied, unitName)
 		tile.Parent = gridContainer
 		gridTiles[slotIndex] = tile

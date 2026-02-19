@@ -31,6 +31,9 @@ local PlayerLifecycleManager = {}
 -- HELPERS
 --------------------------------------------------------------------------------
 
+local ServerPlayerReady = Instance.new("BindableEvent")
+PlayerLifecycleManager.PlayerReady = ServerPlayerReady.Event
+
 local function checkReady(player: Player)
 	local state = PlayerStates[player]
 	if not state then return end
@@ -38,6 +41,7 @@ local function checkReady(player: Player)
 	if state.DataLoaded and state.MapReady and state.GridRestored then
 		print("PlayerLifecycleManager: " .. player.Name .. " is READY!")
 		PlayerReadyEvent:FireClient(player)
+		ServerPlayerReady:Fire(player)
 		-- Clean up state monitoring, we are done
 		-- (Optional: Keep tracking if we want to handle re-syncs, but for loading screen it's one-off)
 	end

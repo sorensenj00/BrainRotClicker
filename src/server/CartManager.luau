@@ -397,10 +397,19 @@ function CartManager.Init(services)
 	Services = services
 	print("   CartManager (Module) - Initializing")
 	
-	Players.PlayerAdded:Connect(function(player)
-		task.wait(2) -- Wait for plot
-		spawnCart(player)
-	end)
+	-- Use PlayerLifecycleManager for ready event
+	local PLM = Services.PlayerLifecycleManager
+	if PLM and PLM.PlayerReady then
+		PLM.PlayerReady:Connect(function(player)
+			spawnCart(player)
+		end)
+	else
+		-- Fallback if PLM is missing (should not happen)
+		Players.PlayerAdded:Connect(function(player)
+			task.wait(2) -- Wait for plot
+			spawnCart(player)
+		end)
+	end
 	
 	Players.PlayerRemoving:Connect(function(player)
 		if PlayerCarts[player] then
@@ -421,13 +430,13 @@ function CartManager.Init(services)
 		CartManager.HandlePrompt(player)
 	end)
 	
-	-- Initial players
-	for _, p in Players:GetPlayers() do
-		task.spawn(function()
-			task.wait(2)
-			spawnCart(p)
-		end)
-	end
+	-- Initial players handled by PLM when they become ready
+	-- for _, p in Players:GetPlayers() do
+	-- 	task.spawn(function()
+	-- 		task.wait(2)
+	-- 		spawnCart(p)
+	-- 	end)
+	-- end
 	
 	print("✓ CartManager Initialized")
 end
@@ -473,7 +482,7 @@ function CartManager.GetCartState(player)
 	return PlayerCarts[player]
 end
 
-function CartManager.SetCapacity(player, capacity)
+function CartManager.UpdateCapacity(player, capacity)
 	local data = PlayerCarts[player]
 	if not data then return end
 	data.Capacity = capacity

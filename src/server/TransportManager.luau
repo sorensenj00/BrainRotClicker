@@ -159,23 +159,15 @@ function TransportManager.SelectVehicle(player, vehicleId)
 	if CM then
 		-- Create a Setter in CartManager or just update if exposed?
 		-- CM.GetCartState returns reference?
-		local cart = CM.GetCartState(player)
-		if cart then
-			cart.Capacity = conf.capacity
-			-- Trigger update
-			-- CM should expose a method to update safely and fire events
-			-- For now, modifying state directly if reference is valid, but better to add "SetCapacity"
-			-- Let's just modify the table since it's in-memory and we are server-side.
-			-- Ideally we add CM.SetCapacity(player, cap)
-			cart.Capacity = conf.capacity
-			-- We need to fire update
-			-- Let's assume CM handles updates on change? No, we need to trigger it.
-			-- Let's add UpdateCart(player) to CM or just fire the event here?
-			-- Better: CM.SetCapacity(player, cap)
-			-- I'll implement SetCapacity in CM in next step if needed, or just hack it here by firing the event if I can access it.
-			-- But I can't access CM's local event.
-			-- I will assume CM has SetCapacity or I will add it.
-			if CM.SetCapacity then CM.SetCapacity(player, conf.capacity) end
+		-- Use encapsulated update method
+		if CM.UpdateCapacity then
+			CM.UpdateCapacity(player, conf.capacity)
+		else
+			-- Fallback if not available (should be)
+			local cart = CM.GetCartState(player)
+			if cart then
+				cart.Capacity = conf.capacity
+			end
 		end
 	end
 	
@@ -276,8 +268,8 @@ function TransportManager.SetTransportData(player, data)
 	PlayerTransport[player].selectedVehicle = data.selectedVehicle or CONFIG.DEFAULT_VEHICLE
 	
 	local CM = getCartManager()
-	if CM and CM.SetCapacity then
-		CM.SetCapacity(player, getCartCapacity(player))
+	if CM and CM.UpdateCapacity then
+		CM.UpdateCapacity(player, getCartCapacity(player))
 	end
 end
 

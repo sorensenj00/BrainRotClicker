@@ -60,8 +60,7 @@ local dragConnection = nil
 local isGhostValid = false
 local ghostCenterOffset = Vector3.new()
 local currentHoverSlot = nil
-
-local camera = workspace.CurrentCamera
+local currentRotation = 0
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -78,6 +77,7 @@ local function getPlayerPlot()
 end
 
 local function getMousePlanePosition(floorHeight)
+	local camera = workspace.CurrentCamera -- ADD THIS HERE
 	local mouse = UserInputService:GetMouseLocation()
 	local ray = camera:ViewportPointToRay(mouse.X, mouse.Y)
 	
@@ -96,23 +96,28 @@ local function getMousePlanePosition(floorHeight)
 end
 
 local function getSlotUnderMouse()
+	local camera = workspace.CurrentCamera
 	local mousePos = UserInputService:GetMouseLocation()
 	local ray = camera:ViewportPointToRay(mousePos.X, mousePos.Y)
 	
-	-- Raycast against tiles AND units
 	local params = RaycastParams.new()
 	params.FilterType = Enum.RaycastFilterType.Include
 	
-	local tilesMap = BuildGridVisualizer.GetSlotUnderMouse() -- Is actually a table of tiles
+	local tilesMap = BuildGridVisualizer.GetSlotUnderMouse() 
 	local filterList = {}
 	for _, tile in pairs(tilesMap) do table.insert(filterList, tile) end
 	
-	-- Add Brainrots folder to filter so we can click on units to select them
 	local plot = getPlayerPlot()
 	if plot then
-		local brainrots = plot:FindFirstChild("Brainrots")
+		-- Fallback to look for units generally, in case they aren't in a 'Brainrots' folder
+		local brainrots = plot:FindFirstChild("Brainrots") or plot:FindFirstChild("Units")
 		if brainrots then
 			table.insert(filterList, brainrots)
+		else
+			-- If no folder, insert everything in plot so raycast hits the units
+			for _, child in plot:GetChildren() do
+				if child:IsA("Model") then table.insert(filterList, child) end
+			end
 		end
 	end
 	
@@ -120,23 +125,63 @@ local function getSlotUnderMouse()
 	
 	local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
 	if result and result.Instance then
-		-- 1. Check if it's a tile
+		-- 1. Check if we hit a Grid Tile directly
 		local slot = result.Instance:GetAttribute("SlotIndex")
 		if slot then return slot end
 		
-		-- 2. Check if it's a unit part (find model ancestor)
+		-- 2. Check if we hit a Unit Model
 		local model = result.Instance:FindFirstAncestorWhichIsA("Model")
 		if model then
 			slot = model:GetAttribute("GridSlot")
 			if slot then return slot end
+			
+			-- FALLBACK: If the unit model is missing the attribute, find which tile is physically closest to it!
+			local modelPos = model:GetPivot().Position
+			local closestSlot = nil
+			local minDist = math.huge
+			for index, tile in pairs(tilesMap) do
+				local tilePos = tile.Position
+				-- Ignore Y axis to calculate pure ground distance
+				local dist = Vector2.new(tilePos.X - modelPos.X, tilePos.Z - modelPos.Z).Magnitude
+				if dist < minDist and dist < 10 then 
+					minDist = dist
+					closestSlot = index
+				end
+			end
+			return closestSlot
 		end
 	end
 	return nil
 end
 
-local function setModelTransparency(model, transparency)
-	for _, part in model:GetDescendants() do
-		if part:IsA("BasePart") then part.Transparency = transparency end
+local originalModelStates = {}
+
+local function setModelTransparency(model, isHidden)
+	if not model then return end
+	
+	if isHidden then
+		originalModelStates = {} -- Clear old cache
+		for _, child in model:GetDescendants() do
+			if child:IsA("BasePart") or child:IsA("Decal") or child:IsA("Texture") then
+				originalModelStates[child] = child.Transparency
+				child.Transparency = 1
+			elseif child:IsA("ParticleEmitter") or child:IsA("Trail") or child:IsA("Beam") or child:IsA("Highlight") then
+				originalModelStates[child] = child.Enabled
+				child.Enabled = false
+			end
+		end
+	else
+		-- Restore all original transparencies and particle states
+		for child, originalValue in pairs(originalModelStates) do
+			if child and child.Parent then
+				if child:IsA("BasePart") or child:IsA("Decal") or child:IsA("Texture") then
+					child.Transparency = originalValue
+				elseif child:IsA("ParticleEmitter") or child:IsA("Trail") or child:IsA("Beam") or child:IsA("Highlight") then
+					child.Enabled = originalValue
+				end
+			end
+		end
+		originalModelStates = {}
 	end
 end
 
@@ -230,6 +275,7 @@ function BuildInteractionService.StartDrag(unitName, rarity)
 	isDragging = true
 	draggedUnit = {name = unitName, rarity = rarity}
 	draggedFromSlot = nil -- New placement
+	currentRotation = 0
 	
 	local floorHeight = BuildGridVisualizer.GetGridFloorHeight()
 	local startPos = getMousePlanePosition(floorHeight) or Vector3.new(0, floorHeight, 0)
@@ -284,32 +330,67 @@ function BuildInteractionService.StartDrag(unitName, rarity)
 				setModelColor(placementGhost, CONFIG.INVALID_GHOST_COLOR)
 				BuildGridVisualizer.Highlight(slot, CONFIG.INVALID_COLOR)
 				isGhostValid = false
+				
+				-- Still conform to tilt if invalid? Maybe keep it loose.
+				if placementGhost then
+					placementGhost:PivotTo(CFrame.new(currentPos + ghostCenterOffset) * currentTilt * CFrame.Angles(0, math.rad(currentRotation), 0))
+				end
 			else
 				setModelColor(placementGhost, CONFIG.VALID_GHOST_COLOR)
 				BuildGridVisualizer.Highlight(slot, CONFIG.HOVER_COLOR)
 				isGhostValid = true
+				
+				-- SNAP TO GRID: If hovering over a valid slot, snap directly to the tile's center
+				if tile then
+					-- Keep the ghost at ground level, but centered exactly on the tile
+					local snapPos = tile.Position + Vector3.new(0, ghostCenterOffset.Y, 0)
+					placementGhost:PivotTo(CFrame.new(snapPos) * CFrame.Angles(0, math.rad(currentRotation), 0)) 
+				end
 			end
 		else
 			isGhostValid = false
 			setModelColor(placementGhost, CONFIG.INVALID_GHOST_COLOR)
+			-- SMOOTH FOLLOW: If not hovering over a valid grid slot, follow the mouse smoothly with the tilt effect
+			if placementGhost then
+				placementGhost:PivotTo(CFrame.new(currentPos + ghostCenterOffset) * currentTilt * CFrame.Angles(0, math.rad(currentRotation), 0))
+			end
 		end
 	end)
+end
+
+function BuildInteractionService.RotateGhost()
+	currentRotation = (currentRotation + 90) % 360
 end
 
 function BuildInteractionService.StartDragFromSlot(slotIndex, unitName, rarity)
 	if isDragging then return end
 	
-	-- Hide existing model
+	-- Hide existing model so it doesn't duplicate visually while dragging
 	local plot = getPlayerPlot()
 	if plot then
-		local brainrots = plot:FindFirstChild("Brainrots")
-		if brainrots then
-			for _, child in brainrots:GetChildren() do
-				if child:GetAttribute("GridSlot") == slotIndex then
+		local brainrots = plot:FindFirstChild("Brainrots") or plot:FindFirstChild("Units")
+		local searchFolder = brainrots and brainrots:GetChildren() or plot:GetChildren()
+		
+		for _, child in searchFolder do
+			if child:IsA("Model") then
+				local childSlot = child:GetAttribute("GridSlot")
+				
+				-- Fallback if attribute is missing
+				if not childSlot then
+					local tile = BuildGridVisualizer.GetTile(slotIndex)
+					if tile then
+						local tilePos = tile.Position
+						local childPos = child:GetPivot().Position
+						local dist = Vector2.new(tilePos.X - childPos.X, tilePos.Z - childPos.Z).Magnitude
+						if dist < 5 then -- Model is standing on this tile
+							childSlot = slotIndex
+						end
+					end
+				end
+				
+				if childSlot == slotIndex then
 					originalUnitModel = child
-					setModelTransparency(child, 1) -- Hide
-					-- Also hide overheads if any? 
-					-- BaseParts transparency should handle visual model.
+					setModelTransparency(child, true) -- Hide it using the new logic
 					break
 				end
 			end
@@ -356,7 +437,13 @@ function BuildInteractionService.Stop()
 	isDragging = false
 	draggedUnit = nil
 	draggedFromSlot = nil
-	originalUnitModel = nil
+	
+	-- Unhide the real model immediately when drag stops
+	if originalUnitModel then
+		setModelTransparency(originalUnitModel, false) 
+		originalUnitModel = nil
+	end
+	
 	if dragConnection then dragConnection:Disconnect() end
 	if placementGhost then placementGhost:Destroy() end
 	placementGhost = nil
@@ -364,10 +451,8 @@ function BuildInteractionService.Stop()
 	currentHoverSlot = nil
 end
 
+-- Replace CancelDrag with this (Stop handles the unhiding now):
 function BuildInteractionService.CancelDrag()
-	if originalUnitModel then
-		setModelTransparency(originalUnitModel, 0) -- Restore visibility
-	end
 	BuildInteractionService.Stop()
 end
 

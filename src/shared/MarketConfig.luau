@@ -21,7 +21,7 @@ MarketConfig.CONFIG = {
 	MAX_RATE = 4.0,
 	STARTING_RATE = 1.0,
 	BAILOUT_FLOOR = 0.8,     -- Minimum rate for welfare-protected players
-	IMPACT_FACTOR = 0.00005, -- How much each sold unit depresses price
+	IMPACT_FACTOR = 0.005, -- How much each sold unit depresses price
 	RECOVERY_RATE = 0.005,    -- Natural price recovery per read cycle
 
 	-- Synthetic Volatility (keeps market alive at low player count)

@@ -32,6 +32,15 @@ local buildModeGui = nil
 local inventoryPanel = nil
 local inventoryPreviews = {}
 local isRefreshingInventory = false
+local lastDragStart = 0
+local uiConnections = {}
+
+local function cleanupConnections()
+	for _, conn in ipairs(uiConnections) do
+		conn:Disconnect()
+	end
+	uiConnections = {}
+end
 
 -- Config
 local CONFIG = {
@@ -156,9 +165,9 @@ local function refreshInventory()
 					btn.Parent = card
 					
 					btn.MouseButton1Down:Connect(function()
+						lastDragStart = tick() -- Record exactly when drag started
 						BuildInteractionService.StartDrag(unitName, unitData.rarity)
 					end)
-					
 					-- Preview
 					local previewContainer = Instance.new("Frame")
 					previewContainer.Size = UDim2.new(0, 60, 0, 60)
@@ -229,6 +238,8 @@ local function exitBuildMode()
 		buildModeGui:Destroy()
 		buildModeGui = nil
 	end
+	
+	if cleanupConnections then cleanupConnections() end
 end
 
 local function enterBuildMode()
@@ -258,9 +269,35 @@ local function enterBuildMode()
 	
 	exitBtn.MouseButton1Click:Connect(exitBuildMode)
 	
-	-- 4. Listeners
-	BuildInteractionService.StatusChanged:Connect(updateStatus)
-	BuildInteractionService.UnitDropped:Connect(function(unitName, rarity, slot)
+	-- 5. Cursor Logic (Dynamic UX)
+	local GRAB_CURSOR = "rbxassetid://12465243883" -- Open hand
+	local DRAGGING_CURSOR = "rbxassetid://12465244192" -- Closed hand
+	local DEFAULT_CURSOR = ""
+	
+	table.insert(uiConnections, game:GetService("RunService").RenderStepped:Connect(function()
+		if not isInBuildMode then 
+			UserInputService.MouseIcon = DEFAULT_CURSOR
+			return 
+		end
+		
+		if BuildInteractionService.IsDragging() then
+			UserInputService.MouseIcon = DRAGGING_CURSOR
+		else
+			local slot = BuildInteractionService.GetHoveredSlot()
+			local tile = slot and BuildGridVisualizer.GetTile(slot)
+			
+			-- If we are hovering over an occupied tile, show the grab cursor!
+			if tile and tile:GetAttribute("IsOccupied") then
+				UserInputService.MouseIcon = GRAB_CURSOR
+			else
+				UserInputService.MouseIcon = DEFAULT_CURSOR
+			end
+		end
+	end))
+
+	-- Listeners
+	table.insert(uiConnections, BuildInteractionService.StatusChanged:Connect(updateStatus))
+	table.insert(uiConnections, BuildInteractionService.UnitDropped:Connect(function(unitName, rarity, slot)
 		local success, msg = PlaceBrainrotRemote:InvokeServer(unitName, rarity, slot)
 		if success then
 			updateStatus("✓ Placed " .. unitName)
@@ -272,22 +309,41 @@ local function enterBuildMode()
 		else
 			updateStatus("✗ " .. (msg or "Placement failed"))
 		end
-	end)
+	end))
 	
-	BuildInteractionService.UnitMoved:Connect(function(fromSlot, toSlot)
-		local success, msg = MoveUnitRemote:InvokeServer(fromSlot, toSlot)
-		if success then
-			updateStatus("✓ Moved")
-			-- Refresh grid
-			local newState = GetGrid:InvokeServer()
-			local newPos = BuildGridVisualizer.Render(newState)
-		else
-			updateStatus("✗ " .. (msg or "Move failed"))
-			-- Force refresh to restore visuals
-			local newState = GetGrid:InvokeServer()
-			local newPos = BuildGridVisualizer.Render(newState)
-		end
-	end)
+	table.insert(uiConnections, BuildInteractionService.UnitMoved:Connect(function(fromSlot, toSlot)
+		-- OPTIMISTIC UPDATE: Instantly change the tiles locally so it feels incredibly fast
+		local fromTile = BuildGridVisualizer.GetTile(fromSlot)
+		local toTile = BuildGridVisualizer.GetTile(toSlot)
+		
+		local unitName = fromTile:GetAttribute("UnitName")
+		
+		-- Locally update attributes immediately
+		fromTile:SetAttribute("IsOccupied", false)
+		fromTile:SetAttribute("UnitName", nil)
+		BuildGridVisualizer.Unhighlight(fromSlot) -- Refresh visual state
+		
+		toTile:SetAttribute("IsOccupied", true)
+		toTile:SetAttribute("UnitName", unitName)
+		BuildGridVisualizer.Unhighlight(toSlot) -- Refresh visual state
+		
+		updateStatus("✓ Moved") -- Optimistic success message
+		
+		-- Now tell the server in the background
+		task.spawn(function()
+			local success, msg = MoveUnitRemote:InvokeServer(fromSlot, toSlot)
+			if not success then
+				-- Only if the server rejects it (e.g., hacker, or lag), we fetch the real grid to fix it
+				warn("Server rejected move:", msg)
+				updateStatus("✗ " .. (msg or "Move failed"))
+				local newState = GetGrid:InvokeServer()
+				BuildGridVisualizer.Render(newState)
+			else
+				-- Server confirmed, we are good. 
+				-- Maybe play a sound here?
+			end
+		end)
+	end))
 end
 
 
@@ -315,78 +371,66 @@ local function isMouseOverGui(guiObject)
 	local mouse = UserInputService:GetMouseLocation()
 	local pos = guiObject.AbsolutePosition
 	local size = guiObject.AbsoluteSize
-	
-	-- MouseLocation includes GUI inset (top bar), AbsolutePosition is typically from top-left of screen (ignoring inset?)
-	-- Actually UserInputService:GetMouseLocation() returns screen coordinates. Gui Inset matters if ScreenGui.IgnoreGuiInset is false.
-	-- Let's check usually:
-	-- pos.X <= mouse.X <= pos.X + size.X
 	return mouse.X >= pos.X and mouse.X <= pos.X + size.X and
 	       mouse.Y >= pos.Y and mouse.Y <= pos.Y + size.Y
 end
 
+local function handleDrop()
+	if isMouseOverGui(inventoryPanel) then
+		local fromSlot = BuildInteractionService.GetDraggedFromSlot()
+		if fromSlot then
+			local success = StashUnitRemote:InvokeServer(fromSlot)
+			if success then
+				updateStatus("✓ Stashed to Inventory")
+				BuildInteractionService.Stop()
+				local newState = GetGrid:InvokeServer()
+				BuildGridVisualizer.Render(newState)
+				refreshInventory()
+			end
+		else
+			updateStatus("Cancelled placement")
+			BuildInteractionService.CancelDrag()
+		end
+	else
+		BuildInteractionService.CompleteDrag()
+	end
+end
+
 -- Wire up exit button (re-find it since we created it in enter)
 UserInputService.InputBegan:Connect(function(input, processed)
-	-- Handle Stash Drop specifically (even if processed by UI)
 	if isInBuildMode and input.UserInputType == Enum.UserInputType.MouseButton1 then
 		if BuildInteractionService.IsDragging() then
-			local draggedFromSlot = nil
-			-- We need a way to know if we are moving (draggedFromSlot exists).
-			-- BuildInteractionService doesn't expose it directly via IsDragging(), but we can infer or add getter.
-			-- Actually, StartDragFromSlot sets internal state. 
-			-- If we stash a NEW unit (from inventory), Stashing it just cancels the drag (it's already stashed).
-			-- If we stash a MOVED unit (from grid), Stashing it actually removes it from grid.
-			
-			-- Let's check if we dropped on InventoryPanel
-			if isMouseOverGui(inventoryPanel) then
-				-- STASH LOGIC
-				-- If dropped on inventory, fire "StashUnit" if it came from the grid
-				local fromSlot = BuildInteractionService.GetDraggedFromSlot()
-				
-				if fromSlot then
-					-- It's a grid unit -> Stash it
-					local success = StashUnitRemote:InvokeServer(fromSlot)
-					if success then
-						updateStatus("✓ Stashed to Inventory")
-						BuildInteractionService.Stop() -- Clean up ghost
-						-- Refresh grid
-						local newState = GetGrid:InvokeServer()
-						BuildGridVisualizer.Render(newState)
-						refreshInventory()
-					end
-					return
-				else
-					-- It's a new unit from inventory -> Just Cancel (since it's already in inventory)
-					updateStatus("Cancelled placement")
-					BuildInteractionService.CancelDrag()
-					return
-				end
+			-- If they just started dragging milliseconds ago, ignore this click (fixes the instant cancel bug)
+			if tick() - lastDragStart < 0.2 then
+				return 
 			end
+			handleDrop()
+			return
 		end
 	end
 
 	if processed then return end
 	
-	-- Keep Tab for convenience? User said "doesn't open with G anymore". 
-	-- Maybe they meant "I want G" or "I want button".
-	-- I'll keep Tab as a power-user feature, but rely on Button for primary.
 	if input.KeyCode == Enum.KeyCode.Tab or input.KeyCode == Enum.KeyCode.G then
 		if isInBuildMode then exitBuildMode() else enterBuildMode() end
 	end
 	
+	if input.KeyCode == Enum.KeyCode.R and isInBuildMode and BuildInteractionService.IsDragging() then
+		-- Tell the Interaction Service to rotate
+		BuildInteractionService.RotateGhost()
+	end
+	
 	if isInBuildMode then
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			-- If click was on UI, processed would be true. So this is world click.
-			if BuildInteractionService.IsDragging() then
-				BuildInteractionService.CompleteDrag()
-			else
-				-- Not dragging, check if we clicked an occupied slot to Pick Up
+			if not BuildInteractionService.IsDragging() then
 				local slot = BuildInteractionService.GetHoveredSlot()
 				if slot then
 					local tile = BuildGridVisualizer.GetTile(slot)
 					if tile and tile:GetAttribute("IsOccupied") then
 						local unitName = tile:GetAttribute("UnitName")
-						-- TODO: Get rarity from attribute if available, else default
-						local rarity = "Normal" -- We might need to store rarity on tile
+						local rarity = "Normal"
+						
+						lastDragStart = tick() -- Record pick up time
 						BuildInteractionService.StartDragFromSlot(slot, unitName, rarity)
 					end
 				end
@@ -398,6 +442,18 @@ UserInputService.InputBegan:Connect(function(input, processed)
 				BuildInteractionService.CancelDrag()
 			else
 				exitBuildMode()
+			end
+		end
+	end
+end)
+
+-- ADD this new InputEnded event to fully support hold-to-drag and drop:
+UserInputService.InputEnded:Connect(function(input, processed)
+	if isInBuildMode and input.UserInputType == Enum.UserInputType.MouseButton1 then
+		if BuildInteractionService.IsDragging() then
+			-- If user held the button to drag, releasing it should complete the drop
+			if tick() - lastDragStart > 0.2 then
+				handleDrop()
 			end
 		end
 	end

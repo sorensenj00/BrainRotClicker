@@ -35,15 +35,15 @@ local function getDefaultData()
 		ownedUnits = {},
 		unlockProgress = 5,
 		purchasedTiers = 1,
-		convenienceUpgrades = {},
-		brainrotPlacements = {},
-		itemStorage = {},
-		backpack = {},
-		storageCapacity = 2000,
-		selectedVehicle = "Sneakers",
-		vehicleCapacities = {},
-		gridPositions = {},
-		discoveredSynergies = {},
+		-- convenienceUpgrades = {}, -- Migrated
+		-- brainrotPlacements = {},  -- Migrated
+		-- itemStorage = {},         -- Migrated
+		-- backpack = {},            -- Migrated
+		-- storageCapacity = 2000,   -- Migrated
+		-- selectedVehicle = "Sneakers", -- Migrated
+		-- vehicleCapacities = {},   -- Migrated
+		-- gridPositions = {},       -- Migrated
+		-- discoveredSynergies = {}, -- Migrated
 	}
 end
 
@@ -88,51 +88,51 @@ local function gatherPlayerData(player: Player): any
 		end
 	end
 	
-	-- Get convenience upgrades
-	local convenienceUpgrades = {}
-	local ConvenienceUpgradesManager = rawget(Services, "ConvenienceUpgradesManager")
-	if ConvenienceUpgradesManager and ConvenienceUpgradesManager.GetPlayerUpgrades then
-		convenienceUpgrades = ConvenienceUpgradesManager.GetPlayerUpgrades(player)
-	end
+	-- Get convenience upgrades (Migrated to ConvenienceUpgradesManager)
+	-- local convenienceUpgrades = {}
+	-- local ConvenienceUpgradesManager = rawget(Services, "ConvenienceUpgradesManager")
+	-- if ConvenienceUpgradesManager and ConvenienceUpgradesManager.GetPlayerUpgrades then
+	-- 	convenienceUpgrades = ConvenienceUpgradesManager.GetPlayerUpgrades(player)
+	-- end
 	
-	-- Get item storage data
-	local itemStorage = {}
-	local backpack = {}
-	local storageCapacity = 2000
-	local selectedVehicle = "Sneakers"
-	local vehicleCapacities = {}
-	local gridPositions = {}
-	local discoveredSynergies = {}
+	-- Get item storage data (Migrated to ItemStorageManager)
+	-- local itemStorage = {}
+	-- local backpack = {}
+	-- local storageCapacity = 2000
+	-- local selectedVehicle = "Sneakers"
+	-- local vehicleCapacities = {}
+	-- local gridPositions = {}
+	-- local discoveredSynergies = {}
 	
-	local ItemStorageManager = rawget(Services, "ItemStorageManager")
-	if ItemStorageManager then
-		if ItemStorageManager.GetStorageContents then
-			itemStorage = ItemStorageManager.GetStorageContents(player) or {}
-		end
-		if ItemStorageManager.GetBackpackContents then
-			backpack = ItemStorageManager.GetBackpackContents(player) or {}
-		end
-		if ItemStorageManager.GetStorageCapacity then
-			storageCapacity = ItemStorageManager.GetStorageCapacity(player) or 2000
-		end
-	end
+	-- local ItemStorageManager = rawget(Services, "ItemStorageManager")
+	-- if ItemStorageManager then
+	-- 	if ItemStorageManager.GetStorageContents then
+	-- 		itemStorage = ItemStorageManager.GetStorageContents(player) or {}
+	-- 	end
+	-- 	if ItemStorageManager.GetBackpackContents then
+	-- 		backpack = ItemStorageManager.GetBackpackContents(player) or {}
+	-- 	end
+	-- 	if ItemStorageManager.GetStorageCapacity then
+	-- 		storageCapacity = ItemStorageManager.GetStorageCapacity(player) or 2000
+	-- 	end
+	-- end
 	
-	local TransportManager = rawget(Services, "TransportManager")
-	if TransportManager then
-		if TransportManager.GetSelectedVehicle then
-			selectedVehicle = TransportManager.GetSelectedVehicle(player) or "Sneakers"
-		end
-		if TransportManager.GetVehicleCapacities then
-			vehicleCapacities = TransportManager.GetVehicleCapacities(player) or {}
-		end
-	end
+	-- local TransportManager = rawget(Services, "TransportManager")
+	-- if TransportManager then
+	-- 	if TransportManager.GetSelectedVehicle then
+	-- 		selectedVehicle = TransportManager.GetSelectedVehicle(player) or "Sneakers"
+	-- 	end
+	-- 	if TransportManager.GetVehicleCapacities then
+	-- 		vehicleCapacities = TransportManager.GetVehicleCapacities(player) or {}
+	-- 	end
+	-- end
 	
-	local GridManager = rawget(Services, "GridManager")
-	if GridManager then
-		if GridManager.GetGridPositions then
-			gridPositions = GridManager.GetGridPositions(player) or {}
-		end
-	end
+	-- local GridManager = rawget(Services, "GridManager")
+	-- if GridManager then
+	-- 	if GridManager.GetGridPositions then
+	-- 		gridPositions = GridManager.GetGridPositions(player) or {}
+	-- 	end
+	-- end
 	
 	-- AdjacencySynergyManager not in core services yet, skipping or need check
 	-- For simplicity, omitting optional synergy data gathering if manager is not critical
@@ -142,14 +142,14 @@ local function gatherPlayerData(player: Player): any
 		lifetimeEarnings = 0,
 		unlockProgress = unlockProgress,
 		purchasedTiers = purchasedTiers,
-		convenienceUpgrades = convenienceUpgrades,
-		GridPlacements = gridPositions,
-		ItemStorage = itemStorage,
-		Backpack = backpack,
-		storageCapacity = storageCapacity,
-		selectedVehicle = selectedVehicle,
-		vehicleCapacities = vehicleCapacities,
-		discoveredSynergies = discoveredSynergies,
+		-- convenienceUpgrades = convenienceUpgrades, -- Migrated
+		-- GridPlacements = gridPositions, -- Migrated
+		-- ItemStorage = itemStorage, -- Migrated
+		-- Backpack = backpack, -- Migrated
+		-- storageCapacity = storageCapacity, -- Migrated
+		-- selectedVehicle = selectedVehicle, -- Migrated
+		-- vehicleCapacities = vehicleCapacities, -- Migrated
+		-- discoveredSynergies = discoveredSynergies, -- Migrated
 	}
 end
 

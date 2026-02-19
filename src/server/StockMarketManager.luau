@@ -133,16 +133,19 @@ local function readGlobalVolumes(): {[string]: number}
 	
 	for shardId = 1, CONFIG.NUM_SHARDS do
 		local key = "GlobalVol_Shard_" .. shardId
-		local ok, data = pcall(function()
-			return GlobalMarketMap:GetAsync(key)
-		end)
-		if ok and data and type(data) == "table" then
-			for sector, vol in pairs(data) do
-				if totalVolumes[sector] then
-					totalVolumes[sector] += (tonumber(vol) or 0)
+		-- Read AND CLEAR the shard atomically
+		pcall(function()
+			GlobalMarketMap:UpdateAsync(key, function(oldData)
+				if oldData and type(oldData) == "table" then
+					for sector, vol in pairs(oldData) do
+						if totalVolumes[sector] then
+							totalVolumes[sector] += (tonumber(vol) or 0)
+						end
+					end
 				end
-			end
-		end
+				return nil -- Returning nil DELETES the key, clearing the volume
+			end, CONFIG.SHARD_EXPIRATION)
+		end)
 	end
 	
 	return totalVolumes

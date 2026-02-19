@@ -130,40 +130,6 @@ local function reportSalesVolume(itemId, count)
 	end
 end
 
-local function createMarketBuilding()
-	local mainIsland = workspace:FindFirstChild("MainIsland")
-	if mainIsland and mainIsland:FindFirstChild("MarketBuilding") then return end
-	
-	local building = Instance.new("Part")
-	building.Name = "MarketBuilding"
-	building.Size = CONFIG.MARKET_SIZE
-	building.Position = CONFIG.MARKET_POSITION
-	building.Anchored = true
-	building.BrickColor = BrickColor.new("Deep orange")
-	building.Material = Enum.Material.SmoothPlastic
-	
-	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.new(0,200,0,60)
-	bb.StudsOffset = Vector3.new(0,12,0)
-	bb.Parent = building
-	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1,0,1,0)
-	lbl.BackgroundTransparency = 0.2
-	lbl.BackgroundColor3 = Color3.fromRGB(30,30,40)
-	lbl.Text = "🏪 MARKET"
-	lbl.TextColor3 = Color3.fromRGB(255,200,50)
-	lbl.TextScaled=true
-	lbl.Parent=bb
-	Instance.new("UICorner", lbl).CornerRadius = UDim.new(0,12)
-	
-	local pp = Instance.new("ProximityPrompt")
-	pp.ActionText = "Open Market"
-	pp.ObjectText = "Market Terminal"
-	pp.KeyboardKeyCode = Enum.KeyCode.E
-	pp.Parent = building
-	
-	if mainIsland then building.Parent = mainIsland else building.Parent = workspace end
-end
 
 --------------------------------------------------------------------------------
 -- API
@@ -173,10 +139,6 @@ function MarketManager.Init(services)
 	print("   MarketManager (Module) - Initializing")
 	Services = services or {}
 	
-	task.spawn(function()
-		task.wait(3)
-		createMarketBuilding() -- Wait for MainIsland
-	end)
 	
 	SellItemFunction.OnServerInvoke = function(p, id, c) return MarketManager.SellItem(p, id, c) end
 	SellAllFunction.OnServerInvoke = function(p) return MarketManager.SellAll(p) end
@@ -200,9 +162,10 @@ function MarketManager.SellItem(player, itemId, count)
 	local removed = ISM.RemoveFromBackpack(player, itemId, toSell)
 	if removed <= 0 then return 0,0 end
 	
-	local ls = player:FindFirstChild("leaderstats")
-	local m = ls and ls:FindFirstChild("Money")
-	if m then m.Value += total end
+	local DataService = rawget(Services, "DataService")
+	if DataService then
+		DataService.AddMoney(player, total)
+	end
 	
 	-- Report to global market (influences prices across all servers)
 	reportSalesVolume(itemId, removed)

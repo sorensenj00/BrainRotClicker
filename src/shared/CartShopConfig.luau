@@ -45,7 +45,30 @@ CartShopConfig.Upgrades = {
 	}
 }
 
+CartShopConfig.Carts = {
+		{ Name = "Wooden Cart", Price = 0, Model = "CartTier1" },
+		{ Name = "Iron Cart", Price = 5000, Model = "CartTier2" },
+		{ Name = "Golden Cart", Price = 25000, Model = "CartTier3" },
+		{ Name = "Diamond Cart", Price = 100000, Model = "CartTier4" },
+		{ Name = "Netherite Cart", Price = 500000, Model = "CartTier5" },
+	}
+
+
 function CartShopConfig.GetUpgradeInfo(upgradeType: string, currentTier: number)
+	if upgradeType == "Model" then
+		local carts = CartShopConfig.Carts
+		local nextTier = currentTier + 1
+		local nextCart = carts[nextTier]
+		
+		return {
+			CurrentValue = currentTier, -- Just the tier number for models
+			NextValue = nextTier,
+			Price = nextCart and nextCart.Price or nil,
+			IsMaxed = nextCart == nil,
+			Name = nextCart and nextCart.Name or "Maxed"
+		}
+	end
+
 	local config = CartShopConfig.Upgrades[upgradeType]
 	if not config then return nil end
 	

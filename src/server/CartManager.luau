@@ -139,11 +139,17 @@ local function createPlaceholderCart()
 	return m
 end
 
-local function getCartTemplate()
+local function getCartTemplate(tier)
+	local tierName = "CartTier" .. (tier or 1)
 	local models = ReplicatedStorage:FindFirstChild("Models")
 	local carts = models and models:FindFirstChild("Carts")
-	local t = carts and carts:FindFirstChild("CartTier1")
+	local t = carts and carts:FindFirstChild(tierName)
 
+	if not t then
+		-- Fallback to Tier 1 if specific tier not found
+		t = carts and carts:FindFirstChild("CartTier1")
+	end
+	
 	if not t then
 		t = ServerStorage:FindFirstChild("TransportCart")
 		if not t then
@@ -159,7 +165,7 @@ local function updateCartVisuals(cartData)
 	if not model then return end
 	
 	-- Update capacity bar
-	local box = model:FindFirstChild("CartBox")
+	local box = model:FindFirstChild("CartBox") or model:FindFirstChild("Box")
 	if box and box:FindFirstChild("SurfaceGui") then
 		local bar = box.SurfaceGui:FindFirstChild("Frame"):FindFirstChild("FillBar")
 		local current = 0
@@ -172,14 +178,17 @@ local function updateCartVisuals(cartData)
 	end
 	
 	-- Position prompt
-	local prompt = model.PrimaryPart:FindFirstChild("CartPrompt")
+	local promptPart = model.PrimaryPart
+	if not promptPart then return end
+	
+	local prompt = promptPart:FindFirstChild("CartPrompt")
 	if not prompt then
 		prompt = Instance.new("ProximityPrompt")
 		prompt.Name = "CartPrompt"
 		prompt.ObjectText = "Transport Cart"
 		prompt.RequiresLineOfSight = false
 		prompt.HoldDuration = 0.5
-		prompt.Parent = model.PrimaryPart
+		prompt.Parent = promptPart
 	end
 	
 	prompt.Enabled = (cartData.State == "idle" or cartData.State == "at_market")
@@ -206,7 +215,14 @@ local function spawnCart(player)
 	local plot = MS.GetPlayerPlot(player)
 	if not plot then return nil end
 	
-	local template = getCartTemplate()
+	-- Get Data
+	local DataService = rawget(Services, "DataService")
+	local upgrades = { Capacity = CONFIG.DEFAULT_CAPACITY, Speed = CONFIG.ROLL_SPEED, Model = 1 }
+	if DataService then
+		upgrades = DataService.GetCartUpgrades(player)
+	end
+	
+	local template = getCartTemplate(upgrades.Model)
 	local model = template:Clone()
 	model.Name = "Cart_" .. player.Name
 	
@@ -220,11 +236,17 @@ local function spawnCart(player)
 	model:PivotTo(CFrame.new(spawnPos, spawnPos + dir))
 	model.Parent = workspace
 	
+	local Config = require(ReplicatedStorage.Shared.CartShopConfig)
+	local capOverride = Config.GetValue("Capacity", upgrades.Capacity or 0)
+	local speedOverride = Config.GetValue("Speed", upgrades.Speed or 0)
+	
 	local data = {
 		Model = model,
 		State = "idle",
 		Inventory = {},
-		Capacity = CONFIG.DEFAULT_CAPACITY,
+		Capacity = capOverride > 0 and capOverride or CONFIG.DEFAULT_CAPACITY,
+		Speed = speedOverride > 0 and speedOverride or CONFIG.ROLL_SPEED,
+		ModelTier = upgrades.Model or 1,
 		StartPos = spawnPos,
 		EndPos = mainPos + (dir * -45), -- Edge of main island
 		BridgeDir = dir
@@ -309,12 +331,47 @@ end
 
 function CartManager.ApplyUpgrades(player, upgrades)
 	local data = PlayerCarts[player]
-	if not data then return end
 	
-	-- We need to access CartShopConfig here, but it might be circular if we require it at top level?
-	-- It's largely safe if we lazy load or assume values passed in are raw numbers
-	-- But CartShopManager passes raw tier indices. Let's lazy load config.
+	-- Logic:
+	-- If model changed, we MUST respawn.
+	-- If data doesn't exist, we just let spawnCart handle it later.
 	
+	if data and data.ModelTier ~= (upgrades.Model or 1) then
+		-- Model Upgrade!
+		-- If cart is moving, we might want to wait or just force it (it's weird to swap model while moving)
+		-- For simpler UX, we'll force respawn at start position and preserve inventory if possible?
+		-- Actually, just destroy and spawn new one at idle pos.
+		
+		if data.Model then data.Model:Destroy() end
+		PlayerCarts[player] = nil
+		
+		-- Use spawnCart which re-reads DataService
+		-- But spawnCart checks PlayerCarts presence.
+		-- We nilled it, so it should work.
+		spawnCart(player)
+		
+		-- Restore inventory? 
+		-- spawnCart resets inventory. 
+		-- If they upgrade while cart is full, they might lose items or we need to carefully port them.
+		-- For now, let's assume they shouldn't upgrade mid-trip or accept it resets.
+		-- Better: copy inventory over.
+		
+		local newData = PlayerCarts[player]
+		if newData then
+			newData.Inventory = data.Inventory
+			updateCartVisuals(newData)
+			CartUpdateEvent:FireClient(player, newData.State, newData.Inventory, newData.Capacity)
+		end
+		
+		return
+	end
+	
+	if not data then 
+		-- Try spawning if they have a plot
+		spawnCart(player)
+		return 
+	end
+
 	local Shared = ReplicatedStorage:WaitForChild("Shared")
 	local Config = require(Shared:WaitForChild("CartShopConfig"))
 	
@@ -324,7 +381,7 @@ function CartManager.ApplyUpgrades(player, upgrades)
 		data.Capacity = capVal
 	end
 	
-	-- Speed (We need to store this in data to use during moveCart)
+	-- Speed
 	local speedVal = Config.GetValue("Speed", upgrades.Speed or 0)
 	if speedVal > 0 then
 		data.Speed = speedVal

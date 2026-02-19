@@ -460,52 +460,6 @@ local function setupConnections()
 	end
 end
 
-local function setupStorageVendorPrompt()
-	local mainIsland = workspace:WaitForChild("MainIsland", 30)
-	if not mainIsland then
-		warn("StorageUpgradeUI: MainIsland not found")
-		return
-	end
-	
-	local storageVendor = mainIsland:WaitForChild("StorageVendor", 30)
-	if not storageVendor then
-		warn("StorageUpgradeUI: StorageVendor not found")
-		return
-	end
-	
-	local prompt = storageVendor:WaitForChild("StoragePrompt", 10)
-	if prompt then
-		prompt.Triggered:Connect(function(playerWhoTriggered)
-			if playerWhoTriggered == Player then
-				showPanel()
-			end
-		end)
-		print("StorageUpgradeUI: Connected to StorageVendor prompt")
-	end
-end
-
--- Close when walking away
-local function setupDistanceCheck()
-	local RunService = game:GetService("RunService")
-	
-	RunService.Heartbeat:Connect(function()
-		if not PanelVisible then return end
-		
-		local character = Player.Character
-		local hrp = character and character:FindFirstChild("HumanoidRootPart")
-		if not hrp then return end
-		
-		local mainIsland = workspace:FindFirstChild("MainIsland")
-		local storageVendor = mainIsland and mainIsland:FindFirstChild("StorageVendor")
-		if not storageVendor then return end
-		
-		local distance = (hrp.Position - storageVendor.Position).Magnitude
-		if distance > 20 then
-			hidePanel()
-		end
-	end)
-end
-
 --------------------------------------------------------------------------------
 -- INITIALIZATION
 --------------------------------------------------------------------------------
@@ -525,9 +479,25 @@ local function initialize()
 	-- Parent GUI
 	StorageGui.Parent = PlayerGui
 	
-	-- Setup vendor prompt listener
-	task.spawn(setupStorageVendorPrompt)
-	setupDistanceCheck()
+	-- Setup Shop Interaction
+	local ShopInteraction = require(script.Parent:WaitForChild("ShopInteraction"))
+	local interaction = ShopInteraction.new({
+		PromptTag = "StorageUpgradeVendor",
+		InteractionDist = 20,
+		Keybind = Enum.KeyCode.E,
+		OnOpen = showPanel,
+		OnClose = hidePanel,
+	})
+	
+	-- Connect Close Button to Interaction
+	if StoragePanel then
+		local closeButton = StoragePanel:FindFirstChild("CloseButton")
+		if closeButton then
+			closeButton.MouseButton1Click:Connect(function() 
+				interaction:Close() 
+			end)
+		end
+	end
 	
 	print("StorageUpgradeUI: Ready!")
 end

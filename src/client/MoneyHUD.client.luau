@@ -328,11 +328,11 @@ local function createMoneyHUD(): ScreenGui
 	addStroke(portfolioBtn, UI_CONFIG.THEME_STROKE, 1)
 	
 	----------------------------------------------------------------------
-	-- BOTTOM CENTER ACTION BAR (6 buttons in a row)
+	-- BOTTOM CENTER ACTION BAR (7 buttons in a row)
 	----------------------------------------------------------------------
 	local btnSize = UI_CONFIG.BOTTOM_BAR_BTN_SIZE
 	local btnPad = UI_CONFIG.BOTTOM_BAR_PADDING
-	local totalBarWidth = 6 * btnSize + 5 * btnPad + 24 -- + side padding
+	local totalBarWidth = 7 * btnSize + 6 * btnPad + 24 -- + side padding for 7 buttons
 	
 	local bottomBar = Instance.new("Frame")
 	bottomBar.Name = "BottomBar"
@@ -375,6 +375,10 @@ local function createMoneyHUD(): ScreenGui
 		addStroke(btn, UI_CONFIG.THEME_STROKE, 1.5)
 		return btn
 	end
+	
+	-- 0. Build (Hammer) - Order 0 to be first? Or last? User said "a button down in the hotbar". 
+	-- Let's put it first or last. First is accessible.
+	createBarButton("BuildButton", "🔨", Color3.fromRGB(255, 140, 0), 0)
 	
 	-- 1. Shop
 	createBarButton("ShopButton", "🛒", UI_CONFIG.THEME_ACCENT_PURPLE, 1)
@@ -735,6 +739,9 @@ local function initialize()
 				}):Play()
 			end)
 		end
+		
+		setupBtn("BuildButton", "BuildModeToggleEvent", nil,
+			Color3.fromRGB(255, 140, 0), Color3.fromRGB(255, 180, 50))
 		
 		setupBtn("ShopButton", "ShopToggleEvent", nil,
 			UI_CONFIG.THEME_ACCENT_PURPLE, Color3.fromRGB(100, 80, 170))

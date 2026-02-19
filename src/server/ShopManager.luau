@@ -79,6 +79,8 @@ local function setupShopVendor()
 		pp.ActionText = "Open Shop"
 		pp.ObjectText = "Brainrot Shop"
 		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.RequiresLineOfSight = false
+		pp.MaxActivationDistance = 20
 		pp.Parent = primary
 	end
 end
@@ -110,17 +112,14 @@ local function cleanupPlayerData(player)
 end
 
 local function getMoney(player)
-	local ls = player:FindFirstChild("leaderstats")
-	return ls and ls:FindFirstChild("Money") and ls.Money.Value or 0
+	local DataService = rawget(Services, "DataService")
+	if DataService then return DataService.GetMoney(player) end
+	return 0
 end
 
 local function deductMoney(player, amount)
-	local ls = player:FindFirstChild("leaderstats")
-	local m = ls and ls:FindFirstChild("Money")
-	if m and m.Value >= amount then
-		m.Value -= amount
-		return true
-	end
+	local DataService = rawget(Services, "DataService")
+	if DataService then return DataService.DeductMoney(player, amount) end
 	return false
 end
 

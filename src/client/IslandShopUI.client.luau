@@ -11,9 +11,7 @@
 -- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local CollectionService = game:GetService("CollectionService")
 
 -- Player reference
 local player = Players.LocalPlayer
@@ -367,86 +365,17 @@ PurchaseTierEvent.OnClientEvent:Connect(function(success, message)
 end)
 
 --------------------------------------------------------------------------------
--- PROXIMITY DETECTION
+-- SHOP INTERACTION
 --------------------------------------------------------------------------------
 
-local function checkProximity()
-	local character = player.Character
-	if not character then return false end
-	
-	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-	if not humanoidRootPart then return false end
-	
-	-- Find vendor
-	for _, vendor in CollectionService:GetTagged("IslandShopVendor") do
-		local distance = (humanoidRootPart.Position - vendor.Position).Magnitude
-		if distance <= UI_CONFIG.INTERACTION_DISTANCE then
-			return true
-		end
-	end
-	
-	return false
-end
+local ShopInteraction = require(script.Parent:WaitForChild("ShopInteraction"))
 
---------------------------------------------------------------------------------
--- INPUT HANDLING
---------------------------------------------------------------------------------
-
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	
-	if input.KeyCode == Enum.KeyCode.E then
-		if shopOpen then
-			closeShop()
-		elseif checkProximity() then
-			openShop()
-		end
-	elseif input.KeyCode == Enum.KeyCode.Escape then
-		if shopOpen then
-			closeShop()
-		end
-	end
-end)
-
--- Proximity check loop for showing hints
-task.spawn(function()
-	while true do
-		_nearVendor = checkProximity()
-		task.wait(0.5)
-	end
-end)
-
---------------------------------------------------------------------------------
--- PROXIMITY PROMPT LISTENER
---------------------------------------------------------------------------------
-
--- Setup listener for ProximityPrompt on Island Shop vendors
-local function setupProximityPromptListener()
-	-- Listen for any IslandShopVendor that gets added
-	for _, vendor in CollectionService:GetTagged("IslandShopVendor") do
-		local prompt = vendor:FindFirstChild("IslandShopPrompt")
-		if prompt and prompt:IsA("ProximityPrompt") then
-			prompt.Triggered:Connect(function(playerWhoTriggered)
-				if playerWhoTriggered == player then
-					openShop()
-				end
-			end)
-		end
-	end
-	
-	-- Also listen for new vendors being added
-	CollectionService:GetInstanceAddedSignal("IslandShopVendor"):Connect(function(vendor)
-		local prompt = vendor:WaitForChild("IslandShopPrompt", 5)
-		if prompt and prompt:IsA("ProximityPrompt") then
-			prompt.Triggered:Connect(function(playerWhoTriggered)
-				if playerWhoTriggered == player then
-					openShop()
-				end
-			end)
-		end
-	end)
-end
-
-task.spawn(setupProximityPromptListener)
+local _interaction = ShopInteraction.new({
+	PromptTag = "IslandShopVendor",
+	InteractionDist = UI_CONFIG.INTERACTION_DISTANCE,
+	Keybind = Enum.KeyCode.E,
+	OnOpen = openShop,
+	OnClose = closeShop,
+})
 
 print("✓ IslandShopUI initialized")

@@ -15,7 +15,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local CollectionService = game:GetService("CollectionService")
 
 -- Player reference
 local player = Players.LocalPlayer
@@ -470,44 +469,24 @@ PurchaseUpgradeEvent.OnClientEvent:Connect(function(success, message)
 end)
 
 --------------------------------------------------------------------------------
--- PROXIMITY DETECTION
+-- SHOP INTERACTION
 --------------------------------------------------------------------------------
 
-local function checkProximity(): boolean
-	local character = player.Character
-	if not character then return false end
-	
-	local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
-	if not humanoidRootPart then return false end
-	
-	for _, vendor in CollectionService:GetTagged("ConvenienceShopVendor") do
-		local distance = (humanoidRootPart.Position - vendor.Position).Magnitude
-		if distance <= UI_CONFIG.INTERACTION_DISTANCE then
-			return true
-		end
-	end
-	
-	return false
-end
+local ShopInteraction = require(script.Parent:WaitForChild("ShopInteraction"))
 
---------------------------------------------------------------------------------
--- INPUT HANDLING
---------------------------------------------------------------------------------
+local _interaction = ShopInteraction.new({
+	PromptTag = "ConvenienceShopVendor",
+	InteractionDist = UI_CONFIG.INTERACTION_DISTANCE,
+	Keybind = Enum.KeyCode.E,
+	OnOpen = openShop,
+	OnClose = closeShop,
+})
 
+-- Handle H key for teleport home separately as it's not part of the standard shop interaction
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	
-	if input.KeyCode == Enum.KeyCode.E then
-		if shopOpen then
-			closeShop()
-		elseif checkProximity() then
-			openShop()
-		end
-	elseif input.KeyCode == Enum.KeyCode.Escape then
-		if shopOpen then
-			closeShop()
-		end
-	elseif input.KeyCode == Enum.KeyCode.H then
+	if input.KeyCode == Enum.KeyCode.H then
 		-- Teleport home if player has the upgrade
 		if _G.ConvenienceUpgrades and _G.ConvenienceUpgrades.HasTeleportHome and _G.ConvenienceUpgrades.HasTeleportHome(player) then
 			-- Teleport to main island
@@ -521,38 +500,5 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		end
 	end
 end)
-
---------------------------------------------------------------------------------
--- PROXIMITY PROMPT LISTENER
---------------------------------------------------------------------------------
-
--- Setup listener for ProximityPrompt on Convenience Shop vendors
-local function setupProximityPromptListener()
-	-- Listen for any ConvenienceShopVendor that gets added
-	for _, vendor in CollectionService:GetTagged("ConvenienceShopVendor") do
-		local prompt = vendor:FindFirstChild("ConvenienceShopPrompt")
-		if prompt and prompt:IsA("ProximityPrompt") then
-			prompt.Triggered:Connect(function(playerWhoTriggered)
-				if playerWhoTriggered == player then
-					openShop()
-				end
-			end)
-		end
-	end
-	
-	-- Also listen for new vendors being added
-	CollectionService:GetInstanceAddedSignal("ConvenienceShopVendor"):Connect(function(vendor)
-		local prompt = vendor:WaitForChild("ConvenienceShopPrompt", 5)
-		if prompt and prompt:IsA("ProximityPrompt") then
-			prompt.Triggered:Connect(function(playerWhoTriggered)
-				if playerWhoTriggered == player then
-					openShop()
-				end
-			end)
-		end
-	end)
-end
-
-task.spawn(setupProximityPromptListener)
 
 print("✓ ConvenienceUpgradesUI initialized")

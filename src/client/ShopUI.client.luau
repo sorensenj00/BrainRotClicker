@@ -18,7 +18,6 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 
 -- Player reference
 local Player = Players.LocalPlayer
@@ -809,136 +808,52 @@ local function closeShop()
 	print("ShopUI: Closed")
 end
 
-local function toggleShop()
-	if ShopVisible then
-		closeShop()
-	else
-		openShop()
-	end
-end
 
--- Setup ProximityPrompt listener for ShopVendor on Main Island
-local function setupShopVendorPrompt()
-	local mainIsland = workspace:WaitForChild("MainIsland", 30)
-	if not mainIsland then
-		warn("ShopUI: MainIsland not found")
-		return
+--------------------------------------------------------------------------------
+-- SHOP INTERACTION
+--------------------------------------------------------------------------------
+
+local ShopInteraction = require(script.Parent:WaitForChild("ShopInteraction"))
+
+local interaction = ShopInteraction.new({
+	PromptTag = "UnitShopVisual",
+	InteractionDist = 20,
+	Keybind = Enum.KeyCode.E,
+	OnOpen = function()
+		if not ShopVisible then openShop() end
+	end,
+	OnClose = function()
+		if ShopVisible then closeShop() end
+	end,
+})
+
+-- Setup BindableEvent listener for MoneyHUD shop button
+local function setupBindableEventListener()
+	-- Wait a bit for MoneyHUD to potentially create the event
+	task.wait(0.5)
+	
+	local shopToggleEvent = ReplicatedStorage:FindFirstChild("ShopToggleEvent")
+	if not shopToggleEvent then
+		-- Create it ourselves if MoneyHUD hasn't yet
+		shopToggleEvent = Instance.new("BindableEvent")
+		shopToggleEvent.Name = "ShopToggleEvent"
+		shopToggleEvent.Parent = ReplicatedStorage
 	end
 	
-	-- Wait for or create ShopVendor
-	local shopVendor = mainIsland:FindFirstChild("ShopVendor")
-	if not shopVendor then
-		-- Create ShopVendor part if it doesn't exist
-		shopVendor = Instance.new("Part")
-		shopVendor.Name = "ShopVendor"
-		shopVendor.Size = Vector3.new(6, 8, 6)
-		shopVendor.BrickColor = BrickColor.new("Bright violet")
-		shopVendor.Material = Enum.Material.Neon
-		shopVendor.Anchored = true
-		shopVendor.CanCollide = true
-		-- Position on main island (adjust as needed)
-		local primaryPart = mainIsland.PrimaryPart or mainIsland:FindFirstChildWhichIsA("BasePart")
-		if primaryPart then
-			shopVendor.Position = primaryPart.Position + Vector3.new(20, 10, 0)
-		else
-			-- Fallback: main island is at height 30, so position at 40
-			shopVendor.Position = Vector3.new(20, 40, 0)
-		end
-		shopVendor.Parent = mainIsland
-		
-		-- Add visual label
-		local billboard = Instance.new("BillboardGui")
-		billboard.Size = UDim2.new(4, 0, 2, 0)
-		billboard.StudsOffset = Vector3.new(0, 6, 0)
-		billboard.Parent = shopVendor
-		
-		local label = Instance.new("TextLabel")
-		label.Size = UDim2.new(1, 0, 1, 0)
-		label.BackgroundTransparency = 1
-		label.Text = "🛒 SHOP"
-		label.TextColor3 = Color3.fromRGB(255, 255, 255)
-		label.TextScaled = true
-		label.Font = Enum.Font.GothamBold
-		label.Parent = billboard
-	end
-	
-	-- Create or get ProximityPrompt
-	local prompt = shopVendor:FindFirstChild("ShopPrompt")
-	if not prompt then
-		prompt = Instance.new("ProximityPrompt")
-		prompt.Name = "ShopPrompt"
-		prompt.ActionText = "Open Shop"
-		prompt.ObjectText = "Shop"
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-		prompt.HoldDuration = 0
-		prompt.MaxActivationDistance = 10
-		prompt.RequiresLineOfSight = false
-		prompt.Parent = shopVendor
-	end
-	
-	-- Open shop when prompt triggered
-	prompt.Triggered:Connect(function(playerWhoTriggered)
-		if playerWhoTriggered == Player then
-			openShop()
-		end
+	shopToggleEvent.Event:Connect(function()
+		interaction:Toggle()
 	end)
 	
-	print("ShopUI: ShopVendor ProximityPrompt setup complete")
+	print("ShopUI: BindableEvent listener setup complete")
 end
 
--- Track if player is on main island for purchase permissions
-local function setupMainIslandCheck()
-	local mainIsland = workspace:WaitForChild("MainIsland", 30)
-	if not mainIsland then
-		warn("ShopUI: MainIsland not found for proximity check")
-		return
+-- Listen for B key as alternate toggle (legacy support)
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.B then
+		interaction:Toggle()
 	end
-	
-	local primaryPart = mainIsland.PrimaryPart or mainIsland:FindFirstChildWhichIsA("BasePart")
-	if not primaryPart then
-		warn("ShopUI: MainIsland has no primary part")
-		return
-	end
-	
-	-- Get the island bounds (approximate based on size)
-	local islandSize = primaryPart.Size
-	local islandCenter = primaryPart.Position
-	
-	RunService.Heartbeat:Connect(function()
-		local character = Player.Character
-		local hrp = character and character:FindFirstChild("HumanoidRootPart")
-		if not hrp then return end
-		
-		-- Check if player is within horizontal distance of main island
-		local playerPos = hrp.Position
-		local horizontalDist = math.sqrt(
-			(playerPos.X - islandCenter.X)^2 + 
-			(playerPos.Z - islandCenter.Z)^2
-		)
-		
-		-- Consider player on main island if within reasonable radius (island half-size + margin)
-		local islandRadius = math.max(islandSize.X, islandSize.Z) / 2 + 20
-		local wasOnMainIsland = IsOnMainIsland
-		IsOnMainIsland = horizontalDist <= islandRadius and playerPos.Y >= islandCenter.Y - 20
-		
-		-- Update warning banner if status changed while shop is open
-		if wasOnMainIsland ~= IsOnMainIsland and ShopVisible then
-			updateWarningBanner()
-		end
-	end)
-end
-
--- Setup 'B' key to toggle shop
-local function setupKeyboardToggle()
-	UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then return end
-		
-		if input.KeyCode == Enum.KeyCode.B then
-			toggleShop()
-		end
-	end)
-	print("ShopUI: B key toggle enabled")
-end
+end)
 
 -- Setup close button on shop panel
 local function setupCloseButton()
@@ -952,7 +867,7 @@ local function setupCloseButton()
 	local closeButton = titleBar:FindFirstChild("CloseButton")
 	if closeButton then
 		closeButton.MouseButton1Click:Connect(function()
-			closeShop()
+			interaction:Close()
 		end)
 		
 		-- Hover effects
@@ -970,29 +885,5 @@ local function setupCloseButton()
 	end
 end
 
--- Setup BindableEvent listener for MoneyHUD shop button
-local function setupBindableEventListener()
-	-- Wait a bit for MoneyHUD to potentially create the event
-	task.wait(0.5)
-	
-	local shopToggleEvent = ReplicatedStorage:FindFirstChild("ShopToggleEvent")
-	if not shopToggleEvent then
-		-- Create it ourselves if MoneyHUD hasn't yet
-		shopToggleEvent = Instance.new("BindableEvent")
-		shopToggleEvent.Name = "ShopToggleEvent"
-		shopToggleEvent.Parent = ReplicatedStorage
-	end
-	
-	shopToggleEvent.Event:Connect(function()
-		toggleShop()
-	end)
-	
-	print("ShopUI: BindableEvent listener setup complete")
-end
-
--- Initialize shop vendor prompt
-task.spawn(setupShopVendorPrompt)
-task.spawn(setupMainIslandCheck)
 task.spawn(setupCloseButton)
 task.spawn(setupBindableEventListener)
-setupKeyboardToggle()

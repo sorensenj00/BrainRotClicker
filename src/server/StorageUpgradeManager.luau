@@ -102,69 +102,29 @@ local function handleGetStorageInfo(player)
 	}
 end
 
-local function createStorageVendor()
-	local mainIsland = workspace:WaitForChild("MainIsland", 30)
+
+local function setupStorageVendor()
+	local mainIsland = workspace:WaitForChild("MainIsland", 10)
 	if not mainIsland then return end
-	if mainIsland:FindFirstChild("StorageVendor") then return end
 	
-	-- Try to load model
-	local models = ReplicatedStorage:FindFirstChild("Models")
-	local shops = models and models:FindFirstChild("Shops")
-	local template = shops and shops:FindFirstChild("StorageShop")
+	local vendor = mainIsland:WaitForChild("StorageVendor", 10)
+	if not vendor then return end
 	
-	local part
-	if template then
-		part = template:Clone()
-	else
-		-- Fallback
-		part = Instance.new("Part")
-		part.Size = Vector3.new(6, 8, 6)
-		part.BrickColor = BrickColor.new("Deep orange")
-		part.Material = Enum.Material.Neon
+	local CollectionService = game:GetService("CollectionService")
+	CollectionService:AddTag(vendor, "StorageUpgradeVendor")
+	
+	-- Ensure prompt exists
+	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart")
+	if primary and not vendor:FindFirstChild("StoragePrompt", true) then
+		local pp = Instance.new("ProximityPrompt")
+		pp.Name = "StoragePrompt"
+		pp.ActionText = "Upgrade Storage"
+		pp.ObjectText = "Storage Shop"
+		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.RequiresLineOfSight = false
+		pp.MaxActivationDistance = 20
+		pp.Parent = primary
 	end
-	
-	part.Name = "StorageVendor"
-	part.Anchored = true
-	
-	local sv = mainIsland:FindFirstChild("ShopVendor")
-	if sv then
-		if part:IsA("Model") then
-			part:PivotTo(sv.CFrame * CFrame.new(15, 0, 0))
-		else
-			part.Position = sv.Position + Vector3.new(15, 0, 0)
-		end
-	else
-		local pp = mainIsland.PrimaryPart or mainIsland:FindFirstChildWhichIsA("BasePart")
-		local pos
-		if pp then pos = pp.Position + Vector3.new(35, 10, 0) 
-		else pos = Vector3.new(35, 40, 0) end
-		
-		if part:IsA("Model") then
-			part:PivotTo(CFrame.new(pos))
-		else
-			part.Position = pos
-		end
-	end
-	
-	part.Parent = mainIsland
-	
-	-- Add prompt to PrimaryPart or the part itself
-	local promptParent = part
-	if part:IsA("Model") then
-		promptParent = part.PrimaryPart or part:FindFirstChildWhichIsA("BasePart") or part
-	end
-	
-	-- Only add visual GUI if it's the fallback part (Model usually has its own)
-	if not template then
-		local bb = Instance.new("BillboardGui"); bb.Size=UDim2.new(5,0,2,0); bb.StudsOffset=Vector3.new(0,6,0); bb.Parent=part
-		local lbl = Instance.new("TextLabel"); lbl.Size=UDim2.new(1,0,1,0); lbl.BackgroundTransparency=1; lbl.Text="📦 STORAGE"; lbl.TextColor3=Color3.fromRGB(255,200,100); lbl.TextScaled=true; lbl.Parent=bb
-	end
-	
-	local pp = Instance.new("ProximityPrompt")
-	pp.ActionText = "Upgrade Storage"
-	pp.ObjectText = "Storage"
-	pp.KeyboardKeyCode = Enum.KeyCode.E
-	pp.Parent = promptParent
 end
 
 --------------------------------------------------------------------------------
@@ -174,7 +134,8 @@ end
 function StorageUpgradeManager.Init(services)
 	print("   StorageUpgradeManager (Module) - Initializing")
 	Services = services or {}
-	task.spawn(createStorageVendor)
+	
+	task.spawn(setupStorageVendor)
 	
 	UpgradeStorageRemote.OnServerInvoke = handleUpgradeStorage
 	GetStorageInfoRemote.OnServerInvoke = handleGetStorageInfo

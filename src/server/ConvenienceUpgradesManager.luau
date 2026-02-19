@@ -263,6 +263,8 @@ local function setupConvenienceShopVendor()
 		pp.ActionText = "Open Upgrades"
 		pp.ObjectText = "Convenience Shop"
 		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.RequiresLineOfSight = false
+		pp.MaxActivationDistance = 20
 		pp.Parent = primary
 	end
 end

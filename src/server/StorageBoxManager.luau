@@ -94,7 +94,7 @@ end
 
 function StorageBoxManager.Init(services)
 	print("   StorageBoxManager (Module) - Initializing")
-	Services = services or {}
+	_Services = services or {}
 	
 	for _, player in Players:GetPlayers() do
 		task.defer(function()

@@ -170,12 +170,21 @@ local function findPlayerPlot(player)
 end
 
 local function getPlotCFrameAndSize(plot)
+	-- Prioritize the explicit bounds part if it exists (New MapSystem)
+	local bounds = plot:FindFirstChild("PlotBounds_80x80")
+	if bounds and bounds:IsA("BasePart") then
+		return bounds.CFrame, bounds.Size
+	end
+
+	-- Fallback to old detection logic
 	local floor = plot:FindFirstChild("Island") or plot:FindFirstChild("PlotFloor") or plot:FindFirstChild("Floor") or plot:FindFirstChildWhichIsA("BasePart")
 	if floor and floor:IsA("BasePart") then return floor.CFrame, floor.Size end
+	
 	if plot:IsA("Model") then
 		local cf, size = plot:GetBoundingBox()
 		return cf, size
 	end
+	
 	if plot:IsA("BasePart") then return plot.CFrame, plot.Size end
 	return CFrame.new(0, 5, 0), Vector3.new(50, 10, 50)
 end

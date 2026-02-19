@@ -40,6 +40,12 @@ type DataHandler = {
 	DefaultData: any?
 }
 
+type CartUpgrades = {
+	Capacity: number,
+	Speed: number,
+	Model: number
+}
+
 local DataService = {}
 local Profiles: {[Player]: Profile} = {}
 local Handlers: {[string]: DataHandler} = {}
@@ -61,6 +67,13 @@ local ProfileStore = ProfileService.GetProfileStore(
 		
 		-- Artifacts (all owned, with equipment links)
 		Artifacts = {},
+		
+		-- Cart Upgrades (Persisted)
+		CartUpgrades = {
+			Capacity = 0,
+			Speed = 0,
+			Model = 1 -- Tier 1 default
+		},
 		
 		-- Item Storage & Backpack
 		ItemStorage = {},
@@ -88,6 +101,71 @@ local ProfileStore = ProfileService.GetProfileStore(
 --------------------------------------------------------------------------------
 -- PUBLIC API
 --------------------------------------------------------------------------------
+
+--[[
+	ECONOMY API
+]]
+function DataService.GetMoney(player: Player): number
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		return profile.Data.money or 0
+	end
+	return 0
+end
+
+function DataService.AddMoney(player: Player, amount: number)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		profile.Data.money = (profile.Data.money or 0) + amount
+		profile.Data.lifetimeEarnings = (profile.Data.lifetimeEarnings or 0) + amount
+		
+		-- Sync to leaderstats for client display (Legacy support)
+		local ls = player:FindFirstChild("leaderstats")
+		local m = ls and ls:FindFirstChild("Money")
+		if m then m.Value = profile.Data.money end
+		
+		return true
+	end
+	return false
+end
+
+function DataService.DeductMoney(player: Player, amount: number): boolean
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		local current = profile.Data.money or 0
+		if current >= amount then
+			profile.Data.money = current - amount
+			
+			-- Sync to leaderstats
+			local ls = player:FindFirstChild("leaderstats")
+			local m = ls and ls:FindFirstChild("Money")
+			if m then m.Value = profile.Data.money end
+			
+			return true
+		end
+	end
+	return false
+end
+
+--[[
+	CART API
+]]
+function DataService.GetCartUpgrades(player: Player)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		return profile.Data.CartUpgrades or { Capacity = 0, Speed = 0, Model = 1 }
+	end
+	return { Capacity = 0, Speed = 0, Model = 1 }
+end
+
+function DataService.SetCartUpgrades(player: Player, upgrades: CartUpgrades)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		profile.Data.CartUpgrades = upgrades
+		return true
+	end
+	return false
+end
 
 --[[
 	Registers a handler for a specific data component.

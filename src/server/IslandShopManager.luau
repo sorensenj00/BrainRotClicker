@@ -61,6 +61,8 @@ local function setupIslandShopVendor()
 		pp.ActionText = "Open Island Shop"
 		pp.ObjectText = "Island Shop"
 		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.RequiresLineOfSight = false
+		pp.MaxActivationDistance = 20
 		pp.Parent = primary
 	end
 end

@@ -4,7 +4,7 @@
 	Handles the Cart Shop on the main island.
 ]]
 
-local _Players = game:GetService("Players")
+local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
 
@@ -22,15 +22,9 @@ GetCartUpgradeInfoEvent.Parent = RemoteEvents
 
 local CartShopConfig
 
+-- State: Managed via DataService
 local CartShopManager = {}
-local Services = {}
-
--- State: [Player] = { CapacityVideo = 0, Speed = 0 }
--- This should ideally be persisted via DataService, but for now we'll stick to session state 
--- or hook into DataService if available.
--- For this task I will add it to DataManager/DataService integration later, 
--- but I'll store it here in memory and try to sync with CartManager.
-local PlayerCartUpgrades = {} 
+local Services = {} 
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -56,23 +50,10 @@ local function setupCartShopVendor()
 		pp.ActionText = "Upgrade Cart"
 		pp.ObjectText = "Cart Shop"
 		pp.KeyboardKeyCode = Enum.KeyCode.E
+		pp.RequiresLineOfSight = false
+		pp.MaxActivationDistance = 20
 		pp.Parent = primary
 	end
-end
-
-local function getMoney(player)
-	local ls = player:FindFirstChild("leaderstats")
-	return ls and ls:FindFirstChild("Money") and ls.Money.Value or 0
-end
-
-local function deductMoney(player, amount)
-	local ls = player:FindFirstChild("leaderstats")
-	local m = ls and ls:FindFirstChild("Money")
-	if m and m.Value >= amount then
-		m.Value -= amount
-		return true
-	end
-	return false
 end
 
 --------------------------------------------------------------------------------
@@ -87,23 +68,21 @@ function CartShopManager.Init(services)
 	local Shared = ReplicatedStorage:WaitForChild("Shared")
 	CartShopConfig = require(Shared:WaitForChild("CartShopConfig"))
 	
-	local DataService = rawget(Services, "DataService")
-	if DataService then
-		DataService.RegisterHandler("CartUpgrades", {
-			DefaultData = { Capacity = 0, Speed = 0 },
-			OnLoad = function(player, data)
-				PlayerCartUpgrades[player] = data or { Capacity = 0, Speed = 0 }
-				-- Apply to CartManager
-				local CartManager = rawget(Services, "CartManager")
-				if CartManager then
-					CartManager.ApplyUpgrades(player, PlayerCartUpgrades[player])
-				end
-			end,
-			OnSave = function(player)
-				return PlayerCartUpgrades[player] or { Capacity = 0, Speed = 0 }
+	-- Note: DataService automatically handles loading profile data.
+	-- We just need to apply it when player joins or data loads.
+	
+	Players.PlayerAdded:Connect(function(player)
+		task.wait(2) -- Wait for things to settle (e.g. Cart spawning)
+		local DataService = rawget(Services, "DataService")
+		if DataService then
+			local upgrades = DataService.GetCartUpgrades(player)
+			-- Apply to CartManager
+			local CartManager = rawget(Services, "CartManager")
+			if CartManager then
+				CartManager.ApplyUpgrades(player, upgrades)
 			end
-		})
-	end
+		end
+	end)
 	
 	task.spawn(function()
 		task.wait(2)
@@ -111,12 +90,8 @@ function CartShopManager.Init(services)
 	end)
 	
 	PurchaseCartUpgradeEvent.OnServerEvent:Connect(function(player, upgradeType)
-		local s, _m = CartShopManager.HandleUpgradePurchase(player, upgradeType)
-		-- We could fire back a notification or update event here
-		if s then
-			-- Refresh info
-			-- This is handled by client re-requesting or a specific update event
-		end
+		local s, msg = CartShopManager.HandleUpgradePurchase(player, upgradeType)
+		PurchaseCartUpgradeEvent:FireClient(player, s, msg)
 	end)
 	
 	GetCartUpgradeInfoEvent.OnServerInvoke = function(player)
@@ -127,32 +102,48 @@ function CartShopManager.Init(services)
 end
 
 function CartShopManager.GetUpgradeInfo(player)
-	local data = PlayerCartUpgrades[player] or { Capacity = 0, Speed = 0 }
+	local DataService = rawget(Services, "DataService")
+	local data = { Capacity = 0, Speed = 0, Model = 1 }
+	if DataService then
+		data = DataService.GetCartUpgrades(player)
+	end
+	
 	return {
-		Capacity = CartShopConfig.GetUpgradeInfo("Capacity", data.Capacity),
-		Speed = CartShopConfig.GetUpgradeInfo("Speed", data.Speed),
+		Capacity = CartShopConfig.GetUpgradeInfo("Capacity", data.Capacity or 0),
+		Speed = CartShopConfig.GetUpgradeInfo("Speed", data.Speed or 0),
+		Model = CartShopConfig.GetUpgradeInfo("Model", data.Model or 1),
 		CurrentTiers = data
 	}
 end
 
 function CartShopManager.HandleUpgradePurchase(player, upgradeType)
-	if not PlayerCartUpgrades[player] then PlayerCartUpgrades[player] = { Capacity = 0, Speed = 0 } end
+	local DataService = rawget(Services, "DataService")
+	if not DataService then return false, "System Offline" end
 	
-	local currentTier = PlayerCartUpgrades[player][upgradeType]
+	local currentData = DataService.GetCartUpgrades(player)
+	local currentTier = currentData[upgradeType]
+	
+	-- Default Model to 1 if missing
+	if upgradeType == "Model" and not currentTier then currentTier = 1 end
 	if currentTier == nil then return false, "Invalid Upgrade Type" end
 	
 	local info = CartShopConfig.GetUpgradeInfo(upgradeType, currentTier)
 	if not info or info.IsMaxed then return false, "Maxed Out" end
 	
-	if getMoney(player) < info.Price then return false, "Not enough money" end
+	local price = info.Price
+	if not price then return false, "Invalid Price" end
 	
-	if deductMoney(player, info.Price) then
-		PlayerCartUpgrades[player][upgradeType] = currentTier + 1
+	if DataService.GetMoney(player) < price then return false, "Not enough money" end
+	
+	if DataService.DeductMoney(player, price) then
+		-- Update Data
+		currentData[upgradeType] = currentTier + 1
+		DataService.SetCartUpgrades(player, currentData)
 		
 		-- Apply changes immediately
 		local CartManager = rawget(Services, "CartManager")
 		if CartManager then
-			CartManager.ApplyUpgrades(player, PlayerCartUpgrades[player])
+			CartManager.ApplyUpgrades(player, currentData)
 		end
 		
 		return true, "Upgrade Purchased!"

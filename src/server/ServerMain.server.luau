@@ -78,6 +78,8 @@ registerService("InventoryManager", script.Parent.InventoryManager)
 registerService("MapSystem", script.Parent.MapSystem)
 registerService("BrainrotManager", script.Parent.BrainrotManager)
 registerService("ItemProductionManager", script.Parent.ItemProductionManager)
+registerService("TerrainGenerator", script.Parent.TerrainGenerator)
+registerService("PlotManager", script.Parent.PlotManager)
 registerService("GridManager", script.Parent.GridManager)
 registerService("ItemStorageManager", script.Parent.ItemStorageManager)
 registerService("ShopManager", script.Parent.ShopManager)
@@ -106,6 +108,8 @@ initService("PlayerLifecycleManager")
 
 -- Priority 1: Core Data & Map
 initService("DataManager")
+initService("TerrainGenerator")
+initService("PlotManager")
 initService("MapSystem")
 initService("InventoryManager")
 

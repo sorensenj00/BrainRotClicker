@@ -14,11 +14,18 @@ local BILLBOARD_CONFIG = {
 	SCREEN_COLOR = Color3.fromRGB(15, 15, 25),
 }
 
+local D = BILLBOARD_CONFIG.DISTANCE_FROM_CENTER
+local D_DIAG = D * (math.sqrt(2) / 2)
+
 local BILLBOARD_POSITIONS = {
-	{ name = "North", offset = Vector3.new(0, 0, -BILLBOARD_CONFIG.DISTANCE_FROM_CENTER), rotation = 0 },
-	{ name = "South", offset = Vector3.new(0, 0, BILLBOARD_CONFIG.DISTANCE_FROM_CENTER), rotation = 180 },
-	{ name = "East", offset = Vector3.new(BILLBOARD_CONFIG.DISTANCE_FROM_CENTER, 0, 0), rotation = -90 },
-	{ name = "West", offset = Vector3.new(-BILLBOARD_CONFIG.DISTANCE_FROM_CENTER, 0, 0), rotation = 90 },
+	{ name = "North", offset = Vector3.new(0, 0, -D), rotation = 0 },
+	{ name = "NorthEast", offset = Vector3.new(D_DIAG, 0, -D_DIAG), rotation = -45 },
+	{ name = "East", offset = Vector3.new(D, 0, 0), rotation = -90 },
+	{ name = "SouthEast", offset = Vector3.new(D_DIAG, 0, D_DIAG), rotation = -135 },
+	{ name = "South", offset = Vector3.new(0, 0, D), rotation = 180 },
+	{ name = "SouthWest", offset = Vector3.new(-D_DIAG, 0, D_DIAG), rotation = 135 },
+	{ name = "West", offset = Vector3.new(-D, 0, 0), rotation = 90 },
+	{ name = "NorthWest", offset = Vector3.new(-D_DIAG, 0, -D_DIAG), rotation = 45 },
 }
 
 local StockMarketBillboards = {}

@@ -13,6 +13,7 @@ local UserInputService = game:GetService("UserInputService")
 -- Get player
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local CollectionService = game:GetService("CollectionService")
 
 -- Wait for remotes
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
@@ -33,16 +34,17 @@ local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 
 -- UI Colors (glassmorphism theme)
 local COLORS = {
-	background = Color3.fromRGB(15, 15, 25),
-	panel = Color3.fromRGB(25, 25, 40),
-	accent = Color3.fromRGB(100, 200, 255),
-	accentDark = Color3.fromRGB(60, 140, 200),
-	text = Color3.fromRGB(255, 255, 255),
-	textMuted = Color3.fromRGB(150, 150, 170),
-	success = Color3.fromRGB(100, 255, 150),
-	warning = Color3.fromRGB(255, 200, 100),
-	danger = Color3.fromRGB(255, 100, 100),
-	itemBg = Color3.fromRGB(35, 35, 55),
+	background = Color3.fromRGB(15, 15, 22),
+	panel = Color3.fromRGB(20, 20, 30),
+	accent = Color3.fromRGB(60, 160, 255),
+	accentDark = Color3.fromRGB(40, 110, 200),
+	text = Color3.fromRGB(240, 240, 255),
+	textMuted = Color3.fromRGB(160, 160, 180),
+	success = Color3.fromRGB(80, 230, 120),
+	warning = Color3.fromRGB(250, 190, 60),
+	danger = Color3.fromRGB(255, 80, 80),
+	itemBg = Color3.fromRGB(25, 25, 35),
+	stroke = Color3.fromRGB(70, 70, 90),
 }
 
 -- State
@@ -74,25 +76,33 @@ end
 local function createMainFrame(parent)
 	local frame = Instance.new("Frame")
 	frame.Name = "MainFrame"
-	frame.Size = UDim2.new(0, 700, 0, 500)
-	frame.Position = UDim2.new(0.5, -350, 0.5, -250)
-	frame.BackgroundColor3 = COLORS.background
-	frame.BackgroundTransparency = 0.1
+	frame.Size = UDim2.new(0, 740, 0, 520)
+	frame.Position = UDim2.new(0.5, -370, 0.5, -260)
+	frame.BackgroundColor3 = Color3.new(1, 1, 1)
+	frame.BackgroundTransparency = 0.2
 	frame.BorderSizePixel = 0
 	frame.Visible = false
 	frame.Parent = parent
 	
 	-- Corner rounding
 	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, 16)
+	corner.CornerRadius = UDim.new(0, 18)
 	corner.Parent = frame
 	
 	-- Stroke
 	local stroke = Instance.new("UIStroke")
-	stroke.Color = COLORS.accent
-	stroke.Thickness = 2
+	stroke.Color = COLORS.stroke
+	stroke.Thickness = 1.5
 	stroke.Transparency = 0.5
 	stroke.Parent = frame
+	
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, COLORS.background),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 10, 15))
+	})
+	gradient.Rotation = 90
+	gradient.Parent = frame
 	
 	return frame
 end
@@ -593,20 +603,35 @@ end
 
 local GetVehicleInfoFunction = RemoteFunctions:WaitForChild("GetVehicleInfo")
 
+local function decodeItems(encoded)
+	if not ItemConfig or not ItemConfig.SHORT_TO_ID then return encoded end
+	if type(encoded) ~= "table" then return encoded end
+	local decoded = {}
+	for k, count in pairs(encoded) do
+		local shortId = tonumber(k)
+		if shortId and ItemConfig.SHORT_TO_ID[shortId] then
+			decoded[ItemConfig.SHORT_TO_ID[shortId]] = count
+		else
+			decoded[k] = count
+		end
+	end
+	return decoded
+end
+
 local function openUI()
 	if isOpen then return end
 	isOpen = true
 	
 	-- Fetch latest storage data
 	local storageItems, storageTotal, storageCap = GetStorageFunction:InvokeServer()
-	currentStorage = storageItems or {}
+	currentStorage = decodeItems(storageItems) or {}
 	storageUsage = storageTotal or 0
 	storageCapacity = LocalPlayer:GetAttribute("StorageCapacity") or storageCap or 0
 	
 	-- Fetch cart data
 	local vInfo = GetVehicleInfoFunction:InvokeServer()
 	if vInfo then
-		currentCart = vInfo.inventory or {}
+		currentCart = decodeItems(vInfo.inventory) or {}
 		cartCapacity = LocalPlayer:GetAttribute("CartCapacity") or vInfo.capacity or 0
 		local usage = 0
 		for _, c in pairs(currentCart) do usage += c end
@@ -642,7 +667,7 @@ end
 --------------------------------------------------------------------------------
 
 StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
-	currentStorage = items or {}
+	currentStorage = decodeItems(items) or {}
 	storageUsage = total or 0
 	storageCapacity = LocalPlayer:GetAttribute("StorageCapacity") or capacity or 0
 	
@@ -653,7 +678,7 @@ end)
 
 CartUpdateEvent.OnClientEvent:Connect(function(state, inventory, capacity)
 	cartState = state or "idle"
-	currentCart = inventory or {}
+	currentCart = decodeItems(inventory) or {}
 	cartCapacity = LocalPlayer:GetAttribute("CartCapacity") or capacity or 0
 	
 	if isOpen then
@@ -684,6 +709,25 @@ if StorageToggleEvent then
 			openUI()
 		end
 	end)
+end
+
+-- Cart Proximity Prompt integration
+local function setupPromptListener(prompt)
+	if not prompt:IsA("ProximityPrompt") then return end
+	prompt.Triggered:Connect(function(playerWhoTriggered)
+		if playerWhoTriggered == LocalPlayer then
+			if isOpen then
+				closeUI()
+			else
+				openUI()
+			end
+		end
+	end)
+end
+
+CollectionService:GetInstanceAddedSignal("TransportCartPrompt"):Connect(setupPromptListener)
+for _, prompt in CollectionService:GetTagged("TransportCartPrompt") do
+	setupPromptListener(prompt)
 end
 
 --------------------------------------------------------------------------------

@@ -74,6 +74,7 @@ local function getPrestigeData(player)
 end
 
 local function calculateTotalMeatballsFromEarnings(lifetimeEarnings)
+	lifetimeEarnings = lifetimeEarnings or 0
 	local pc = getPrestigeConfig()
 	if lifetimeEarnings < pc.MEATBALL_DIVISOR then return 0 end
 	return math.floor(pc.MEATBALL_MULTIPLIER * math.sqrt(lifetimeEarnings / pc.MEATBALL_DIVISOR))
@@ -82,7 +83,7 @@ end
 local function calculatePendingMeatballs(player)
 	local data = getPrestigeData(player)
 	if not data then return 0, 0 end
-	local current = data.totalMeatballs
+	local current = data.totalMeatballs or 0
 	local projected = calculateTotalMeatballsFromEarnings(data.lifetimeEarnings)
 	return math.max(0, projected - current), projected
 end
@@ -202,7 +203,7 @@ end
 
 function PrestigeManager.AddLifetimeEarnings(player, amount)
 	local data = getPrestigeData(player)
-	if data then data.lifetimeEarnings += amount end
+	if data then data.lifetimeEarnings = (data.lifetimeEarnings or 0) + amount end
 end
 
 function PrestigeManager.GetMeatballIncomeMultiplier(player)

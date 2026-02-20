@@ -112,6 +112,20 @@ local function getTotalItemCount(items)
 	return total
 end
 
+local function encodeItems(items)
+	if not _ItemConfig or not _ItemConfig.ID_TO_SHORT then return items end
+	local encoded = {}
+	for itemId, count in pairs(items) do
+		local shortId = _ItemConfig.ID_TO_SHORT[itemId]
+		if shortId then
+			encoded[tostring(shortId)] = count
+		else
+			encoded[itemId] = count
+		end
+	end
+	return encoded
+end
+
 --------------------------------------------------------------------------------
 -- PUBLIC API
 --------------------------------------------------------------------------------
@@ -194,12 +208,12 @@ function ItemStorageManager.Init(services)
 	GetStorageFunction.OnServerInvoke = function(player)
 		local s = PlayerStorage[player]
 		if not s then return {}, 0, CONFIG.DEFAULT_STORAGE_CAPACITY end
-		return s.items, getTotalItemCount(s.items), s.capacity
+		return encodeItems(s.items), getTotalItemCount(s.items), s.capacity
 	end
 	GetBackpackFunction.OnServerInvoke = function(player)
 		local b = PlayerBackpack[player]
 		if not b then return {}, 0, CONFIG.BACKPACK_CAPACITY end
-		return b.items, getTotalItemCount(b.items), b.capacity
+		return encodeItems(b.items), getTotalItemCount(b.items), b.capacity
 	end
 	
 	TakeFromStorageEvent.OnServerEvent:Connect(function(player, itemId, count)
@@ -248,7 +262,7 @@ function ItemStorageManager.AddToStorage(player: Player, itemId: string, count: 
 	storage.items[itemId] = (storage.items[itemId] or 0) + toAdd
 	
 	if not silent then
-		StorageUpdatedEvent:FireClient(player, storage.items, current + toAdd, storage.capacity)
+		StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), current + toAdd, storage.capacity)
 	end
 	return toAdd
 end
@@ -276,8 +290,8 @@ function ItemStorageManager.TakeFromStorage(player, itemId, count)
 	
 	backpack.items[itemId] = (backpack.items[itemId] or 0) + amount
 	
-	StorageUpdatedEvent:FireClient(player, storage.items, getTotalItemCount(storage.items), storage.capacity)
-	BackpackUpdatedEvent:FireClient(player, backpack.items, getTotalItemCount(backpack.items), backpack.capacity)
+	StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), getTotalItemCount(storage.items), storage.capacity)
+	BackpackUpdatedEvent:FireClient(player, encodeItems(backpack.items), getTotalItemCount(backpack.items), backpack.capacity)
 	
 	return amount
 end
@@ -297,7 +311,7 @@ function ItemStorageManager.RemoveFromStorage(player, itemId, count)
 	storage.items[itemId] = inStorage - toRemove
 	if storage.items[itemId] <= 0 then storage.items[itemId] = nil end
 	
-	StorageUpdatedEvent:FireClient(player, storage.items, getTotalItemCount(storage.items), storage.capacity)
+	StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), getTotalItemCount(storage.items), storage.capacity)
 	return toRemove
 end
 
@@ -318,7 +332,7 @@ function ItemStorageManager.SetBackpackCapacity(player, cap)
 	if not PlayerBackpack[player] then PlayerBackpack[player] = { items={}, capacity=cap} end
 	PlayerBackpack[player].capacity = cap
 	player:SetAttribute("BackpackCapacity", cap)
-	BackpackUpdatedEvent:FireClient(player, PlayerBackpack[player].items, getTotalItemCount(PlayerBackpack[player].items), cap)
+	BackpackUpdatedEvent:FireClient(player, encodeItems(PlayerBackpack[player].items), getTotalItemCount(PlayerBackpack[player].items), cap)
 end
 
 function ItemStorageManager.SetStorageCapacity(player, cap)
@@ -330,7 +344,7 @@ function ItemStorageManager.SetStorageCapacity(player, cap)
 	local ds = getDataService()
 	if ds then ds.SetComponentData(player, "storageCapacity", cap) end
 
-	StorageUpdatedEvent:FireClient(player, PlayerStorage[player].items, getTotalItemCount(PlayerStorage[player].items), cap)
+	StorageUpdatedEvent:FireClient(player, encodeItems(PlayerStorage[player].items), getTotalItemCount(PlayerStorage[player].items), cap)
 end
 
 function ItemStorageManager.TransferToBackpack(player, itemId, count)
@@ -349,7 +363,7 @@ function ItemStorageManager.RemoveFromBackpack(player, itemId, count)
 	backpack.items[itemId] = avail - toRemove
 	if backpack.items[itemId] <= 0 then backpack.items[itemId] = nil end
 
-	BackpackUpdatedEvent:FireClient(player, backpack.items, getTotalItemCount(backpack.items), backpack.capacity)
+	BackpackUpdatedEvent:FireClient(player, encodeItems(backpack.items), getTotalItemCount(backpack.items), backpack.capacity)
 	return toRemove
 end
 

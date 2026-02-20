@@ -27,11 +27,7 @@ local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 
 local StorageUpdatedEvent = RemoteEvents:WaitForChild("StorageUpdated")
-local CartUpdateEvent = RemoteEvents:WaitForChild("CartUpdate")
 local GetStorageFunction = RemoteFunctions:WaitForChild("GetStorage")
-local LoadFromStorageFunction = RemoteFunctions:WaitForChild("LoadFromStorage")
-local LoadMaxFromStorageFunction = RemoteFunctions:WaitForChild("LoadMaxFromStorage")
-local GetVehicleInfoFunction = RemoteFunctions:WaitForChild("GetVehicleInfo")
 local GetMarketPricesFunction = RemoteFunctions:WaitForChild("GetMarketPrices")
 
 local stockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket")
@@ -81,22 +77,16 @@ local isOpen = false
 local currentStorage = {}      -- {[itemId] = count}
 local storageUsage = 0
 local storageCapacity = 0
-local currentCart = {}          -- {[itemId] = count}
-local cartCapacity = 0
-local cartState = "idle"
 local marketPrices = {}         -- {[itemId] = {currentPrice, sector, sectorRate, ...}}
 local sectorRates = {}          -- {[sector] = rate}
 local itemRates = {}            -- {[itemId] = rate}
 local sectorHistories = {}      -- {[sector] = {number}}
 local sectorSparklines = {}     -- {[sector] = SparklineRenderer}
 local inspectedItem = nil       -- itemId currently inspected (nil = sector view)
-local transferQty = 1
 
 -- UI refs
 local screenGui, mainFrame
-local leftScroll, centerFrame, sectorGrid, inspectorFrame, rightScroll
-local cartCapBar, cartCapText, cartValueLabel, cartStateLabel
-local loadCartBtn, pushCartBtn
+local leftScroll, viewA, sectorGrid, moversFrame, inspectorFrame
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -118,7 +108,7 @@ local function addStroke(inst, color, thick)
 	return s
 end
 
-local function addPadding(inst, p)
+local function _addPadding(inst, p)
 	local pad = Instance.new("UIPadding")
 	pad.PaddingTop = UDim.new(0, p)
 	pad.PaddingBottom = UDim.new(0, p)
@@ -314,7 +304,7 @@ end
 local function createLeftColumn(parent)
 	local col = Instance.new("Frame")
 	col.Name = "LeftColumn"
-	col.Size = UDim2.new(0.20, -5, 1, 0)
+	col.Size = UDim2.new(0.28, -5, 1, 0)
 	col.Position = UDim2.new(0, 0, 0, 0)
 	col.BackgroundColor3 = C.panel
 	col.BorderSizePixel = 0
@@ -383,8 +373,8 @@ end
 local function createCenterColumn(parent)
 	local col = Instance.new("Frame")
 	col.Name = "CenterColumn"
-	col.Size = UDim2.new(0.60, -10, 1, 0)
-	col.Position = UDim2.new(0.20, 5, 0, 0)
+	col.Size = UDim2.new(0.72, -10, 1, 0)
+	col.Position = UDim2.new(0.28, 5, 0, 0)
 	col.BackgroundColor3 = C.panel
 	col.BorderSizePixel = 0
 	col.Parent = parent
@@ -399,15 +389,23 @@ local function createCenterColumn(parent)
 		Position = UDim2.new(0, 8, 0, 6),
 	})
 
-	centerFrame = col
 
-	-- === VIEW A: Sector Overview (6-grid) ===
+
+	-- === VIEW A: Sector Overview & Movers ===
+	local vA = Instance.new("Frame")
+	vA.Name = "ViewA"
+	vA.Size = UDim2.new(1, 0, 1, -36)
+	vA.Position = UDim2.new(0, 0, 0, 36)
+	vA.BackgroundTransparency = 1
+	vA.Parent = col
+	viewA = vA
+
 	local gridContainer = Instance.new("Frame")
 	gridContainer.Name = "SectorGrid"
-	gridContainer.Size = UDim2.new(1, -16, 1, -42)
-	gridContainer.Position = UDim2.new(0, 8, 0, 36)
+	gridContainer.Size = UDim2.new(1, -16, 0.65, 0)
+	gridContainer.Position = UDim2.new(0, 8, 0, 0)
 	gridContainer.BackgroundTransparency = 1
-	gridContainer.Parent = col
+	gridContainer.Parent = viewA
 
 	local grid = Instance.new("UIGridLayout")
 	grid.CellSize = UDim2.new(0.49, 0, 0.32, -4)
@@ -471,6 +469,60 @@ local function createCenterColumn(parent)
 		end)
 	end
 
+	-- Movers Section
+	local mFrame = Instance.new("Frame")
+	mFrame.Name = "MoversFrame"
+	mFrame.Size = UDim2.new(1, -16, 0.35, -10)
+	mFrame.Position = UDim2.new(0, 8, 0.65, 10)
+	mFrame.BackgroundTransparency = 1
+	mFrame.Parent = viewA
+	moversFrame = mFrame
+	
+	-- Gainers
+	local gainersList = Instance.new("Frame")
+	gainersList.Name = "GainersList"
+	gainersList.Size = UDim2.new(0.49, 0, 1, 0)
+	gainersList.BackgroundColor3 = C.panelLight
+	gainersList.BorderSizePixel = 0
+	gainersList.Parent = moversFrame
+	addCorner(gainersList)
+	addStroke(gainersList)
+	
+	makeLabel(gainersList, {
+		Name = "Header", Text = "🔥 TOP GAINERS",
+		Color = C.green, Font = FONT_BOLD, Size = 12,
+		UDim2Size = UDim2.new(1, -10, 0, 20),
+		Position = UDim2.new(0, 8, 0, 4),
+	})
+	
+	local gLayout = Instance.new("UIListLayout")
+	gLayout.Padding = UDim.new(0, 4)
+	gLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	gLayout.Parent = gainersList
+
+	-- Losers
+	local losersList = Instance.new("Frame")
+	losersList.Name = "LosersList"
+	losersList.Size = UDim2.new(0.49, 0, 1, 0)
+	losersList.Position = UDim2.new(0.51, 0, 0, 0)
+	losersList.BackgroundColor3 = C.panelLight
+	losersList.BorderSizePixel = 0
+	losersList.Parent = moversFrame
+	addCorner(losersList)
+	addStroke(losersList)
+	
+	makeLabel(losersList, {
+		Name = "Header", Text = "❄️ TOP LOSERS",
+		Color = C.red, Font = FONT_BOLD, Size = 12,
+		UDim2Size = UDim2.new(1, -10, 0, 20),
+		Position = UDim2.new(0, 8, 0, 4),
+	})
+	
+	local lLayout = Instance.new("UIListLayout")
+	lLayout.Padding = UDim.new(0, 4)
+	lLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	lLayout.Parent = losersList
+
 	-- === VIEW B: Item Inspector ===
 	local inspector = Instance.new("Frame")
 	inspector.Name = "Inspector"
@@ -520,201 +572,8 @@ local function createCenterColumn(parent)
 		XAlign = Enum.TextXAlignment.Center,
 	})
 
-	-- Divider
-	local div = Instance.new("Frame")
-	div.Size = UDim2.new(1, 0, 0, 1)
-	div.Position = UDim2.new(0, 0, 0, 125)
-	div.BackgroundColor3 = C.border
-	div.BorderSizePixel = 0
-	div.Parent = inspector
-
-	-- Quantity controls
-	makeLabel(inspector, {
-		Name = "QtyLabel", Text = "TRANSFER QTY:",
-		Color = C.muted, Font = FONT_BOLD, Size = 12,
-		UDim2Size = UDim2.new(0.4, 0, 0, 24),
-		Position = UDim2.new(0, 0, 0, 140),
-	})
-
-	local qtyFrame = Instance.new("Frame")
-	qtyFrame.Name = "QtyControls"
-	qtyFrame.Size = UDim2.new(0.6, 0, 0, 32)
-	qtyFrame.Position = UDim2.new(0.2, 0, 0, 168)
-	qtyFrame.BackgroundTransparency = 1
-	qtyFrame.Parent = inspector
-
-	local minusBtn = Instance.new("TextButton")
-	minusBtn.Name = "Minus"
-	minusBtn.Size = UDim2.new(0, 40, 1, 0)
-	minusBtn.BackgroundColor3 = C.dimBg
-	minusBtn.Text = "−"
-	minusBtn.TextColor3 = C.amber
-	minusBtn.TextSize = 18
-	minusBtn.Font = FONT_BOLD
-	minusBtn.Parent = qtyFrame
-	addCorner(minusBtn)
-	addStroke(minusBtn)
-
-	local qtyDisplay = makeLabel(qtyFrame, {
-		Name = "QtyDisplay", Text = "1",
-		Color = C.amber, Font = FONT_MONO, Size = 22,
-		UDim2Size = UDim2.new(1, -100, 1, 0),
-		Position = UDim2.new(0, 50, 0, 0),
-		XAlign = Enum.TextXAlignment.Center,
-	})
-
-	local plusBtn = Instance.new("TextButton")
-	plusBtn.Name = "Plus"
-	plusBtn.Size = UDim2.new(0, 40, 1, 0)
-	plusBtn.Position = UDim2.new(1, -40, 0, 0)
-	plusBtn.BackgroundColor3 = C.dimBg
-	plusBtn.Text = "+"
-	plusBtn.TextColor3 = C.amber
-	plusBtn.TextSize = 18
-	plusBtn.Font = FONT_BOLD
-	plusBtn.Parent = qtyFrame
-	addCorner(plusBtn)
-	addStroke(plusBtn)
-
-	local maxBtn = Instance.new("TextButton")
-	maxBtn.Name = "MaxBtn"
-	maxBtn.Size = UDim2.new(0, 50, 0, 24)
-	maxBtn.Position = UDim2.new(1, -50, 0, 140)
-	maxBtn.BackgroundColor3 = C.dimBg
-	maxBtn.Text = "MAX"
-	maxBtn.TextColor3 = C.amber
-	maxBtn.TextSize = 10
-	maxBtn.Font = FONT_BOLD
-	maxBtn.Parent = inspector
-	addCorner(maxBtn)
-	addStroke(maxBtn)
-
-	-- Load Cart button (the big action button)
-	loadCartBtn = Instance.new("TextButton")
-	loadCartBtn.Name = "LoadCartBtn"
-	loadCartBtn.Size = UDim2.new(0.7, 0, 0, 44)
-	loadCartBtn.Position = UDim2.new(0.15, 0, 1, -55)
-	loadCartBtn.BackgroundColor3 = C.green
-	loadCartBtn.Text = "LOAD"
-	loadCartBtn.TextColor3 = C.bg
-	loadCartBtn.TextSize = 20
-	loadCartBtn.Font = FONT_BOLD
-	loadCartBtn.Parent = inspector
-	addCorner(loadCartBtn)
-	addStroke(loadCartBtn, C.greenDim, 2)
-
 	inspectorFrame = inspector
-	return col, backBtn, minusBtn, plusBtn, maxBtn, qtyDisplay
-end
-
---------------------------------------------------------------------------------
--- RIGHT COLUMN — CART STATUS
---------------------------------------------------------------------------------
-
-local function createRightColumn(parent)
-	local col = Instance.new("Frame")
-	col.Name = "RightColumn"
-	col.Size = UDim2.new(0.20, -5, 1, 0)
-	col.Position = UDim2.new(0.80, 5, 0, 0)
-	col.BackgroundColor3 = C.panel
-	col.BorderSizePixel = 0
-	col.Parent = parent
-	addCorner(col)
-	addStroke(col)
-
-	-- Header
-	cartStateLabel = makeLabel(col, {
-		Name = "Header", Text = "🛒 CART: IDLE",
-		Color = C.green, Font = FONT_BOLD, Size = 13,
-		UDim2Size = UDim2.new(1, -10, 0, 28),
-		Position = UDim2.new(0, 8, 0, 6),
-	})
-
-	-- Vertical capacity bar (visual)
-	local barBg = Instance.new("Frame")
-	barBg.Name = "CapBarBg"
-	barBg.Size = UDim2.new(0, 30, 0.45, 0)
-	barBg.Position = UDim2.new(0.5, -15, 0, 38)
-	barBg.BackgroundColor3 = C.dimBg
-	barBg.BorderSizePixel = 0
-	barBg.Parent = col
-	addCorner(barBg)
-	addStroke(barBg)
-
-	cartCapBar = Instance.new("Frame")
-	cartCapBar.Name = "Fill"
-	cartCapBar.Size = UDim2.new(1, 0, 0, 0)
-	cartCapBar.Position = UDim2.new(0, 0, 1, 0)
-	cartCapBar.AnchorPoint = Vector2.new(0, 1)
-	cartCapBar.BackgroundColor3 = C.green
-	cartCapBar.BorderSizePixel = 0
-	cartCapBar.Parent = barBg
-	addCorner(cartCapBar)
-
-	-- Capacity text
-	cartCapText = makeLabel(col, {
-		Name = "CapText", Text = "0 / 0",
-		Color = C.amber, Font = FONT_MONO, Size = 13,
-		UDim2Size = UDim2.new(1, 0, 0, 20),
-		Position = UDim2.new(0, 0, 0.45, 44),
-		XAlign = Enum.TextXAlignment.Center,
-	})
-
-	-- Est Value
-	cartValueLabel = makeLabel(col, {
-		Name = "EstValue", Text = "Est: $0",
-		Color = C.muted, Font = FONT_MONO, Size = 11,
-		UDim2Size = UDim2.new(1, 0, 0, 16),
-		Position = UDim2.new(0, 0, 0.45, 66),
-		XAlign = Enum.TextXAlignment.Center,
-	})
-
-	-- Cart items scroll
-	local scroll = Instance.new("ScrollingFrame")
-	scroll.Name = "CartItems"
-	scroll.Size = UDim2.new(1, -8, 0.35, -10)
-	scroll.Position = UDim2.new(0, 4, 0.45, 86)
-	scroll.BackgroundTransparency = 1
-	scroll.ScrollBarThickness = 3
-	scroll.ScrollBarImageColor3 = C.green
-	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	scroll.BorderSizePixel = 0
-	scroll.Parent = col
-
-	local layout = Instance.new("UIListLayout")
-	layout.Padding = UDim.new(0, 2)
-	layout.Parent = scroll
-
-	rightScroll = scroll
-
-	-- LOAD MAX button
-	local loadMaxBtn = Instance.new("TextButton")
-	loadMaxBtn.Name = "LoadMax"
-	loadMaxBtn.Size = UDim2.new(1, -16, 0, 30)
-	loadMaxBtn.Position = UDim2.new(0, 8, 1, -72)
-	loadMaxBtn.BackgroundColor3 = C.amber
-	loadMaxBtn.Text = "⚡ LOAD MAX"
-	loadMaxBtn.TextColor3 = C.bg
-	loadMaxBtn.TextSize = 12
-	loadMaxBtn.Font = FONT_BOLD
-	loadMaxBtn.Parent = col
-	addCorner(loadMaxBtn)
-
-	-- PUSH / RETURN button
-	pushCartBtn = Instance.new("TextButton")
-	pushCartBtn.Name = "PushCart"
-	pushCartBtn.Size = UDim2.new(1, -16, 0, 30)
-	pushCartBtn.Position = UDim2.new(0, 8, 1, -38)
-	pushCartBtn.BackgroundColor3 = C.green
-	pushCartBtn.Text = "🚛 PUSH TO MARKET"
-	pushCartBtn.TextColor3 = C.bg
-	pushCartBtn.TextSize = 12
-	pushCartBtn.Font = FONT_BOLD
-	pushCartBtn.Parent = col
-	addCorner(pushCartBtn)
-
-	return col, loadMaxBtn
+	return col, backBtn
 end
 
 --------------------------------------------------------------------------------
@@ -775,7 +634,6 @@ local function createAssetRow(parent, itemId, count)
 	-- Click → inspect
 	row.MouseButton1Click:Connect(function()
 		inspectedItem = itemId
-		transferQty = 1
 		showItemInspector(itemId)
 	end)
 
@@ -790,39 +648,7 @@ local function createAssetRow(parent, itemId, count)
 	return row
 end
 
---------------------------------------------------------------------------------
--- CART ROW (Right Column)
---------------------------------------------------------------------------------
 
-local function createCartRow(parent, itemId, count)
-	local itemInfo = ItemConfig.Items[itemId] or {}
-
-	local row = Instance.new("Frame")
-	row.Name = "Cart_" .. itemId
-	row.Size = UDim2.new(1, -4, 0, 22)
-	row.BackgroundColor3 = C.dimBg
-	row.BackgroundTransparency = 0.5
-	row.BorderSizePixel = 0
-	row.Parent = parent
-	addCorner(row, UDim.new(0, 3))
-
-	makeLabel(row, {
-		Text = (itemInfo.icon or "?") .. " " .. (itemInfo.displayName or itemId),
-		Color = C.muted, Font = FONT_REG, Size = 9,
-		UDim2Size = UDim2.new(0.7, 0, 1, 0),
-		Position = UDim2.new(0, 4, 0, 0),
-	})
-
-	makeLabel(row, {
-		Text = "x" .. count,
-		Color = C.green, Font = FONT_MONO, Size = 10,
-		UDim2Size = UDim2.new(0.28, 0, 1, 0),
-		Position = UDim2.new(0.7, 0, 0, 0),
-		XAlign = Enum.TextXAlignment.Right,
-	})
-
-	return row
-end
 
 --------------------------------------------------------------------------------
 -- VIEW SWITCHING
@@ -830,14 +656,14 @@ end
 
 local function showSectorOverview()
 	inspectedItem = nil
-	if sectorGrid then sectorGrid.Visible = true end
+	if viewA then viewA.Visible = true end
 	if inspectorFrame then inspectorFrame.Visible = false end
 end
 
 function showItemInspector(itemId)
 	inspectedItem = itemId  -- Set this first
 	
-	if sectorGrid then sectorGrid.Visible = false end
+	if viewA then viewA.Visible = false end
 	if inspectorFrame then inspectorFrame.Visible = true end
 
 	local itemInfo = ItemConfig.Items[itemId] or {}
@@ -859,20 +685,6 @@ function showItemInspector(itemId)
 	if sectorInfo then
 		sectorInfo.Text = string.format("SECTOR: %s | RATE: ×%.2f", string.upper(sector), rate)
 		sectorInfo.TextColor3 = trending and C.green or C.red
-	end
-
-	-- Update load button
-	if loadCartBtn then
-		loadCartBtn.BackgroundColor3 = trending and C.green or C.amber
-		loadCartBtn.Text = "LOAD"
-		addStroke(loadCartBtn, trending and C.greenDim or C.amberDim, 2)
-	end
-
-	-- Update qty display (find it in the inspector)
-	local qtyFrame = inspectorFrame:FindFirstChild("QtyControls")
-	if qtyFrame then
-		local qtyDisp = qtyFrame:FindFirstChild("QtyDisplay")
-		if qtyDisp then qtyDisp.Text = tostring(transferQty) end
 	end
 end
 
@@ -915,68 +727,6 @@ local function updateLeftColumn()
 	end
 end
 
-local function updateRightColumn()
-	if not rightScroll then return end
-
-	-- Clear
-	for _, child in rightScroll:GetChildren() do
-		if child:IsA("Frame") then child:Destroy() end
-	end
-
-	-- Populate
-	local usage = 0
-	local estValue = 0
-	for itemId, count in pairs(currentCart) do
-		if count > 0 then
-			createCartRow(rightScroll, itemId, count)
-			usage += count
-			local livePrice = getLivePrice(itemId)
-			estValue += livePrice * count
-		end
-	end
-
-	-- Capacity bar
-	if cartCapBar then
-		local ratio = math.clamp(usage / math.max(1, cartCapacity), 0, 1)
-		TweenService:Create(cartCapBar, TweenInfo.new(0.3), {Size = UDim2.new(1, 0, ratio, 0)}):Play()
-		cartCapBar.BackgroundColor3 = ratio > 0.9 and C.red or (ratio > 0.7 and C.amber or C.green)
-	end
-	if cartCapText then
-		cartCapText.Text = string.format("%d / %d", usage, cartCapacity)
-	end
-	if cartValueLabel then
-		cartValueLabel.Text = "Est: " .. formatMoney(estValue)
-	end
-
-	-- Cart state
-	if cartStateLabel then
-		local stateMap = {
-			idle = {text = "🛒 CART: IDLE", color = C.green},
-			rolling_to_market = {text = "🛒 CART: ROLLING...", color = C.amber},
-			at_market = {text = "🛒 CART: AT MARKET", color = C.amber},
-			rolling_to_plot = {text = "🛒 CART: RETURNING...", color = C.muted},
-		}
-		local info = stateMap[cartState] or stateMap.idle
-		cartStateLabel.Text = info.text
-		cartStateLabel.TextColor3 = info.color
-	end
-
-	-- Push button state
-	if pushCartBtn then
-		if cartState == "idle" then
-			pushCartBtn.Text = "🚛 PUSH TO MARKET"
-			pushCartBtn.BackgroundColor3 = C.green
-			pushCartBtn.Visible = usage > 0
-		elseif cartState == "at_market" then
-			pushCartBtn.Text = "🏠 RETURN CART"
-			pushCartBtn.BackgroundColor3 = C.amber
-			pushCartBtn.Visible = true
-		else
-			pushCartBtn.Visible = false
-		end
-	end
-end
-
 local function updateSectorCards()
 	parseSectorRates()
 	parseSectorHistories()
@@ -1012,6 +762,90 @@ local function updateSectorCards()
 	end
 end
 
+local function createMoverRow(parent, item, isGainer, order)
+	local row = Instance.new("TextButton")
+	row.Name = "Mover_" .. item.id
+	row.Size = UDim2.new(1, -8, 0, 22)
+	-- Offset Y to leave room for header
+	local yOffset = 24 + (order - 1) * 26
+	row.Position = UDim2.new(0, 4, 0, yOffset) 
+	row.BackgroundColor3 = C.bg
+	row.BackgroundTransparency = 0.5
+	row.BorderSizePixel = 0
+	row.Text = ""
+	row.AutoButtonColor = false
+	row.Parent = parent
+	addCorner(row, UDim.new(0, 4))
+	
+	local itemInfo = ItemConfig.Items[item.id] or {}
+	local icon = itemInfo.icon or "?"
+	local pctChange = (item.rate - 1.0) * 100
+	
+	makeLabel(row, {
+		Text = icon .. " " .. (itemInfo.displayName or item.id),
+		Color = C.white, Font = FONT_REG, Size = 10,
+		UDim2Size = UDim2.new(0.6, 0, 1, 0),
+		Position = UDim2.new(0, 4, 0, 0),
+		TextTruncate = Enum.TextTruncate.AtEnd
+	})
+	
+	makeLabel(row, {
+		Text = string.format("%s %+.1f%%", isGainer and "▲" or "▼", pctChange),
+		Color = isGainer and C.green or C.red, Font = FONT_MONO, Size = 10,
+		UDim2Size = UDim2.new(0.4, -4, 1, 0),
+		Position = UDim2.new(0.6, 0, 0, 0),
+		XAlign = Enum.TextXAlignment.Right
+	})
+	
+	row.MouseButton1Click:Connect(function()
+		showItemInspector(item.id)
+	end)
+	
+	row.MouseEnter:Connect(function()
+		TweenService:Create(row, TweenInfo.new(0.15), {BackgroundTransparency = 0}):Play()
+	end)
+	row.MouseLeave:Connect(function()
+		TweenService:Create(row, TweenInfo.new(0.15), {BackgroundTransparency = 0.5}):Play()
+	end)
+end
+
+local function updateMovers()
+	if not moversFrame then return end
+	local gainersList = moversFrame:FindFirstChild("GainersList")
+	local losersList = moversFrame:FindFirstChild("LosersList")
+	if not gainersList or not losersList then return end
+	
+	-- Clear
+	for _, child in gainersList:GetChildren() do
+		if child:IsA("TextButton") then child:Destroy() end
+	end
+	for _, child in losersList:GetChildren() do
+		if child:IsA("TextButton") then child:Destroy() end
+	end
+	
+	local gainers = {}
+	local losers = {}
+	
+	for itemId, rate in pairs(itemRates) do
+		if rate >= 1.0 then
+			table.insert(gainers, {id = itemId, rate = rate})
+		else
+			table.insert(losers, {id = itemId, rate = rate})
+		end
+	end
+	
+	table.sort(gainers, function(a, b) return a.rate > b.rate end)
+	table.sort(losers, function(a, b) return a.rate < b.rate end)
+	
+	-- Populate Top 3
+	for i = 1, math.min(3, #gainers) do
+		createMoverRow(gainersList, gainers[i], true, i)
+	end
+	for i = 1, math.min(3, #losers) do
+		createMoverRow(losersList, losers[i], false, i)
+	end
+end
+
 local function updateTopBar()
 	if not mainFrame then return end
 	local topBar = mainFrame:FindFirstChild("TopBar")
@@ -1026,8 +860,8 @@ end
 
 local function refreshAll()
 	updateLeftColumn()
-	updateRightColumn()
 	updateSectorCards()
+	updateMovers()
 	updateTopBar()
 end
 
@@ -1035,19 +869,29 @@ end
 -- OPEN / CLOSE
 --------------------------------------------------------------------------------
 
+local function decodeItems(encoded)
+	if type(encoded) ~= "table" then return encoded end
+	local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
+	local success, IC = pcall(function() return require(Shared:WaitForChild("ItemConfig")) end)
+	if not success or not IC or not IC.SHORT_TO_ID then return encoded end
+	local decoded = {}
+	for k, count in pairs(encoded) do
+		local shortId = tonumber(k)
+		if shortId and IC.SHORT_TO_ID[shortId] then
+			decoded[IC.SHORT_TO_ID[shortId]] = count
+		else
+			decoded[k] = count
+		end
+	end
+	return decoded
+end
+
 local function fetchData()
 	-- Storage
 	local items, total, cap = GetStorageFunction:InvokeServer()
-	currentStorage = items or {}
+	currentStorage = decodeItems(items) or {}
 	storageUsage = total or 0
 	storageCapacity = Player:GetAttribute("StorageCapacity") or cap or 0
-
-	-- Cart
-	local vInfo = GetVehicleInfoFunction:InvokeServer()
-	if vInfo then
-		currentCart = vInfo.inventory or {}
-		cartCapacity = Player:GetAttribute("CartCapacity") or vInfo.capacity or 0
-	end
 
 	-- Market prices
 	local prices = GetMarketPricesFunction:InvokeServer()
@@ -1065,7 +909,6 @@ local function openUI()
 	task.spawn(fetchData)
 	task.wait(0.1) -- Brief wait for data
 
-	transferQty = 1 -- Reset only on open
 	showSectorOverview()
 	refreshAll()
 
@@ -1094,10 +937,9 @@ end
 
 local function initialize()
 	local content, closeBtn, statusLabel = createContainer()
-	local leftCol
-	leftCol, stoCapFill, stoCapText = createLeftColumn(content)
-	local centerCol, backBtn, minusBtn, plusBtn, maxBtn, qtyDisplay = createCenterColumn(content)
-	local rightCol, loadMaxBtn = createRightColumn(content)
+	local _leftCol
+	_leftCol, stoCapFill, stoCapText = createLeftColumn(content)
+	local _centerCol, backBtn = createCenterColumn(content)
 
 	-- Close button
 	closeBtn.MouseButton1Click:Connect(closeUI)
@@ -1105,85 +947,13 @@ local function initialize()
 	-- Back button (inspector → sectors)
 	backBtn.MouseButton1Click:Connect(showSectorOverview)
 
-	-- Qty controls
-	minusBtn.MouseButton1Click:Connect(function()
-		transferQty = math.max(1, transferQty - 1)
-		qtyDisplay.Text = tostring(transferQty)
-	end)
-
-	plusBtn.MouseButton1Click:Connect(function()
-		if inspectedItem then
-			local maxQ = currentStorage[inspectedItem] or 0
-			transferQty = math.min(maxQ, transferQty + 1)
-		else
-			transferQty += 1
-		end
-		qtyDisplay.Text = tostring(transferQty)
-	end)
-
-	maxBtn.MouseButton1Click:Connect(function()
-		if inspectedItem then
-			transferQty = currentStorage[inspectedItem] or 1
-			qtyDisplay.Text = tostring(transferQty)
-		end
-	end)
-
-	-- Load Cart button (inspector)
-	loadCartBtn.MouseButton1Click:Connect(function()
-		if not inspectedItem then return end
-		local qty = transferQty
-		if qty <= 0 then return end
-
-		loadCartBtn.Text = "⏳ LOADING..."
-		local loaded = LoadFromStorageFunction:InvokeServer(inspectedItem, qty)
-		if loaded and loaded > 0 then
-			loadCartBtn.Text = "✓ LOADED " .. loaded
-			loadCartBtn.BackgroundColor3 = C.green
-			task.wait(0.5)
-		else
-			loadCartBtn.Text = "✗ FAILED"
-			loadCartBtn.BackgroundColor3 = C.red
-			task.wait(0.5)
-		end
-		-- Re-show
-		if inspectedItem then
-			showItemInspector(inspectedItem)
-		end
-	end)
-
-	-- Load Max button (right col)
-	loadMaxBtn.MouseButton1Click:Connect(function()
-		loadMaxBtn.Text = "⏳ LOADING..."
-		LoadMaxFromStorageFunction:InvokeServer()
-		task.wait(0.3)
-		loadMaxBtn.Text = "⚡ LOAD MAX"
-	end)
-
-	-- Push/Return cart
-	pushCartBtn.MouseButton1Click:Connect(function()
-		local PushCartRemote = RemoteEvents:FindFirstChild("PushCart")
-		local ReturnCartRemote = RemoteEvents:FindFirstChild("ReturnCart")
-
-		if cartState == "idle" and PushCartRemote then
-			PushCartRemote:FireServer()
-		elseif cartState == "at_market" and ReturnCartRemote then
-			ReturnCartRemote:FireServer()
-		end
-	end)
-
 	-- EVENT HANDLERS
 	StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
+	items = decodeItems(items)
 		currentStorage = items or {}
 		storageUsage = total or 0
 		storageCapacity = Player:GetAttribute("StorageCapacity") or capacity or 0
 		if isOpen then updateLeftColumn() end
-	end)
-
-	CartUpdateEvent.OnClientEvent:Connect(function(state, inventory, capacity)
-		cartState = state or "idle"
-		currentCart = inventory or {}
-		cartCapacity = Player:GetAttribute("CartCapacity") or capacity or 0
-		if isOpen then updateRightColumn() end
 	end)
 
 	stockMarketFolder:GetAttributeChangedSignal("SectorRates"):Connect(function()
@@ -1191,7 +961,7 @@ local function initialize()
 			parseSectorRates()
 			parseItemRates()
 			updateSectorCards()
-			updateRightColumn()
+			updateMovers()
 			-- Refresh inspector if an item is being viewed
 			if inspectedItem then
 				showItemInspector(inspectedItem)
@@ -1202,7 +972,7 @@ local function initialize()
 	stockMarketFolder:GetAttributeChangedSignal("ItemRates"):Connect(function()
 		if isOpen then
 			parseItemRates()
-			updateRightColumn()
+			updateMovers()
 			if inspectedItem then
 				showItemInspector(inspectedItem)
 			end
@@ -1211,6 +981,17 @@ local function initialize()
 
 	stockMarketFolder:GetAttributeChangedSignal("RateName"):Connect(function()
 		if isOpen then updateTopBar() end
+	end)
+
+	-- HUD Button Toggle
+	local stockToggle = ReplicatedStorage:FindFirstChild("StockToggleEvent")
+	if not stockToggle then
+		stockToggle = Instance.new("BindableEvent")
+		stockToggle.Name = "StockToggleEvent"
+		stockToggle.Parent = ReplicatedStorage
+	end
+	stockToggle.Event:Connect(function()
+		if isOpen then closeUI() else openUI() end
 	end)
 
 	-- M key toggle

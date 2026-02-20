@@ -8,10 +8,10 @@
 	- UI toggling
 ]]
 
-local Players = game:GetService("Players")
-local UserInputService = game:GetService("UserInputService")
-local CollectionService = game:GetService("CollectionService")
+local _UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
 
 local Player = Players.LocalPlayer
 
@@ -45,25 +45,7 @@ function ShopInteraction:Init()
 	-- 1. ProximityPrompt Listener
 	self:SetupPromptListener()
 	
-	-- 2. Input Listener (Hotkeys)
-	table.insert(self.Connections, UserInputService.InputBegan:Connect(function(input, gameProcessed)
-		if gameProcessed then return end
-		
-		if input.KeyCode == self.Config.Keybind then
-			if self.IsOpen then
-				self:Close()
-			else
-				-- Check if near any vendor of this type
-				if self:IsNearVendor() then
-					self:Open()
-				end
-			end
-		elseif input.KeyCode == Enum.KeyCode.Escape then
-			if self.IsOpen then
-				self:Close()
-			end
-		end
-	end))
+	-- 2. Input Listener (Hotkeys) - REMOVED for mobile compatibility and to prevent double-firing with ProximityPrompt
 	
 	-- 3. Distance Check Loop (Heartbeat) - Only runs when shop is open
 	table.insert(self.Connections, RunService.Heartbeat:Connect(function()
@@ -81,19 +63,26 @@ function ShopInteraction:SetupPromptListener()
 		
 		print("[ShopInteraction] Found potential vendor:", instance.Name, "for tag:", self.Config.PromptTag)
 		
-		-- Wait for prompt to exist (it might be added by server script slightly after tag)
-		local prompt = instance:WaitForChild("ShopPrompt", 10)
-		if prompt and prompt:IsA("ProximityPrompt") then
-			print("[ShopInteraction] Found ShopPrompt for:", instance.Name)
-			table.insert(self.Connections, prompt.Triggered:Connect(function(playerWhoTriggered)
-				if playerWhoTriggered == Player then
-					print("[ShopInteraction] Prompt triggered by local player for:", instance.Name)
-					self:Toggle()
-				end
-			end))
-		else
-			warn("[ShopInteraction] ShopPrompt NOT found or not a ProximityPrompt for:", instance.Name)
-		end
+		task.spawn(function()
+			local prompt
+			for i = 1, 20 do
+				prompt = instance:FindFirstChild("ShopPrompt", true)
+				if prompt and prompt:IsA("ProximityPrompt") then break end
+				task.wait(0.5)
+			end
+			
+			if prompt and prompt:IsA("ProximityPrompt") then
+				print("[ShopInteraction] Found ShopPrompt for:", instance.Name)
+				table.insert(self.Connections, prompt.Triggered:Connect(function(playerWhoTriggered)
+					if playerWhoTriggered == Player then
+						print("[ShopInteraction] Prompt triggered by local player for:", instance.Name)
+						self:Toggle()
+					end
+				end))
+			else
+				warn("[ShopInteraction] ShopPrompt NOT found or not a ProximityPrompt for:", instance.Name)
+			end
+		end)
 	end
 
 	-- Listen for existing

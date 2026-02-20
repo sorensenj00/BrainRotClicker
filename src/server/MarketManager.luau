@@ -22,6 +22,10 @@ local ItemSoldEvent = RemoteEvents:FindFirstChild("ItemSold") or Instance.new("R
 ItemSoldEvent.Name = "ItemSold"
 ItemSoldEvent.Parent = RemoteEvents
 
+local CartSoldEvent = RemoteEvents:FindFirstChild("CartSold") or Instance.new("RemoteEvent")
+CartSoldEvent.Name = "CartSold"
+CartSoldEvent.Parent = RemoteEvents
+
 local SellItemFunction = RemoteFunctions:FindFirstChild("SellItem") or Instance.new("RemoteFunction")
 SellItemFunction.Name = "SellItem"
 SellItemFunction.Parent = RemoteFunctions
@@ -237,12 +241,8 @@ function MarketManager.SellCartContents(player, cartInventory)
 		local m = ls and ls:FindFirstChild("Money")
 		if m then m.Value += earned end
 		
-		for itemId, count in pairs(cartInventory) do
-			if count > 0 then
-				local price = getPlayerItemPrice(player, itemId)
-				ItemSoldEvent:FireClient(player, itemId, count, count * price)
-			end
-		end
+		-- Fire a single aggregate event for the cart instead of per-item spam
+		CartSoldEvent:FireClient(player, earned, cartInventory)
 	end
 	
 	return sold, earned

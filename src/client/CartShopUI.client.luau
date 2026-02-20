@@ -32,17 +32,18 @@ local GetUpgradesInfoEvent = RemoteEvents:WaitForChild("GetCartUpgradeInfo")
 local UI_CONFIG = {
 	TWEEN_TIME = 0.3,
 	COLORS = {
-		Background = Color3.fromRGB(30, 25, 35),
-		Header = Color3.fromRGB(40, 30, 50),
-		Card = Color3.fromRGB(50, 45, 60),
-		CardMaxed = Color3.fromRGB(40, 60, 40),
-		Accent = Color3.fromRGB(255, 200, 50), -- Gold/Yellow
-		Text = Color3.fromRGB(255, 255, 255),
-		TextMuted = Color3.fromRGB(180, 180, 180),
-		Green = Color3.fromRGB(100, 255, 100),
-		Red = Color3.fromRGB(255, 100, 100),
-		Button = Color3.fromRGB(60, 160, 60),
-		ButtonDisabled = Color3.fromRGB(60, 60, 60),
+		Background = Color3.fromRGB(15, 15, 22),
+		Header = Color3.fromRGB(20, 20, 30),
+		Card = Color3.fromRGB(25, 25, 35),
+		CardMaxed = Color3.fromRGB(20, 35, 25),
+		Accent = Color3.fromRGB(250, 190, 60),
+		Text = Color3.fromRGB(240, 240, 255),
+		TextMuted = Color3.fromRGB(160, 160, 180),
+		Green = Color3.fromRGB(80, 230, 120),
+		Red = Color3.fromRGB(250, 70, 70),
+		Button = Color3.fromRGB(60, 160, 80),
+		ButtonDisabled = Color3.fromRGB(40, 40, 50),
+		Stroke = Color3.fromRGB(70, 70, 90),
 	},
 }
 
@@ -75,38 +76,37 @@ local function createShopUI()
 	mainFrame.Name = "MainFrame"
 	mainFrame.Size = UDim2.new(0, 400, 0, 550)
 	mainFrame.Position = UDim2.new(0.5, -200, 0.5, -275)
-	mainFrame.BackgroundColor3 = UI_CONFIG.COLORS.Background
+	mainFrame.BackgroundColor3 = Color3.new(1, 1, 1)
+	mainFrame.BackgroundTransparency = 0.2
 	mainFrame.BorderSizePixel = 0
 	mainFrame.Visible = false
 	mainFrame.Parent = screenGui
 	
 	local uiCorner = Instance.new("UICorner")
-	uiCorner.CornerRadius = UDim.new(0, 12)
+	uiCorner.CornerRadius = UDim.new(0, 16)
 	uiCorner.Parent = mainFrame
 	
 	local uiStroke = Instance.new("UIStroke")
-	uiStroke.Color = UI_CONFIG.COLORS.Accent
-	uiStroke.Thickness = 2
+	uiStroke.Color = UI_CONFIG.COLORS.Stroke
+	uiStroke.Thickness = 1.5
+	uiStroke.Transparency = 0.5
 	uiStroke.Parent = mainFrame
+	
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, UI_CONFIG.COLORS.Header),
+		ColorSequenceKeypoint.new(1, UI_CONFIG.COLORS.Background)
+	})
+	gradient.Rotation = 90
+	gradient.Parent = mainFrame
 	
 	-- Header
 	local header = Instance.new("Frame")
 	header.Name = "Header"
 	header.Size = UDim2.new(1, 0, 0, 60)
-	header.BackgroundColor3 = UI_CONFIG.COLORS.Header
+	header.BackgroundTransparency = 1
 	header.BorderSizePixel = 0
 	header.Parent = mainFrame
-	
-	local headerCorner = Instance.new("UICorner")
-	headerCorner.CornerRadius = UDim.new(0, 12)
-	headerCorner.Parent = header
-	
-	local headerFix = Instance.new("Frame")
-	headerFix.Size = UDim2.new(1, 0, 0, 12)
-	headerFix.Position = UDim2.new(0, 0, 1, -12)
-	headerFix.BackgroundColor3 = UI_CONFIG.COLORS.Header
-	headerFix.BorderSizePixel = 0
-	headerFix.Parent = header
 	
 	local title = Instance.new("TextLabel")
 	title.Text = "🛒 CART UPGRADES"

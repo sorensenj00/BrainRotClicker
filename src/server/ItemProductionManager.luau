@@ -213,7 +213,7 @@ local function produceItems(player)
 			if not unitType then continue end
 			
 			-- Determine what to produce
-			local outputItemId, outputRate
+			local outputItemId, outputRate, consumes
 			
 			-- Check synergy override first
 			local synergy = checkClusterSynergy(gridPositions, slotIndex, unitType)
@@ -224,6 +224,7 @@ local function produceItems(player)
 				if baseProd then
 					outputItemId = synergy.synergyItem
 					outputRate = baseProd.rate / synergy.bonus -- Faster with synergy bonus
+					consumes = baseProd.consumes
 				end
 			else
 				-- Normal: produce selected mode item
@@ -231,6 +232,7 @@ local function produceItems(player)
 				if prod then
 					outputItemId = prod.itemId
 					outputRate = prod.rate
+					consumes = prod.consumes
 				end
 			end
 			
@@ -249,6 +251,25 @@ local function produceItems(player)
 			local slotState = cache.SlotProduction[slotIndex]
 			
 			if now - slotState.lastProd >= adjustedRate then
+				-- NEW: Check and consume crafting requirements
+				local canConsume = true
+				if consumes then
+					local storageItems = ISM.GetStorageContents(player)
+					for reqId, reqCount in pairs(consumes) do
+						if (storageItems[reqId] or 0) < reqCount then
+							canConsume = false
+							break
+						end
+					end
+					if canConsume then
+						for reqId, reqCount in pairs(consumes) do
+							ISM.RemoveFromStorage(player, reqId, reqCount)
+						end
+					end
+				end
+				
+				if not canConsume then continue end
+
 				-- SILENT ADD: Pass true to suppress immediate event firing
 				local added = ISM.AddToStorage(player, outputItemId, 1, true)
 				if added > 0 then

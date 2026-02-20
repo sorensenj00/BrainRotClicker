@@ -37,17 +37,19 @@ local UI_CONFIG = {
 	CORNER_RADIUS = 16,
 	
 	-- Colors
-	BACKGROUND_COLOR = Color3.fromRGB(35, 35, 50),
-	ACCENT_COLOR = Color3.fromRGB(255, 180, 50), -- Orange for storage
-	BUTTON_COLOR = Color3.fromRGB(255, 180, 50),
-	BUTTON_HOVER_COLOR = Color3.fromRGB(255, 200, 100),
-	BUTTON_DISABLED_COLOR = Color3.fromRGB(100, 100, 100),
-	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
-	SECONDARY_TEXT_COLOR = Color3.fromRGB(180, 180, 180),
-	PRICE_COLOR = Color3.fromRGB(255, 215, 0),
+	BACKGROUND_COLOR = Color3.fromRGB(15, 15, 22),
+	PANEL_COLOR = Color3.fromRGB(20, 20, 30),
+	ACCENT_COLOR = Color3.fromRGB(250, 190, 60),
+	BUTTON_COLOR = Color3.fromRGB(60, 160, 80),
+	BUTTON_HOVER_COLOR = Color3.fromRGB(80, 180, 100),
+	BUTTON_DISABLED_COLOR = Color3.fromRGB(40, 40, 50),
+	TEXT_COLOR = Color3.fromRGB(240, 240, 255),
+	SECONDARY_TEXT_COLOR = Color3.fromRGB(160, 160, 180),
+	PRICE_COLOR = Color3.fromRGB(250, 190, 60),
+	STROKE_COLOR = Color3.fromRGB(70, 70, 90),
 	
 	-- Animation
-	TWEEN_TIME = 0.25,
+	TWEEN_TIME = 0.3,
 }
 
 --------------------------------------------------------------------------------
@@ -142,13 +144,28 @@ local function createStorageUpgradeGui(): ScreenGui
 	local panel = Instance.new("Frame")
 	panel.Name = "StoragePanel"
 	panel.Size = UDim2.new(0, UI_CONFIG.PANEL_WIDTH, 0, UI_CONFIG.PANEL_HEIGHT)
-	panel.Position = UDim2.new(0.5, -UI_CONFIG.PANEL_WIDTH / 2, 0.5, -UI_CONFIG.PANEL_HEIGHT / 2)
-	panel.BackgroundColor3 = UI_CONFIG.BACKGROUND_COLOR
+	panel.AnchorPoint = Vector2.new(0.5, 0.5)
+	panel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	panel.BackgroundColor3 = Color3.new(1, 1, 1)
+	panel.BackgroundTransparency = 0.2
 	panel.BorderSizePixel = 0
 	panel.Visible = false
 	panel.Parent = screenGui
 	addCorner(panel, UI_CONFIG.CORNER_RADIUS)
-	addStroke(panel, UI_CONFIG.ACCENT_COLOR, 3)
+	
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = UI_CONFIG.STROKE_COLOR
+	stroke.Thickness = 1.5
+	stroke.Transparency = 0.5
+	stroke.Parent = panel
+	
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, UI_CONFIG.PANEL_COLOR),
+		ColorSequenceKeypoint.new(1, UI_CONFIG.BACKGROUND_COLOR)
+	})
+	gradient.Rotation = 90
+	gradient.Parent = panel
 	
 	-- Title
 	local titleLabel = Instance.new("TextLabel")
@@ -350,10 +367,10 @@ local function showPanel()
 	
 	PanelVisible = true
 	StoragePanel.Visible = true
-	StoragePanel.BackgroundTransparency = 1
+	StoragePanel.Size = UDim2.new(0, 0, 0, 0)
 	
-	TweenService:Create(StoragePanel, TweenInfo.new(UI_CONFIG.TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		BackgroundTransparency = 0
+	TweenService:Create(StoragePanel, TweenInfo.new(UI_CONFIG.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, UI_CONFIG.PANEL_WIDTH, 0, UI_CONFIG.PANEL_HEIGHT)
 	}):Play()
 	
 	print("StorageUpgradeUI: Opened")
@@ -365,8 +382,8 @@ local function hidePanel()
 	
 	PanelVisible = false
 	
-	local tween = TweenService:Create(StoragePanel, TweenInfo.new(UI_CONFIG.TWEEN_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-		BackgroundTransparency = 1
+	local tween = TweenService:Create(StoragePanel, TweenInfo.new(UI_CONFIG.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+		Size = UDim2.new(0, 0, 0, 0)
 	})
 	
 	tween:Play()

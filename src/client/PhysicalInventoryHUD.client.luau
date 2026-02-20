@@ -25,17 +25,17 @@ local GetVehicleInfoFunction = RemoteFunctions:WaitForChild("GetVehicleInfo")
 
 -- Configuration (Linked styling with UnitHUD)
 local HUD_CONFIG = {
-	BILLBOARD_SIZE = UDim2.new(0, 140, 0, 80),
-	MAX_DISTANCE = 100,
-	CARD_BACKGROUND = Color3.fromRGB(25, 25, 35),
-	CARD_STROKE_COLOR = Color3.fromRGB(80, 80, 100),
-	CORNER_RADIUS = 8,
-	BAR_HEIGHT = 6,
-	BAR_BACKGROUND_COLOR = Color3.fromRGB(40, 40, 50),
-	BAR_FILL_STORAGE = Color3.fromRGB(100, 200, 255),
-	BAR_FILL_CART = Color3.fromRGB(100, 255, 150),
-	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
-	SUBTEXT_COLOR = Color3.fromRGB(180, 180, 200),
+	BILLBOARD_SIZE = UDim2.new(0, 150, 0, 90),
+	MAX_DISTANCE = 120,
+	CARD_BACKGROUND = Color3.fromRGB(15, 15, 22),
+	CARD_STROKE_COLOR = Color3.fromRGB(70, 70, 90),
+	CORNER_RADIUS = 10,
+	BAR_HEIGHT = 8,
+	BAR_BACKGROUND_COLOR = Color3.fromRGB(25, 25, 35),
+	BAR_FILL_STORAGE = Color3.fromRGB(60, 160, 255),
+	BAR_FILL_CART = Color3.fromRGB(80, 230, 120),
+	TEXT_COLOR = Color3.fromRGB(240, 240, 255),
+	SUBTEXT_COLOR = Color3.fromRGB(160, 160, 180),
 }
 
 local STORAGE_TAG = "PhysicalStorageHUD"
@@ -62,8 +62,8 @@ local function createBillboard(target: Instance, title: string, fillCol: Color3)
 	local card = Instance.new("Frame")
 	card.Name = "Card"
 	card.Size = UDim2.new(1, 0, 1, 0)
-	card.BackgroundColor3 = HUD_CONFIG.CARD_BACKGROUND
-	card.BackgroundTransparency = 0.15
+	card.BackgroundColor3 = Color3.new(1, 1, 1)
+	card.BackgroundTransparency = 0.25
 	card.BorderSizePixel = 0
 	card.Parent = billboard
 	
@@ -73,9 +73,17 @@ local function createBillboard(target: Instance, title: string, fillCol: Color3)
 	
 	local cardStroke = Instance.new("UIStroke")
 	cardStroke.Color = HUD_CONFIG.CARD_STROKE_COLOR
-	cardStroke.Thickness = 1
-	cardStroke.Transparency = 0.3
+	cardStroke.Thickness = 1.5
+	cardStroke.Transparency = 0.5
 	cardStroke.Parent = card
+	
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, HUD_CONFIG.CARD_BACKGROUND),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 10, 15))
+	})
+	gradient.Rotation = 90
+	gradient.Parent = card
 	
 	local padding = Instance.new("UIPadding")
 	padding.PaddingLeft = UDim.new(0, 6)
@@ -205,6 +213,21 @@ end
 -- SYNC LOGIC
 --------------------------------------------------------------------------------
 
+local function decodeItems(encoded)
+	if not ItemConfig or not ItemConfig.SHORT_TO_ID then return encoded end
+	if type(encoded) ~= "table" then return encoded end
+	local decoded = {}
+	for k, count in pairs(encoded) do
+		local shortId = tonumber(k)
+		if shortId and ItemConfig.SHORT_TO_ID[shortId] then
+			decoded[ItemConfig.SHORT_TO_ID[shortId]] = count
+		else
+			decoded[k] = count
+		end
+	end
+	return decoded
+end
+
 local function isPlayerPlot(instance: Instance)
 	local plot = instance:FindFirstAncestor("Plot") or instance:FindFirstAncestorWhichIsA("Model")
 	if plot and plot:GetAttribute("OwnerId") == Player.UserId then
@@ -228,7 +251,7 @@ local function setupStorageHUD(part: Instance)
 	task.spawn(function()
 		local items, current, max = GetStorageFunction:InvokeServer()
 		if ActiveHUDs[part] then
-			updateHUD(bb, items or {}, current or 0, Player:GetAttribute("StorageCapacity") or max or 0)
+			updateHUD(bb, decodeItems(items) or {}, current or 0, Player:GetAttribute("StorageCapacity") or max or 0)
 		end
 	end)
 end
@@ -245,9 +268,10 @@ local function setupCartHUD(model: Instance)
 	task.spawn(function()
 		local info = GetVehicleInfoFunction:InvokeServer()
 		if info and ActiveHUDs[model] then
+			local decodedInventory = decodeItems(info.inventory) or {}
 			local current = 0
-			for _, c in pairs(info.inventory or {}) do current += c end
-			updateHUD(bb, info.inventory or {}, current, Player:GetAttribute("CartCapacity") or info.capacity or 0)
+			for _, c in pairs(decodedInventory) do current += c end
+			updateHUD(bb, decodedInventory, current, Player:GetAttribute("CartCapacity") or info.capacity or 0)
 		end
 	end)
 end
@@ -257,6 +281,7 @@ end
 --------------------------------------------------------------------------------
 
 StorageUpdatedEvent.OnClientEvent:Connect(function(items, current, max)
+	items = decodeItems(items)
 	for obj, data in pairs(ActiveHUDs) do
 		if data.type == "storage" then
 			updateHUD(data.billboard, items, current, Player:GetAttribute("StorageCapacity") or max or 0)
@@ -265,6 +290,7 @@ StorageUpdatedEvent.OnClientEvent:Connect(function(items, current, max)
 end)
 
 CartUpdateEvent.OnClientEvent:Connect(function(state, inventory, max)
+	inventory = decodeItems(inventory)
 	for obj, data in pairs(ActiveHUDs) do
 		if data.type == "cart" then
 			local current = 0

@@ -41,31 +41,32 @@ local UnlockProgressChangedEvent = RemoteEvents:WaitForChild("UnlockProgressChan
 
 local UI_CONFIG = {
 	-- Shop Panel
-	SHOP_WIDTH = 280,
-	SHOP_PADDING = 10,
+	SHOP_WIDTH = 300,
+	SHOP_PADDING = 12,
 	
 	-- Button styling
-	BUTTON_HEIGHT = 130, -- Increased to fit milestone + item cost
-	BUTTON_SPACING = 8,
-	CORNER_RADIUS = 12,
+	BUTTON_HEIGHT = 140,
+	BUTTON_SPACING = 10,
+	CORNER_RADIUS = 16,
 	
 	-- Colors
-	BACKGROUND_COLOR = Color3.fromRGB(25, 25, 35),
-	PANEL_COLOR = Color3.fromRGB(35, 35, 50),
-	BUTTON_COLOR = Color3.fromRGB(50, 50, 70),
-	BUTTON_HOVER_COLOR = Color3.fromRGB(65, 65, 90),
-	BUTTON_DISABLED_COLOR = Color3.fromRGB(40, 40, 50),
-	LOCKED_COLOR = Color3.fromRGB(20, 20, 25),
+	BACKGROUND_COLOR = Color3.fromRGB(15, 15, 22),
+	PANEL_COLOR = Color3.fromRGB(20, 20, 30),
+	BUTTON_COLOR = Color3.fromRGB(30, 30, 45),
+	BUTTON_HOVER_COLOR = Color3.fromRGB(40, 40, 60),
+	BUTTON_DISABLED_COLOR = Color3.fromRGB(20, 20, 25),
+	LOCKED_COLOR = Color3.fromRGB(15, 15, 20),
 	LOCKED_OVERLAY_COLOR = Color3.fromRGB(0, 0, 0),
-	ACCENT_COLOR = Color3.fromRGB(100, 220, 100),
-	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
-	SECONDARY_TEXT_COLOR = Color3.fromRGB(180, 180, 180),
-	LOCKED_TEXT_COLOR = Color3.fromRGB(100, 100, 100),
-	PRICE_COLOR = Color3.fromRGB(255, 215, 0),
-	ITEM_COST_COLOR = Color3.fromRGB(255, 170, 60), -- Orange for item requirements
+	ACCENT_COLOR = Color3.fromRGB(80, 230, 120),
+	TEXT_COLOR = Color3.fromRGB(250, 250, 255),
+	SECONDARY_TEXT_COLOR = Color3.fromRGB(160, 160, 180),
+	LOCKED_TEXT_COLOR = Color3.fromRGB(100, 100, 120),
+	PRICE_COLOR = Color3.fromRGB(250, 190, 60),
+	ITEM_COST_COLOR = Color3.fromRGB(255, 140, 50),
+	STROKE_COLOR = Color3.fromRGB(70, 70, 90),
 	
 	-- Animation
-	TWEEN_TIME = 0.15,
+	TWEEN_TIME = 0.2,
 }
 
 --------------------------------------------------------------------------------
@@ -156,17 +157,26 @@ local function createShopGui(): ScreenGui
 	shopPanel.Name = "ShopPanel"
 	shopPanel.Size = UDim2.new(0, UI_CONFIG.SHOP_WIDTH, 1, -20)
 	shopPanel.Position = UDim2.new(1, 10, 0, 10) -- Start off-screen
-	shopPanel.BackgroundColor3 = UI_CONFIG.PANEL_COLOR
+	shopPanel.BackgroundColor3 = Color3.new(1, 1, 1)
+	shopPanel.BackgroundTransparency = 0.25
 	shopPanel.BorderSizePixel = 0
 	shopPanel.Parent = screenGui
 	addCorner(shopPanel, UI_CONFIG.CORNER_RADIUS)
-	addStroke(shopPanel, Color3.fromRGB(60, 60, 80), 2)
+	addStroke(shopPanel, UI_CONFIG.STROKE_COLOR, 1.5)
+	
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, UI_CONFIG.PANEL_COLOR),
+		ColorSequenceKeypoint.new(1, UI_CONFIG.BACKGROUND_COLOR)
+	})
+	gradient.Rotation = 90
+	gradient.Parent = shopPanel
 	
 	-- Shop title
 	local titleBar = Instance.new("Frame")
 	titleBar.Name = "TitleBar"
 	titleBar.Size = UDim2.new(1, 0, 0, 50)
-	titleBar.BackgroundColor3 = UI_CONFIG.BACKGROUND_COLOR
+	titleBar.BackgroundTransparency = 1
 	titleBar.BorderSizePixel = 0
 	titleBar.Parent = shopPanel
 	

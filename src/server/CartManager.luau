@@ -187,16 +187,14 @@ local function updateCartVisuals(cartData)
 		prompt.ObjectText = "Transport Cart"
 		prompt.RequiresLineOfSight = false
 		prompt.HoldDuration = 0.5
+		game:GetService("CollectionService"):AddTag(prompt, "TransportCartPrompt")
 		prompt.Parent = promptPart
 	end
 	
 	prompt.Enabled = (cartData.State == "idle" or cartData.State == "at_market")
 	
-	if cartData.State == "idle" then
-		prompt.ActionText = "Push to Market"
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-	elseif cartData.State == "at_market" then
-		prompt.ActionText = "Return Cart"
+	if cartData.State == "idle" or cartData.State == "at_market" then
+		prompt.ActionText = "Manage Cart"
 		prompt.KeyboardKeyCode = Enum.KeyCode.E
 	else
 		prompt.Enabled = false
@@ -247,23 +245,22 @@ local function spawnCart(player)
 		Speed = speedOverride > 0 and speedOverride or CONFIG.ROLL_SPEED,
 		ModelTier = upgrades.Model or 1,
 		StartPos = spawnPos,
-		EndPos = mainPos + (dir * -45), -- Edge of main island
+		EndPos = mainPos + (dir * -12), -- Roll all the way down to the hole
 		BridgeDir = dir
 	}
 	
-	-- Tag for client-side HUD
+	-- Tag for client-side HUD and visuals
+	model:SetAttribute("OwnerId", player.UserId)
+	model:SetAttribute("CartState", "idle")
+	model:SetAttribute("CartStartPos", spawnPos)
+	model:SetAttribute("CartEndPos", data.EndPos)
+	model:SetAttribute("CartDuration", 0)
+	model:SetAttribute("CartStartTime", 0)
+	
 	game:GetService("CollectionService"):AddTag(model, "PhysicalCartHUD")
 	
 	PlayerCarts[player] = data
 	updateCartVisuals(data)
-	
-	-- Connect prompt locally
-	local prompt = model.PrimaryPart:WaitForChild("CartPrompt")
-	prompt.Triggered:Connect(function(triggerPlayer)
-		if triggerPlayer == player then
-			CartManager.HandlePrompt(player)
-		end
-	end)
 	
 	return data
 end
@@ -295,33 +292,39 @@ local function moveCart(player, targetState)
 	local travelTime = dist / speed
 	print("CartManager: Starting transport, time:", travelTime, "dist:", dist)
 	
-	-- FIX: NO SERVER TWEENING.
-	-- Instantly teleport to destination (or hide inside geometry if needed)
-	-- The client will handle visual interpolation via CartUpdateEvent.
-	-- For simplicty here, we just pivot to end position immediately but keep state as "rolling"
-	-- In a real production environment, you might want to hide the cart or move it under the map
-	-- so it doesn't just "pop" to the end. But for now, popping is better than lagging the whole server.
-	
-	-- Let's just create a CFrame lookAt for the end position
-	local lookCF = CFrame.new(endP, endP + (endP - startP).Unit)
-	data.Model:PivotTo(lookCF)
+	-- Let client handle tweening using attributes
+	data.Model:SetAttribute("CartDuration", travelTime)
+	data.Model:SetAttribute("CartStartTime", workspace:GetServerTimeNow())
+	data.Model:SetAttribute("CartState", targetState)
 	
 	-- Schedule arrival
 	task.delay(travelTime, function()
 		print("CartManager: Transport completed")
 		if targetState == "rolling_to_market" then
-			data.State = "at_market"
-			-- Auto Sell
-			local MM = getMarketManager()
-			if MM and MM.SellCartContents then
-				MM.SellCartContents(player, data.Inventory)
-				data.Inventory = {} -- Clear after sell
-			end
+			data.State = "selling" -- Disable prompt during animation
+			data.Model:SetAttribute("CartState", "at_market")
+			
+			-- Wait for funnel animation (approx 2s) before selling
+			task.delay(2.5, function()
+				local MM = getMarketManager()
+				if MM and MM.SellCartContents then
+					MM.SellCartContents(player, data.Inventory)
+					data.Inventory = {} -- Clear after sell
+				end
+				updateCartVisuals(data)
+				CartUpdateEvent:FireClient(player, "at_market", data.Inventory, data.Capacity)
+                
+                -- Auto-return!
+                task.delay(0.5, function()
+                    moveCart(player, "rolling_to_plot")
+                end)
+			end)
 		else
 			data.State = "idle"
+			data.Model:SetAttribute("CartState", "idle")
+			updateCartVisuals(data)
+			CartUpdateEvent:FireClient(player, data.State, data.Inventory, data.Capacity)
 		end
-		updateCartVisuals(data)
-		CartUpdateEvent:FireClient(player, data.State, data.Inventory, data.Capacity)
 	end)
 end
 

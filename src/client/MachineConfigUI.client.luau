@@ -10,8 +10,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
+-- Removed unused TweenService and RunService
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -67,9 +66,9 @@ local COLORS = {
 }
 
 local FONT = {
-	TITLE = Font.new("rbxassetid://12187365364", Enum.FontWeight.Bold),
-	BODY = Font.new("rbxassetid://12187365364", Enum.FontWeight.Regular),
-	MONO = Font.new("rbxassetid://12187365364", Enum.FontWeight.Medium),
+	TITLE = Font.fromEnum(Enum.Font.GothamBold),
+	BODY = Font.fromEnum(Enum.Font.Gotham),
+	MONO = Font.fromEnum(Enum.Font.GothamMedium),
 }
 
 --------------------------------------------------------------------------------
@@ -180,21 +179,30 @@ local function buildUI()
 	-- Center panel
 	local panel = createFrame({
 		Name = "Panel",
-		Color = COLORS.PANEL,
+		Color = Color3.new(1, 1, 1),
+		Transparency = 0.2,
 		Size = UDim2.new(0, 500, 0, 600),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
 		Anchor = Vector2.new(0.5, 0.5),
-		Corner = 16,
-		Stroke = COLORS.BORDER,
+		Corner = 18,
+		Stroke = Color3.fromRGB(70, 70, 90),
 		Parent = backdrop,
 	})
 	
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, COLORS.PANEL),
+		ColorSequenceKeypoint.new(1, COLORS.BG)
+	})
+	gradient.Rotation = 90
+	gradient.Parent = panel
+	
 	-- Gradient top accent
-	local accentBar = createFrame({
+	local _accentBar = createFrame({
 		Name = "AccentBar",
 		Color = COLORS.ACCENT,
 		Size = UDim2.new(1, 0, 0, 4),
-		Corner = 16,
+		Corner = 18,
 		Parent = panel,
 	})
 	
@@ -411,7 +419,7 @@ local function buildUI()
 		Parent = equipmentContainer,
 	})
 	
-	local invLabel = createLabel({
+	local _invLabel = createLabel({
 		Name = "Title",
 		Text = "Inventory",
 		Color = COLORS.TEXT_DIM,
@@ -508,7 +516,7 @@ local function createModeCard(modeInfo, index, isCurrent, isBest)
 	local itemDef = ItemConfig.Items[modeInfo.itemId]
 	local icon = itemDef and itemDef.icon or "❓"
 	local displayName = itemDef and itemDef.displayName or modeInfo.itemId
-	local basePrice = itemDef and itemDef.basePrice or 0
+	local _basePrice = itemDef and itemDef.basePrice or 0
 	
 	createLabel({
 		Name = "Icon",

@@ -42,49 +42,49 @@ local StockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket")
 
 local UI_CONFIG = {
 	-- Panel positioning and size
-	PANEL_WIDTH = 220,
-	PANEL_HEIGHT = 400,
-	PANEL_MARGIN = 20,
-	CORNER_RADIUS = 16,
+	PANEL_WIDTH = 250,
+	PANEL_HEIGHT = 420,
+	PANEL_MARGIN = 24,
+	CORNER_RADIUS = 18,
 	
 	-- Holdings
 	MAX_HOLDINGS_ROWS = 5,
-	ROW_HEIGHT = 22,
+	ROW_HEIGHT = 26,
 	
 	-- Colors
-	BACKGROUND_COLOR = Color3.fromRGB(20, 20, 30),
-	STROKE_COLOR = Color3.fromRGB(50, 50, 70),
-	MONEY_COLOR = Color3.fromRGB(100, 255, 100),
-	MPS_COLOR = Color3.fromRGB(180, 180, 180),
-	LABEL_COLOR = Color3.fromRGB(120, 120, 140),
-	ITEMS_BG_COLOR = Color3.fromRGB(40, 40, 50),
-	ITEMS_FILL_COLOR = Color3.fromRGB(100, 180, 255),
-	ITEMS_FULL_COLOR = Color3.fromRGB(255, 100, 100),
+	BACKGROUND_COLOR = Color3.fromRGB(15, 15, 22),
+	STROKE_COLOR = Color3.fromRGB(70, 70, 90),
+	MONEY_COLOR = Color3.fromRGB(80, 230, 120),
+	MPS_COLOR = Color3.fromRGB(160, 160, 180),
+	LABEL_COLOR = Color3.fromRGB(130, 130, 150),
+	ITEMS_BG_COLOR = Color3.fromRGB(25, 25, 35),
+	ITEMS_FILL_COLOR = Color3.fromRGB(60, 160, 255),
+	ITEMS_FULL_COLOR = Color3.fromRGB(255, 80, 80),
 	
 	-- Holdings colors
-	HOLDINGS_TITLE_COLOR = Color3.fromRGB(200, 200, 220),
-	HOLDINGS_NAME_COLOR = Color3.fromRGB(230, 230, 240),
-	HOLDINGS_COUNT_COLOR = Color3.fromRGB(160, 160, 180),
-	HOLDINGS_VALUE_COLOR = Color3.fromRGB(100, 255, 100),
-	ARROW_UP_COLOR = Color3.fromRGB(80, 220, 120),
-	ARROW_DOWN_COLOR = Color3.fromRGB(255, 80, 80),
+	HOLDINGS_TITLE_COLOR = Color3.fromRGB(220, 220, 240),
+	HOLDINGS_NAME_COLOR = Color3.fromRGB(240, 240, 255),
+	HOLDINGS_COUNT_COLOR = Color3.fromRGB(150, 150, 170),
+	HOLDINGS_VALUE_COLOR = Color3.fromRGB(80, 230, 120),
+	ARROW_UP_COLOR = Color3.fromRGB(60, 200, 100),
+	ARROW_DOWN_COLOR = Color3.fromRGB(250, 70, 70),
 	
 	-- Animation
-	TWEEN_TIME = 0.2,
+	TWEEN_TIME = 0.3,
 	
 	-- Theme
-	THEME_BG = Color3.fromRGB(20, 20, 30),
-	THEME_STROKE = Color3.fromRGB(50, 50, 70),
-	THEME_ACCENT_PURPLE = Color3.fromRGB(80, 60, 140),
-	THEME_ACCENT_PINK = Color3.fromRGB(140, 80, 160),
-	THEME_ACCENT_GOLD = Color3.fromRGB(200, 150, 60),
-	THEME_ACCENT_BLUE = Color3.fromRGB(60, 120, 200),
+	THEME_BG = Color3.fromRGB(18, 18, 28),
+	THEME_STROKE = Color3.fromRGB(90, 90, 120),
+	THEME_ACCENT_PURPLE = Color3.fromRGB(120, 80, 220),
+	THEME_ACCENT_PINK = Color3.fromRGB(220, 90, 180),
+	THEME_ACCENT_GOLD = Color3.fromRGB(250, 190, 60),
+	THEME_ACCENT_BLUE = Color3.fromRGB(60, 150, 255),
 	THEME_TEXT_PRIMARY = Color3.fromRGB(255, 255, 255),
-	THEME_TEXT_SECONDARY = Color3.fromRGB(180, 180, 180),
+	THEME_TEXT_SECONDARY = Color3.fromRGB(170, 170, 190),
 	
 	-- Bottom bar
-	BOTTOM_BAR_BTN_SIZE = 42,
-	BOTTOM_BAR_PADDING = 10,
+	BOTTOM_BAR_BTN_SIZE = 48,
+	BOTTOM_BAR_PADDING = 12,
 }
 
 --------------------------------------------------------------------------------
@@ -160,12 +160,20 @@ local function createMoneyHUD(): ScreenGui
 	hudPanel.Name = "HUDPanel"
 	hudPanel.Size = UDim2.new(0, UI_CONFIG.PANEL_WIDTH, 0, UI_CONFIG.PANEL_HEIGHT)
 	hudPanel.Position = UDim2.new(1, -UI_CONFIG.PANEL_WIDTH - UI_CONFIG.PANEL_MARGIN, 0, 60)
-	hudPanel.BackgroundColor3 = UI_CONFIG.THEME_BG
-	hudPanel.BackgroundTransparency = 0.1
+	hudPanel.BackgroundColor3 = Color3.new(1, 1, 1) -- Set to white to let gradient color it
+	hudPanel.BackgroundTransparency = 0.2
 	hudPanel.BorderSizePixel = 0
 	hudPanel.Parent = screenGui
 	addCorner(hudPanel, UI_CONFIG.CORNER_RADIUS)
-	addStroke(hudPanel, UI_CONFIG.THEME_STROKE, 2)
+	addStroke(hudPanel, UI_CONFIG.THEME_STROKE, 1.5)
+	
+	local hudGradient = Instance.new("UIGradient")
+	hudGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, UI_CONFIG.THEME_BG),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 10, 15))
+	})
+	hudGradient.Rotation = 90
+	hudGradient.Parent = hudPanel
 	
 	local padding = Instance.new("UIPadding")
 	padding.PaddingLeft = UDim.new(0, 16)
@@ -338,12 +346,20 @@ local function createMoneyHUD(): ScreenGui
 	bottomBar.Name = "BottomBar"
 	bottomBar.Size = UDim2.new(0, totalBarWidth, 0, btnSize + 20)
 	bottomBar.Position = UDim2.new(0.5, -totalBarWidth / 2, 1, -(btnSize + 30))
-	bottomBar.BackgroundColor3 = UI_CONFIG.THEME_BG
-	bottomBar.BackgroundTransparency = 0.15
+	bottomBar.BackgroundColor3 = Color3.new(1, 1, 1)
+	bottomBar.BackgroundTransparency = 0.25
 	bottomBar.BorderSizePixel = 0
 	bottomBar.Parent = screenGui
-	addCorner(bottomBar, 14)
-	addStroke(bottomBar, UI_CONFIG.THEME_STROKE, 2)
+	addCorner(bottomBar, UI_CONFIG.CORNER_RADIUS)
+	addStroke(bottomBar, UI_CONFIG.THEME_STROKE, 1.5)
+	
+	local barGradient = Instance.new("UIGradient")
+	barGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, UI_CONFIG.THEME_BG),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(15, 15, 20))
+	})
+	barGradient.Rotation = 90
+	barGradient.Parent = bottomBar
 	
 	local barPadding = Instance.new("UIPadding")
 	barPadding.PaddingLeft = UDim.new(0, 12)
@@ -425,8 +441,6 @@ local function createMoneyHUD(): ScreenGui
 		end
 	end)
 	
-	-- 3. Synergies
-	createBarButton("SynergiesButton", "📖", UI_CONFIG.THEME_ACCENT_GOLD, 3)
 	-- 4. Backpack
 	createBarButton("BackpackButton", "🎒", UI_CONFIG.THEME_ACCENT_BLUE, 4)
 	-- 5. Storage
@@ -507,14 +521,24 @@ local function updateMoneyDisplay(newMoney: number)
 	
 	if newMoney > previousMoney then
 		MoneyLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
-		TweenService:Create(MoneyLabel, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
-			TextColor3 = UI_CONFIG.MONEY_COLOR
+		MoneyLabel.Size = UDim2.new(1, -30, 0, 38)
+		
+		TweenService:Create(MoneyLabel, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			TextColor3 = UI_CONFIG.MONEY_COLOR,
+			Size = UDim2.new(1, -40, 0, 32)
 		}):Play()
 	elseif newMoney < previousMoney then
 		MoneyLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
 		TweenService:Create(MoneyLabel, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
-			TextColor3 = UI_CONFIG.MONEY_COLOR
+			TextColor3 = Color3.fromRGB(200, 200, 200)
 		}):Play()
+		task.delay(0.2, function()
+			if MoneyLabel then
+				TweenService:Create(MoneyLabel, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
+					TextColor3 = UI_CONFIG.MONEY_COLOR
+				}):Play()
+			end
+		end)
 	end
 	
 	previousMoney = newMoney
@@ -747,10 +771,6 @@ local function initialize()
 			UI_CONFIG.THEME_ACCENT_PURPLE, Color3.fromRGB(100, 80, 170))
 		setupBtn("BrainrotsButton", "BackpackToggleEvent", "Unit",
 			UI_CONFIG.THEME_ACCENT_PINK, Color3.fromRGB(170, 100, 190))
-		setupBtn("SynergiesButton", "SynergyToggleEvent", nil,
-			UI_CONFIG.THEME_ACCENT_GOLD, Color3.fromRGB(230, 180, 80))
-		setupBtn("BackpackButton", "BackpackToggleEvent", nil,
-			UI_CONFIG.THEME_ACCENT_BLUE, Color3.fromRGB(100, 150, 255))
 		setupBtn("StorageButton", "StorageToggleEvent", nil,
 			Color3.fromRGB(255, 100, 50), Color3.fromRGB(255, 140, 100))
 		setupBtn("StockButton", "StockToggleEvent", nil,
@@ -824,15 +844,31 @@ local function initialize()
 	----------------------------------------------------------------------
 	-- STORAGE + HOLDINGS
 	----------------------------------------------------------------------
+	local function decodeItems(encoded)
+		if not ItemConfig or not ItemConfig.SHORT_TO_ID then return encoded end
+		if type(encoded) ~= "table" then return encoded end
+		local decoded = {}
+		for k, count in pairs(encoded) do
+			local shortId = tonumber(k)
+			if shortId and ItemConfig.SHORT_TO_ID[shortId] then
+				decoded[ItemConfig.SHORT_TO_ID[shortId]] = count
+			else
+				decoded[k] = count
+			end
+		end
+		return decoded
+	end
+
 	local function refreshFromAttribute()
 		local items, total, cap = GetStorageFunction:InvokeServer()
-		StorageItems = items or {}
+		StorageItems = decodeItems(items) or {}
 		updateItemsDisplay(total or 0, Player:GetAttribute("StorageCapacity") or cap or 0)
 		updateHoldingsDisplay()
 	end
 	
 	if StorageUpdatedEvent then
 		StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
+			items = decodeItems(items)
 			StorageItems = items or {}
 			updateItemsDisplay(total or 0, Player:GetAttribute("StorageCapacity") or capacity or 0)
 			updateHoldingsDisplay()

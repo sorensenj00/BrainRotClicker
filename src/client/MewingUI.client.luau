@@ -55,9 +55,10 @@ screenGui.Parent = playerGui
 -- Main container (left side, below center)
 local container = Instance.new("Frame")
 container.Name = "MewingContainer"
-container.Size = UDim2.new(0, 160, 0, 60)
-container.Position = UDim2.new(0, 20, 0.6, 0)
-container.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+container.Size = UDim2.new(0, 180, 0, 70)
+container.AnchorPoint = Vector2.new(0, 0.5)
+container.Position = UDim2.new(0, 20, 0.5, 0)
+container.BackgroundColor3 = Color3.new(1, 1, 1)
 container.BackgroundTransparency = 0.3
 container.BorderSizePixel = 0
 container.Visible = false -- Hidden until streak starts
@@ -69,8 +70,17 @@ containerCorner.Parent = container
 
 local containerStroke = Instance.new("UIStroke")
 containerStroke.Thickness = 2
+containerStroke.Transparency = 0.5
 containerStroke.Color = Color3.fromRGB(60, 60, 80)
 containerStroke.Parent = container
+
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new({
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(15, 15, 22)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(10, 10, 15))
+})
+gradient.Rotation = 90
+gradient.Parent = container
 
 -- Emoji / Icon
 local emojiLabel = Instance.new("TextLabel")
@@ -138,9 +148,9 @@ breakSound.Parent = SoundService
 local function showUI()
 	if not container.Visible then
 		container.Visible = true
-		container.Position = UDim2.new(0, -160, 0.6, 0)
-		local tween = TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
-			Position = UDim2.new(0, 20, 0.6, 0)
+		container.Position = UDim2.new(0, -200, 0.5, 0)
+		local tween = TweenService:Create(container, TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Position = UDim2.new(0, 20, 0.5, 0)
 		})
 		tween:Play()
 	end
@@ -148,8 +158,8 @@ end
 
 local function hideUI()
 	if container.Visible then
-		local tween = TweenService:Create(container, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Position = UDim2.new(0, -160, 0.6, 0)
+		local tween = TweenService:Create(container, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+			Position = UDim2.new(0, -200, 0.5, 0)
 		})
 		tween:Play()
 		tween.Completed:Wait()
@@ -174,10 +184,17 @@ local function onMewingUpdate(data)
 		-- Play sound
 		tierUpSound:Play()
 		
-		-- Animate
+		-- Animate Container Bounce
+		local ogSize = UDim2.new(0, 180, 0, 70)
+		container.Size = UDim2.new(0, 195, 0, 76)
+		TweenService:Create(container, TweenInfo.new(0.4, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
+			Size = ogSize
+		}):Play()
+		
+		-- Animate Emoji
 		emojiLabel.TextSize = 24
-		local tween = TweenService:Create(emojiLabel, TweenInfo.new(0.3, Enum.EasingStyle.Back), {
-			TextSize = 32
+		local tween = TweenService:Create(emojiLabel, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			TextSize = 36
 		})
 		tween:Play()
 		

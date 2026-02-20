@@ -609,6 +609,23 @@ local function refreshGrid()
 		c:Destroy()
 	end
 	
+local function decodeItems(encoded)
+	if type(encoded) ~= "table" then return encoded end
+	local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
+	local success, IC = pcall(function() return require(Shared:WaitForChild("ItemConfig")) end)
+	if not success or not IC or not IC.SHORT_TO_ID then return encoded end
+	local decoded = {}
+	for k, count in pairs(encoded) do
+		local shortId = tonumber(k)
+		if shortId and IC.SHORT_TO_ID[shortId] then
+			decoded[IC.SHORT_TO_ID[shortId]] = count
+		else
+			decoded[k] = count
+		end
+	end
+	return decoded
+end
+
 	-- If Storage tab, show storage items instead
 	if CurrentFilter == "Storage" then
 		-- Fetch storage data from server
@@ -622,7 +639,7 @@ local function refreshGrid()
 			capacity = 2000
 		end
 		
-		CurrentStorageItems = items
+		CurrentStorageItems = decodeItems(items)
 		StorageUsage = total or 0
 		StorageCapacity = Player:GetAttribute("StorageCapacity") or capacity or 0
 		

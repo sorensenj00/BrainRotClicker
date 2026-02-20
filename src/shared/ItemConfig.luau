@@ -19,11 +19,11 @@ export type ItemDefinition = {
 -- PRODUCTION SETTINGS
 --------------------------------------------------------------------------------
 
-ItemConfig.ProductionRates = {
-    tier1 = 2,    -- Common
-    tier2 = 10,   -- Uncommon
-    tier3 = 45,   -- Rare
-    tier4 = 180,  -- Legendary
+ItemConfig.ProductionSettings = {
+    tier1 = { rate = 2, volatility = 0.05 },
+    tier2 = { rate = 10, volatility = 0.15 },
+    tier3 = { rate = 45, volatility = 0.40 },
+    tier4 = { rate = 180, volatility = 0.80 },
 }
 
 ItemConfig.MilestoneThresholds = {
@@ -42,462 +42,471 @@ ItemConfig.SpeedExponent = 1.02
 
 ItemConfig.Items = {
     -- Avocadini Guffo
-    Guac1 = { id = "Guac1", displayName = "Brown Pit", icon = "🥑", tier = 1, basePrice = 5, volatility = 0.1 },
-    Guac2 = { id = "Guac2", displayName = "Sliced Avocado", icon = "🥑", tier = 2, basePrice = 25, volatility = 0.2 },
-    Guac3 = { id = "Guac3", displayName = "Fresh Guacamole", icon = "🥣", tier = 3, basePrice = 150, volatility = 0.5 },
-    Guac4 = { id = "Guac4", displayName = "Golden Avocado", icon = "✨", tier = 4, basePrice = 1000, volatility = 0.8 },
+    Guac1 = { id = "Guac1", shortId = 1, displayName = "Brown Pit", icon = "🥑", tier = 1, basePrice = 5, volatility = 0.05 },
+    Guac2 = { id = "Guac2", shortId = 2, displayName = "Sliced Avocado", icon = "🥑", tier = 2, basePrice = 25, volatility = 0.15 },
+    Guac3 = { id = "Guac3", shortId = 3, displayName = "Fresh Guacamole", icon = "🥣", tier = 3, basePrice = 150, volatility = 0.4 },
+    Guac4 = { id = "Guac4", shortId = 4, displayName = "Golden Avocado", icon = "✨", tier = 4, basePrice = 1000, volatility = 0.8 },
 
     -- Ballerina_Cappuccina
-    Cap1 = { id = "Cap1", displayName = "Empty Cup", icon = "☕", tier = 1, basePrice = 6, volatility = 0.1 },
-    Cap2 = { id = "Cap2", displayName = "Cold Latte", icon = "☕", tier = 2, basePrice = 30, volatility = 0.2 },
-    Cap3 = { id = "Cap3", displayName = "Foamy Cappuccino", icon = "☕", tier = 3, basePrice = 180, volatility = 0.5 },
-    Cap4 = { id = "Cap4", displayName = "Elite Espresso", icon = "👑", tier = 4, basePrice = 1200, volatility = 0.8 },
+    Cap1 = { id = "Cap1", shortId = 5, displayName = "Empty Cup", icon = "☕", tier = 1, basePrice = 6, volatility = 0.05 },
+    Cap2 = { id = "Cap2", shortId = 6, displayName = "Cold Latte", icon = "☕", tier = 2, basePrice = 30, volatility = 0.15 },
+    Cap3 = { id = "Cap3", shortId = 7, displayName = "Foamy Cappuccino", icon = "☕", tier = 3, basePrice = 180, volatility = 0.4 },
+    Cap4 = { id = "Cap4", shortId = 8, displayName = "Elite Espresso", icon = "👑", tier = 4, basePrice = 1200, volatility = 0.8 },
 
     -- Bananita_Dolphinita
-    BanDolph1 = { id = "BanDolph1", displayName = "Banana Peel", icon = "🍌", tier = 1, basePrice = 4, volatility = 0.1 },
-    BanDolph2 = { id = "BanDolph2", displayName = "Frozen Banana", icon = "❄️", tier = 2, basePrice = 22, volatility = 0.2 },
-    BanDolph3 = { id = "BanDolph3", displayName = "Banana Split", icon = "🍨", tier = 3, basePrice = 140, volatility = 0.5 },
-    BanDolph4 = { id = "BanDolph4", displayName = "Dolphin Figurine", icon = "🐬", tier = 4, basePrice = 950, volatility = 0.8 },
+    BanDolph1 = { id = "BanDolph1", shortId = 9, displayName = "Banana Peel", icon = "🍌", tier = 1, basePrice = 4, volatility = 0.05 },
+    BanDolph2 = { id = "BanDolph2", shortId = 10, displayName = "Frozen Banana", icon = "❄️", tier = 2, basePrice = 22, volatility = 0.15 },
+    BanDolph3 = { id = "BanDolph3", shortId = 11, displayName = "Banana Split", icon = "🍨", tier = 3, basePrice = 140, volatility = 0.4 },
+    BanDolph4 = { id = "BanDolph4", shortId = 12, displayName = "Dolphin Figurine", icon = "🐬", tier = 4, basePrice = 950, volatility = 0.8 },
 
     -- Brainrot God Lucky Block
-    GodLuck1 = { id = "GodLuck1", displayName = "Lucky Shard", icon = "🍀", tier = 1, basePrice = 50, volatility = 0.2 },
-    GodLuck2 = { id = "GodLuck2", displayName = "Mystery Cube", icon = "📦", tier = 2, basePrice = 250, volatility = 0.4 },
-    GodLuck3 = { id = "GodLuck3", displayName = "Jackpot Token", icon = "🎰", tier = 3, basePrice = 1200, volatility = 0.7 },
-    GodLuck4 = { id = "GodLuck4", displayName = "Godly Artifact", icon = "🔱", tier = 4, basePrice = 8000, volatility = 1.0 },
+    GodLuck1 = { id = "GodLuck1", shortId = 13, displayName = "Lucky Shard", icon = "🍀", tier = 1, basePrice = 50, volatility = 0.05 },
+    GodLuck2 = { id = "GodLuck2", shortId = 14, displayName = "Mystery Cube", icon = "📦", tier = 2, basePrice = 250, volatility = 0.15 },
+    GodLuck3 = { id = "GodLuck3", shortId = 15, displayName = "Jackpot Token", icon = "🎰", tier = 3, basePrice = 1200, volatility = 0.4 },
+    GodLuck4 = { id = "GodLuck4", shortId = 16, displayName = "Godly Artifact", icon = "🔱", tier = 4, basePrice = 8000, volatility = 0.8 },
 
     -- Nuclearo Dinossauro
-    NukeDino1 = { id = "NukeDino1", displayName = "Radioactive Bone", icon = "🦴", tier = 1, basePrice = 40, volatility = 0.2 },
-    NukeDino2 = { id = "NukeDino2", displayName = "Uranium Egg", icon = "🥚", tier = 2, basePrice = 200, volatility = 0.4 },
-    NukeDino3 = { id = "NukeDino3", displayName = "Plasma Core", icon = "☢️", tier = 3, basePrice = 1000, volatility = 0.8 },
-    NukeDino4 = { id = "NukeDino4", displayName = "Atomic Tyrant Eye", icon = "👁️", tier = 4, basePrice = 6500, volatility = 1.0 },
+    NukeDino1 = { id = "NukeDino1", shortId = 17, displayName = "Radioactive Bone", icon = "🦴", tier = 1, basePrice = 40, volatility = 0.05 },
+    NukeDino2 = { id = "NukeDino2", shortId = 18, displayName = "Uranium Egg", icon = "🥚", tier = 2, basePrice = 200, volatility = 0.15 },
+    NukeDino3 = { id = "NukeDino3", shortId = 19, displayName = "Plasma Core", icon = "☢️", tier = 3, basePrice = 1000, volatility = 0.4 },
+    NukeDino4 = { id = "NukeDino4", shortId = 20, displayName = "Atomic Tyrant Eye", icon = "👁️", tier = 4, basePrice = 6500, volatility = 0.8 },
 
     -- Statutino Libertino
-    Lib1 = { id = "Lib1", displayName = "Copper Plate", icon = "🧱", tier = 1, basePrice = 8, volatility = 0.1 },
-    Lib2 = { id = "Lib2", displayName = "Rusty Torch", icon = "🔦", tier = 2, basePrice = 45, volatility = 0.2 },
-    Lib3 = { id = "Lib3", displayName = "Liberty Crown", icon = "🗽", tier = 3, basePrice = 250, volatility = 0.5 },
-    Lib4 = { id = "Lib4", displayName = "Golden Freedom Statue", icon = "⚖️", tier = 4, basePrice = 1800, volatility = 0.8 },
+    Lib1 = { id = "Lib1", shortId = 21, displayName = "Copper Plate", icon = "🧱", tier = 1, basePrice = 8, volatility = 0.05 },
+    Lib2 = { id = "Lib2", shortId = 22, displayName = "Rusty Torch", icon = "🔦", tier = 2, basePrice = 45, volatility = 0.15 },
+    Lib3 = { id = "Lib3", shortId = 23, displayName = "Liberty Crown", icon = "🗽", tier = 3, basePrice = 250, volatility = 0.4 },
+    Lib4 = { id = "Lib4", shortId = 24, displayName = "Golden Freedom Statue", icon = "⚖️", tier = 4, basePrice = 1800, volatility = 0.8 },
 
     -- Sammyni_Spyderini
-    Spy1 = { id = "Spy1", displayName = "Sticky Web", icon = "🕸️", tier = 1, basePrice = 5, volatility = 0.1 },
-    Spy2 = { id = "Spy2", displayName = "Spider Leg", icon = "🕷️", tier = 2, basePrice = 28, volatility = 0.2 },
-    Spy3 = { id = "Spy3", displayName = "Venom Sack", icon = "🧪", tier = 3, basePrice = 160, volatility = 0.5 },
-    Spy4 = { id = "Spy4", displayName = "Widow's Gem", icon = "💎", tier = 4, basePrice = 1100, volatility = 0.8 },
+    Spy1 = { id = "Spy1", shortId = 25, displayName = "Sticky Web", icon = "🕸️", tier = 1, basePrice = 5, volatility = 0.05 },
+    Spy2 = { id = "Spy2", shortId = 26, displayName = "Spider Leg", icon = "🕷️", tier = 2, basePrice = 28, volatility = 0.15 },
+    Spy3 = { id = "Spy3", shortId = 27, displayName = "Venom Sack", icon = "🧪", tier = 3, basePrice = 160, volatility = 0.4 },
+    Spy4 = { id = "Spy4", shortId = 28, displayName = "Widow's Gem", icon = "💎", tier = 4, basePrice = 1100, volatility = 0.8 },
 
     -- Chimpanzini_Bananini
-    ChimpBan1 = { id = "ChimpBan1", displayName = "Discarded Skin", icon = "🍌", tier = 1, basePrice = 4, volatility = 0.1 },
-    ChimpBan2 = { id = "ChimpBan2", displayName = "Bunch of Bananas", icon = "🍌", tier = 2, basePrice = 20, volatility = 0.2 },
-    ChimpBan3 = { id = "ChimpBan3", displayName = "Monkey Wrench", icon = "🔧", tier = 3, basePrice = 130, volatility = 0.5 },
-    ChimpBan4 = { id = "ChimpBan4", displayName = "King of the Jungle Crown", icon = "👑", tier = 4, basePrice = 900, volatility = 0.8 },
+    ChimpBan1 = { id = "ChimpBan1", shortId = 29, displayName = "Discarded Skin", icon = "🍌", tier = 1, basePrice = 4, volatility = 0.05 },
+    ChimpBan2 = { id = "ChimpBan2", shortId = 30, displayName = "Bunch of Bananas", icon = "🍌", tier = 2, basePrice = 20, volatility = 0.15 },
+    ChimpBan3 = { id = "ChimpBan3", shortId = 31, displayName = "Monkey Wrench", icon = "🔧", tier = 3, basePrice = 130, volatility = 0.4 },
+    ChimpBan4 = { id = "ChimpBan4", shortId = 32, displayName = "King of the Jungle Crown", icon = "👑", tier = 4, basePrice = 900, volatility = 0.8 },
     
     -- Ballerino Lololo
-    Dance1 = { id = "Dance1", displayName = "Sweaty Headband", icon = "💦", tier = 1, basePrice = 5, volatility = 0.1 },
-    Dance2 = { id = "Dance2", displayName = "Worn Dance Shoes", icon = "👟", tier = 2, basePrice = 30, volatility = 0.2 },
-    Dance3 = { id = "Dance3", displayName = "Silver Trophy", icon = "🥈", tier = 3, basePrice = 160, volatility = 0.5 },
-    Dance4 = { id = "Dance4", displayName = "Golden Disco Ball", icon = "🪩", tier = 4, basePrice = 1100, volatility = 0.8 },
+    Dance1 = { id = "Dance1", shortId = 33, displayName = "Sweaty Headband", icon = "💦", tier = 1, basePrice = 5, volatility = 0.05 },
+    Dance2 = { id = "Dance2", shortId = 34, displayName = "Worn Dance Shoes", icon = "👟", tier = 2, basePrice = 30, volatility = 0.15 },
+    Dance3 = { id = "Dance3", shortId = 35, displayName = "Silver Trophy", icon = "🥈", tier = 3, basePrice = 160, volatility = 0.4 },
+    Dance4 = { id = "Dance4", shortId = 36, displayName = "Golden Disco Ball", icon = "🪩", tier = 4, basePrice = 1100, volatility = 0.8 },
 
     -- Bambini_Crostini
-    Toast1 = { id = "Toast1", displayName = "Bread Crust", icon = "🍞", tier = 1, basePrice = 4, volatility = 0.1 },
-    Toast2 = { id = "Toast2", displayName = "Toasted Slice", icon = "🍞", tier = 2, basePrice = 25, volatility = 0.2 },
-    Toast3 = { id = "Toast3", displayName = "Buttered Jam Toast", icon = "🍓", tier = 3, basePrice = 140, volatility = 0.5 },
-    Toast4 = { id = "Toast4", displayName = "The Golden Loaf", icon = "🥖", tier = 4, basePrice = 900, volatility = 0.8 },
+    Toast1 = { id = "Toast1", shortId = 37, displayName = "Bread Crust", icon = "🍞", tier = 1, basePrice = 4, volatility = 0.05 },
+    Toast2 = { id = "Toast2", shortId = 38, displayName = "Toasted Slice", icon = "🍞", tier = 2, basePrice = 25, volatility = 0.15 },
+    Toast3 = { id = "Toast3", shortId = 39, displayName = "Buttered Jam Toast", icon = "🍓", tier = 3, basePrice = 140, volatility = 0.4 },
+    Toast4 = { id = "Toast4", shortId = 40, displayName = "The Golden Loaf", icon = "🥖", tier = 4, basePrice = 900, volatility = 0.8 },
 
     -- Bandito_Bobritto
-    Taco1 = { id = "Taco1", displayName = "Corn Shell", icon = "🌮", tier = 1, basePrice = 6, volatility = 0.1 },
-    Taco2 = { id = "Taco2", displayName = "Spicy Burrito", icon = "🌯", tier = 2, basePrice = 35, volatility = 0.2 },
-    Taco3 = { id = "Taco3", displayName = "Bandit Mask", icon = "🎭", tier = 3, basePrice = 180, volatility = 0.5 },
-    Taco4 = { id = "Taco4", displayName = "Diamond Jalapeño", icon = "💎", tier = 4, basePrice = 1300, volatility = 0.8 },
+    Taco1 = { id = "Taco1", shortId = 41, displayName = "Corn Shell", icon = "🌮", tier = 1, basePrice = 6, volatility = 0.05 },
+    Taco2 = { id = "Taco2", shortId = 42, displayName = "Spicy Burrito", icon = "🌯", tier = 2, basePrice = 35, volatility = 0.15 },
+    Taco3 = { id = "Taco3", shortId = 43, displayName = "Bandit Mask", icon = "🎭", tier = 3, basePrice = 180, volatility = 0.4 },
+    Taco4 = { id = "Taco4", shortId = 44, displayName = "Diamond Jalapeño", icon = "💎", tier = 4, basePrice = 1300, volatility = 0.8 },
 
     -- Blueberrinni_Octopusini
-    BerryOcto1 = { id = "BerryOcto1", displayName = "Blue Ink Shard", icon = "🖋️", tier = 1, basePrice = 7, volatility = 0.1 },
-    BerryOcto2 = { id = "BerryOcto2", displayName = "Frozen Blueberry", icon = "🫐", tier = 2, basePrice = 40, volatility = 0.2 },
-    BerryOcto3 = { id = "BerryOcto3", displayName = "Suction Cup", icon = "🐙", tier = 3, basePrice = 210, volatility = 0.5 },
-    BerryOcto4 = { id = "BerryOcto4", displayName = "Kraken Berry", icon = "🔱", tier = 4, basePrice = 1500, volatility = 0.8 },
+    BerryOcto1 = { id = "BerryOcto1", shortId = 45, displayName = "Blue Ink Shard", icon = "🖋️", tier = 1, basePrice = 7, volatility = 0.05 },
+    BerryOcto2 = { id = "BerryOcto2", shortId = 46, displayName = "Frozen Blueberry", icon = "🫐", tier = 2, basePrice = 40, volatility = 0.15 },
+    BerryOcto3 = { id = "BerryOcto3", shortId = 47, displayName = "Suction Cup", icon = "🐙", tier = 3, basePrice = 210, volatility = 0.4 },
+    BerryOcto4 = { id = "BerryOcto4", shortId = 48, displayName = "Kraken Berry", icon = "🔱", tier = 4, basePrice = 1500, volatility = 0.8 },
 
     -- Bombardiro_Crocodilo
-    CrocBomb1 = { id = "CrocBomb1", displayName = "Croc Tooth", icon = "🦷", tier = 1, basePrice = 8, volatility = 0.1 },
-    CrocBomb2 = { id = "CrocBomb2", displayName = "Scaly Grenade", icon = "💣", tier = 2, basePrice = 45, volatility = 0.2 },
-    CrocBomb3 = { id = "CrocBomb3", displayName = "Swamp Missile", icon = "🚀", tier = 3, basePrice = 220, volatility = 0.5 },
-    CrocBomb4 = { id = "CrocBomb4", displayName = "Apex Detonator", icon = "🐊", tier = 4, basePrice = 1600, volatility = 0.8 },
+    CrocBomb1 = { id = "CrocBomb1", shortId = 49, displayName = "Croc Tooth", icon = "🦷", tier = 1, basePrice = 8, volatility = 0.05 },
+    CrocBomb2 = { id = "CrocBomb2", shortId = 50, displayName = "Scaly Grenade", icon = "💣", tier = 2, basePrice = 45, volatility = 0.15 },
+    CrocBomb3 = { id = "CrocBomb3", shortId = 51, displayName = "Swamp Missile", icon = "🚀", tier = 3, basePrice = 220, volatility = 0.4 },
+    CrocBomb4 = { id = "CrocBomb4", shortId = 52, displayName = "Apex Detonator", icon = "🐊", tier = 4, basePrice = 1600, volatility = 0.8 },
 
     -- Bombombini_Gusini
-    Goose1 = { id = "Goose1", displayName = "Loose Feather", icon = "🪶", tier = 1, basePrice = 4, volatility = 0.1 },
-    Goose2 = { id = "Goose2", displayName = "Egg Bomb", icon = "🥚", tier = 2, basePrice = 25, volatility = 0.2 },
-    Goose3 = { id = "Goose3", displayName = "Tactical Honk", icon = "📢", tier = 3, basePrice = 150, volatility = 0.5 },
-    Goose4 = { id = "Goose4", displayName = "Golden Goose Egg", icon = "✨", tier = 4, basePrice = 1100, volatility = 0.8 },
+    Goose1 = { id = "Goose1", shortId = 53, displayName = "Loose Feather", icon = "🪶", tier = 1, basePrice = 4, volatility = 0.05 },
+    Goose2 = { id = "Goose2", shortId = 54, displayName = "Egg Bomb", icon = "🥚", tier = 2, basePrice = 25, volatility = 0.15 },
+    Goose3 = { id = "Goose3", shortId = 55, displayName = "Tactical Honk", icon = "📢", tier = 3, basePrice = 150, volatility = 0.4 },
+    Goose4 = { id = "Goose4", shortId = 56, displayName = "Golden Goose Egg", icon = "✨", tier = 4, basePrice = 1100, volatility = 0.8 },
 
     -- Boneca_Ambalabu
-    Doll1 = { id = "Doll1", displayName = "Loose Thread", icon = "🧵", tier = 1, basePrice = 5, volatility = 0.1 },
-    Doll2 = { id = "Doll2", displayName = "Porcelain Arm", icon = "🦴", tier = 2, basePrice = 30, volatility = 0.2 },
-    Doll3 = { id = "Doll3", displayName = "Voodoo Pin", icon = "📍", tier = 3, basePrice = 170, volatility = 0.5 },
-    Doll4 = { id = "Doll4", displayName = "Cursed Relic", icon = "🏺", tier = 4, basePrice = 1200, volatility = 0.8 },
+    Doll1 = { id = "Doll1", shortId = 57, displayName = "Loose Thread", icon = "🧵", tier = 1, basePrice = 5, volatility = 0.05 },
+    Doll2 = { id = "Doll2", shortId = 58, displayName = "Porcelain Arm", icon = "🦴", tier = 2, basePrice = 30, volatility = 0.15 },
+    Doll3 = { id = "Doll3", shortId = 59, displayName = "Voodoo Pin", icon = "📍", tier = 3, basePrice = 170, volatility = 0.4 },
+    Doll4 = { id = "Doll4", shortId = 60, displayName = "Cursed Relic", icon = "🏺", tier = 4, basePrice = 1200, volatility = 0.8 },
 
     -- Brr_Brr_Patapim
-    Brr1 = { id = "Brr1", displayName = "Ice Shaver", icon = "🍧", tier = 1, basePrice = 5, volatility = 0.1 },
-    Brr2 = { id = "Brr2", displayName = "Frosty Mug", icon = "🍺", tier = 2, basePrice = 30, volatility = 0.2 },
-    Brr3 = { id = "Brr3", displayName = "Blizzard Core", icon = "🌀", tier = 3, basePrice = 180, volatility = 0.5 },
-    Brr4 = { id = "Brr4", displayName = "Zero Degree Orb", icon = "❄️", tier = 4, basePrice = 1200, volatility = 0.8 },
+    Brr1 = { id = "Brr1", shortId = 61, displayName = "Ice Shaver", icon = "🍧", tier = 1, basePrice = 5, volatility = 0.05 },
+    Brr2 = { id = "Brr2", shortId = 62, displayName = "Frosty Mug", icon = "🍺", tier = 2, basePrice = 30, volatility = 0.15 },
+    Brr3 = { id = "Brr3", shortId = 63, displayName = "Blizzard Core", icon = "🌀", tier = 3, basePrice = 180, volatility = 0.4 },
+    Brr4 = { id = "Brr4", shortId = 64, displayName = "Zero Degree Orb", icon = "❄️", tier = 4, basePrice = 1200, volatility = 0.8 },
 
     -- Brri_Brri_Bicus_Dicus_Bombicus
-    Bicus1 = { id = "Bicus1", displayName = "Magic Spark", icon = "✨", tier = 1, basePrice = 10, volatility = 0.2 },
-    Bicus2 = { id = "Bicus2", displayName = "Ancient Scroll", icon = "📜", tier = 2, basePrice = 55, volatility = 0.3 },
-    Bicus3 = { id = "Bicus3", displayName = "Wizard Staff", icon = "🪄", tier = 3, basePrice = 280, volatility = 0.5 },
-    Bicus4 = { id = "Bicus4", displayName = "The Forbidden Spell", icon = "📖", tier = 4, basePrice = 2000, volatility = 0.9 },
+    Bicus1 = { id = "Bicus1", shortId = 65, displayName = "Magic Spark", icon = "✨", tier = 1, basePrice = 10, volatility = 0.05 },
+    Bicus2 = { id = "Bicus2", shortId = 66, displayName = "Ancient Scroll", icon = "📜", tier = 2, basePrice = 55, volatility = 0.15 },
+    Bicus3 = { id = "Bicus3", shortId = 67, displayName = "Wizard Staff", icon = "🪄", tier = 3, basePrice = 280, volatility = 0.4 },
+    Bicus4 = { id = "Bicus4", shortId = 68, displayName = "The Forbidden Spell", icon = "📖", tier = 4, basePrice = 2000, volatility = 0.8 },
 
     -- Burbaloni_Loliloli
-    Bubble1 = { id = "Bubble1", displayName = "Soap Water", icon = "🧼", tier = 1, basePrice = 4, volatility = 0.1 },
-    Bubble2 = { id = "Bubble2", displayName = "Pink Bubble", icon = "🫧", tier = 2, basePrice = 22, volatility = 0.2 },
-    Bubble3 = { id = "Bubble3", displayName = "Giant Bubble Wand", icon = "🪄", tier = 3, basePrice = 130, volatility = 0.5 },
-    Bubble4 = { id = "Bubble4", displayName = "The Eternal Bubble", icon = "🔮", tier = 4, basePrice = 900, volatility = 0.8 },
+    Bubble1 = { id = "Bubble1", shortId = 69, displayName = "Soap Water", icon = "🧼", tier = 1, basePrice = 4, volatility = 0.05 },
+    Bubble2 = { id = "Bubble2", shortId = 70, displayName = "Pink Bubble", icon = "🫧", tier = 2, basePrice = 22, volatility = 0.15 },
+    Bubble3 = { id = "Bubble3", shortId = 71, displayName = "Giant Bubble Wand", icon = "🪄", tier = 3, basePrice = 130, volatility = 0.4 },
+    Bubble4 = { id = "Bubble4", shortId = 72, displayName = "The Eternal Bubble", icon = "🔮", tier = 4, basePrice = 900, volatility = 0.8 },
 
     -- Cacto Hipopotamo
-    Cact1 = { id = "Cact1", displayName = "Cactus Needle", icon = "🌵", tier = 1, basePrice = 5, volatility = 0.1 },
-    Cact2 = { id = "Cact2", displayName = "Desert Sand", icon = "🏜️", tier = 2, basePrice = 30, volatility = 0.2 },
-    Cact3 = { id = "Cact3", displayName = "Hippo Tusk", icon = "🦷", tier = 3, basePrice = 160, volatility = 0.5 },
-    Cact4 = { id = "Cact4", displayName = "Blooming Oasis", icon = "🌺", tier = 4, basePrice = 1100, volatility = 0.8 },
+    Cact1 = { id = "Cact1", shortId = 73, displayName = "Cactus Needle", icon = "🌵", tier = 1, basePrice = 5, volatility = 0.05 },
+    Cact2 = { id = "Cact2", shortId = 74, displayName = "Desert Sand", icon = "🏜️", tier = 2, basePrice = 30, volatility = 0.15 },
+    Cact3 = { id = "Cact3", shortId = 75, displayName = "Hippo Tusk", icon = "🦷", tier = 3, basePrice = 160, volatility = 0.4 },
+    Cact4 = { id = "Cact4", shortId = 76, displayName = "Blooming Oasis", icon = "🌺", tier = 4, basePrice = 1100, volatility = 0.8 },
 
     -- Cappuccino_Assassino
-    KillerCoffee1 = { id = "KillerCoffee1", displayName = "Coffee Bean", icon = "🫘", tier = 1, basePrice = 6, volatility = 0.1 },
-    KillerCoffee2 = { id = "KillerCoffee2", displayName = "Spilled Milk", icon = "🥛", tier = 2, basePrice = 35, volatility = 0.2 },
-    KillerCoffee3 = { id = "KillerCoffee3", displayName = "Dagger Spoon", icon = "🥄", tier = 3, basePrice = 190, volatility = 0.5 },
-    KillerCoffee4 = { id = "KillerCoffee4", displayName = "The Poisoned Brew", icon = "☕", tier = 4, basePrice = 1400, volatility = 0.8 },
+    KillerCoffee1 = { id = "KillerCoffee1", shortId = 77, displayName = "Coffee Bean", icon = "🫘", tier = 1, basePrice = 6, volatility = 0.05 },
+    KillerCoffee2 = { id = "KillerCoffee2", shortId = 78, displayName = "Spilled Milk", icon = "🥛", tier = 2, basePrice = 35, volatility = 0.15 },
+    KillerCoffee3 = { id = "KillerCoffee3", shortId = 79, displayName = "Dagger Spoon", icon = "🥄", tier = 3, basePrice = 190, volatility = 0.4 },
+    KillerCoffee4 = { id = "KillerCoffee4", shortId = 80, displayName = "The Poisoned Brew", icon = "☕", tier = 4, basePrice = 1400, volatility = 0.8 },
 
     -- Cavallo_Virtuoso
-    Horse1 = { id = "Horse1", displayName = "Old Horseshoe", icon = "🧲", tier = 1, basePrice = 5, volatility = 0.1 },
-    Horse2 = { id = "Horse2", displayName = "Violin Bow", icon = "🎻", tier = 2, basePrice = 35, volatility = 0.2 },
-    Horse3 = { id = "Horse3", displayName = "Music Stand", icon = "🎼", tier = 3, basePrice = 170, volatility = 0.5 },
-    Horse4 = { id = "Horse4", displayName = "Grand Stallion Piano", icon = "🎹", tier = 4, basePrice = 1200, volatility = 0.8 },
+    Horse1 = { id = "Horse1", shortId = 81, displayName = "Old Horseshoe", icon = "🧲", tier = 1, basePrice = 5, volatility = 0.05 },
+    Horse2 = { id = "Horse2", shortId = 82, displayName = "Violin Bow", icon = "🎻", tier = 2, basePrice = 35, volatility = 0.15 },
+    Horse3 = { id = "Horse3", shortId = 83, displayName = "Music Stand", icon = "🎼", tier = 3, basePrice = 170, volatility = 0.4 },
+    Horse4 = { id = "Horse4", shortId = 84, displayName = "Grand Stallion Piano", icon = "🎹", tier = 4, basePrice = 1200, volatility = 0.8 },
 
     -- Chef_Crabracadabra
-    Crab1 = { id = "Crab1", displayName = "Crab Shell", icon = "🦀", tier = 1, basePrice = 6, volatility = 0.1 },
-    Crab2 = { id = "Crab2", displayName = "Sharp Cleaver", icon = "🔪", tier = 2, basePrice = 40, volatility = 0.2 },
-    Crab3 = { id = "Crab3", displayName = "Magic Spatula", icon = "🪄", tier = 3, basePrice = 200, volatility = 0.5 },
-    Crab4 = { id = "Crab4", displayName = "The Master Recipe", icon = "📜", tier = 4, basePrice = 1500, volatility = 0.8 },
+    Crab1 = { id = "Crab1", shortId = 85, displayName = "Crab Shell", icon = "🦀", tier = 1, basePrice = 6, volatility = 0.05 },
+    Crab2 = { id = "Crab2", shortId = 86, displayName = "Sharp Cleaver", icon = "🔪", tier = 2, basePrice = 40, volatility = 0.15 },
+    Crab3 = { id = "Crab3", shortId = 87, displayName = "Magic Spatula", icon = "🪄", tier = 3, basePrice = 200, volatility = 0.4 },
+    Crab4 = { id = "Crab4", shortId = 88, displayName = "The Master Recipe", icon = "📜", tier = 4, basePrice = 1500, volatility = 0.8 },
 
     -- Chicleteira Bicicleteira
-    Bike1 = { id = "Bike1", displayName = "Bike Valve", icon = "🚲", tier = 1, basePrice = 5, volatility = 0.1 },
-    Bike2 = { id = "Bike2", displayName = "Gum Wrapper", icon = "🍬", tier = 2, basePrice = 28, volatility = 0.2 },
-    Bike3 = { id = "Bike3", displayName = "Rusty Chain", icon = "⛓️", tier = 3, basePrice = 150, volatility = 0.5 },
-    Bike4 = { id = "Bike4", displayName = "Diamond Gear", icon = "⚙️", tier = 4, basePrice = 1100, volatility = 0.8 },
+    Bike1 = { id = "Bike1", shortId = 89, displayName = "Bike Valve", icon = "🚲", tier = 1, basePrice = 5, volatility = 0.05 },
+    Bike2 = { id = "Bike2", shortId = 90, displayName = "Gum Wrapper", icon = "🍬", tier = 2, basePrice = 28, volatility = 0.15 },
+    Bike3 = { id = "Bike3", shortId = 91, displayName = "Rusty Chain", icon = "⛓️", tier = 3, basePrice = 150, volatility = 0.4 },
+    Bike4 = { id = "Bike4", shortId = 92, displayName = "Diamond Gear", icon = "⚙️", tier = 4, basePrice = 1100, volatility = 0.8 },
 
     -- Chimpanzini Spiderini
-    ChimpSpy1 = { id = "ChimpSpy1", displayName = "Sticky Web", icon = "🕸️", tier = 1, basePrice = 7, volatility = 0.1 },
-    ChimpSpy2 = { id = "ChimpSpy2", displayName = "Banana Peel Trap", icon = "🍌", tier = 2, basePrice = 40, volatility = 0.2 },
-    ChimpSpy3 = { id = "ChimpSpy3", displayName = "8-Legged Suit", icon = "🕷️", tier = 3, basePrice = 220, volatility = 0.5 },
-    ChimpSpy4 = { id = "ChimpSpy4", displayName = "Arachnid King", icon = "👑", tier = 4, basePrice = 1600, volatility = 0.8 },
+    ChimpSpy1 = { id = "ChimpSpy1", shortId = 93, displayName = "Sticky Web", icon = "🕸️", tier = 1, basePrice = 7, volatility = 0.05 },
+    ChimpSpy2 = { id = "ChimpSpy2", shortId = 94, displayName = "Banana Peel Trap", icon = "🍌", tier = 2, basePrice = 40, volatility = 0.15 },
+    ChimpSpy3 = { id = "ChimpSpy3", shortId = 95, displayName = "8-Legged Suit", icon = "🕷️", tier = 3, basePrice = 220, volatility = 0.4 },
+    ChimpSpy4 = { id = "ChimpSpy4", shortId = 96, displayName = "Arachnid King", icon = "👑", tier = 4, basePrice = 1600, volatility = 0.8 },
 
     -- Cocofanto_Elefanto
-    Elephant1 = { id = "Elephant1", displayName = "Peanut Shell", icon = "🥜", tier = 1, basePrice = 5, volatility = 0.1 },
-    Elephant2 = { id = "Elephant2", displayName = "Ivory Scrap", icon = "🦴", tier = 2, basePrice = 30, volatility = 0.2 },
-    Elephant3 = { id = "Elephant3", displayName = "Water Trunk", icon = "🚿", tier = 3, basePrice = 170, volatility = 0.5 },
-    Elephant4 = { id = "Elephant4", displayName = "Ancient Mammoth Tusk", icon = "🐘", tier = 4, basePrice = 1300, volatility = 0.8 },
+    Elephant1 = { id = "Elephant1", shortId = 97, displayName = "Peanut Shell", icon = "🥜", tier = 1, basePrice = 5, volatility = 0.05 },
+    Elephant2 = { id = "Elephant2", shortId = 98, displayName = "Ivory Scrap", icon = "🦴", tier = 2, basePrice = 30, volatility = 0.15 },
+    Elephant3 = { id = "Elephant3", shortId = 99, displayName = "Water Trunk", icon = "🚿", tier = 3, basePrice = 170, volatility = 0.4 },
+    Elephant4 = { id = "Elephant4", shortId = 100, displayName = "Ancient Mammoth Tusk", icon = "🐘", tier = 4, basePrice = 1300, volatility = 0.8 },
 
     -- Espresso Signora
-    Signora1 = { id = "Signora1", displayName = "Sugar Packet", icon = "🧂", tier = 1, basePrice = 6, volatility = 0.1 },
-    Signora2 = { id = "Signora2", displayName = "Milk Frother", icon = "🥛", tier = 2, basePrice = 35, volatility = 0.2 },
-    Signora3 = { id = "Signora3", displayName = "Fancy Saucer", icon = "🍽️", tier = 3, basePrice = 190, volatility = 0.5 },
-    Signora4 = { id = "Signora4", displayName = "The Queen's Roast", icon = "☕", tier = 4, basePrice = 1450, volatility = 0.8 },
+    Signora1 = { id = "Signora1", shortId = 101, displayName = "Sugar Packet", icon = "🧂", tier = 1, basePrice = 6, volatility = 0.05 },
+    Signora2 = { id = "Signora2", shortId = 102, displayName = "Milk Frother", icon = "🥛", tier = 2, basePrice = 35, volatility = 0.15 },
+    Signora3 = { id = "Signora3", shortId = 103, displayName = "Fancy Saucer", icon = "🍽️", tier = 3, basePrice = 190, volatility = 0.4 },
+    Signora4 = { id = "Signora4", shortId = 104, displayName = "The Queen's Roast", icon = "☕", tier = 4, basePrice = 1450, volatility = 0.8 },
 
     -- Fluri_flura
-    Fluri1 = { id = "Fluri1", displayName = "Petal Shard", icon = "🌸", tier = 1, basePrice = 4, volatility = 0.1 },
-    Fluri2 = { id = "Fluri2", displayName = "Flower Pot", icon = "🪴", tier = 2, basePrice = 25, volatility = 0.2 },
-    Fluri3 = { id = "Fluri3", displayName = "Magic Nectar", icon = "🧪", tier = 3, basePrice = 140, volatility = 0.5 },
-    Fluri4 = { id = "Fluri4", displayName = "Eternal Bloom", icon = "🌻", tier = 4, basePrice = 1000, volatility = 0.8 },
+    Fluri1 = { id = "Fluri1", shortId = 105, displayName = "Petal Shard", icon = "🌸", tier = 1, basePrice = 4, volatility = 0.05 },
+    Fluri2 = { id = "Fluri2", shortId = 106, displayName = "Flower Pot", icon = "🪴", tier = 2, basePrice = 25, volatility = 0.15 },
+    Fluri3 = { id = "Fluri3", shortId = 107, displayName = "Magic Nectar", icon = "🧪", tier = 3, basePrice = 140, volatility = 0.4 },
+    Fluri4 = { id = "Fluri4", shortId = 108, displayName = "Eternal Bloom", icon = "🌻", tier = 4, basePrice = 1000, volatility = 0.8 },
 
     -- Frigo_Camelo
-    Camel1 = { id = "Camel1", displayName = "Desert Pebble", icon = "🪨", tier = 1, basePrice = 5, volatility = 0.1 },
-    Camel2 = { id = "Camel2", displayName = "Water Canteen", icon = "🥤", tier = 2, basePrice = 32, volatility = 0.2 },
-    Camel3 = { id = "Camel3", displayName = "Refrigerator Hump", icon = "🧊", tier = 3, basePrice = 180, volatility = 0.5 },
-    Camel4 = { id = "Camel4", displayName = "Mirage Core", icon = "🏜️", tier = 4, basePrice = 1200, volatility = 0.8 },
+    Camel1 = { id = "Camel1", shortId = 109, displayName = "Desert Pebble", icon = "🪨", tier = 1, basePrice = 5, volatility = 0.05 },
+    Camel2 = { id = "Camel2", shortId = 110, displayName = "Water Canteen", icon = "🥤", tier = 2, basePrice = 32, volatility = 0.15 },
+    Camel3 = { id = "Camel3", shortId = 111, displayName = "Refrigerator Hump", icon = "🧊", tier = 3, basePrice = 180, volatility = 0.4 },
+    Camel4 = { id = "Camel4", shortId = 112, displayName = "Mirage Core", icon = "🏜️", tier = 4, basePrice = 1200, volatility = 0.8 },
 
     -- Gangster_Footera
-    Gang1 = { id = "Gang1", displayName = "Lace Scrap", icon = "🧵", tier = 1, basePrice = 7, volatility = 0.1 },
-    Gang2 = { id = "Gang2", displayName = "Gold Chain", icon = "⛓️", tier = 2, basePrice = 45, volatility = 0.3 },
-    Gang3 = { id = "Gang3", displayName = "Sneaker Box", icon = "📦", tier = 3, basePrice = 220, volatility = 0.5 },
-    Gang4 = { id = "Gang4", displayName = "The Godfather's Boot", icon = "👟", tier = 4, basePrice = 1600, volatility = 0.8 },
+    Gang1 = { id = "Gang1", shortId = 113, displayName = "Lace Scrap", icon = "🧵", tier = 1, basePrice = 7, volatility = 0.05 },
+    Gang2 = { id = "Gang2", shortId = 114, displayName = "Gold Chain", icon = "⛓️", tier = 2, basePrice = 45, volatility = 0.15 },
+    Gang3 = { id = "Gang3", shortId = 115, displayName = "Sneaker Box", icon = "📦", tier = 3, basePrice = 220, volatility = 0.4 },
+    Gang4 = { id = "Gang4", shortId = 116, displayName = "The Godfather's Boot", icon = "👟", tier = 4, basePrice = 1600, volatility = 0.8 },
 
     -- Garama_and_Madundung
-    Garama1 = { id = "Garama1", displayName = "Dusty Rock", icon = "🪨", tier = 1, basePrice = 6, volatility = 0.1 },
-    Garama2 = { id = "Garama2", displayName = "Old Staff", icon = "🦯", tier = 2, basePrice = 38, volatility = 0.2 },
-    Garama3 = { id = "Garama3", displayName = "Tribal Mask", icon = "👺", tier = 3, basePrice = 200, volatility = 0.5 },
-    Garama4 = { id = "Garama4", displayName = "Ancient Totem", icon = "🗿", tier = 4, basePrice = 1400, volatility = 0.8 },
+    Garama1 = { id = "Garama1", shortId = 117, displayName = "Dusty Rock", icon = "🪨", tier = 1, basePrice = 6, volatility = 0.05 },
+    Garama2 = { id = "Garama2", shortId = 118, displayName = "Old Staff", icon = "🦯", tier = 2, basePrice = 38, volatility = 0.15 },
+    Garama3 = { id = "Garama3", shortId = 119, displayName = "Tribal Mask", icon = "👺", tier = 3, basePrice = 200, volatility = 0.4 },
+    Garama4 = { id = "Garama4", shortId = 120, displayName = "Ancient Totem", icon = "🗿", tier = 4, basePrice = 1400, volatility = 0.8 },
 
     -- Gattatino Neonino
-    Neon1 = { id = "Neon1", displayName = "Flickering Bulb", icon = "💡", tier = 1, basePrice = 8, volatility = 0.1 },
-    Neon2 = { id = "Neon2", displayName = "Glowing Wire", icon = "🔌", tier = 2, basePrice = 50, volatility = 0.2 },
-    Neon3 = { id = "Neon3", displayName = "Neon Collar", icon = "🎀", tier = 3, basePrice = 240, volatility = 0.5 },
-    Neon4 = { id = "Neon4", displayName = "Cyber Cat Core", icon = "⚡", tier = 4, basePrice = 1800, volatility = 0.8 },
+    Neon1 = { id = "Neon1", shortId = 121, displayName = "Flickering Bulb", icon = "💡", tier = 1, basePrice = 8, volatility = 0.05 },
+    Neon2 = { id = "Neon2", shortId = 122, displayName = "Glowing Wire", icon = "🔌", tier = 2, basePrice = 50, volatility = 0.15 },
+    Neon3 = { id = "Neon3", shortId = 123, displayName = "Neon Collar", icon = "🎀", tier = 3, basePrice = 240, volatility = 0.4 },
+    Neon4 = { id = "Neon4", shortId = 124, displayName = "Cyber Cat Core", icon = "⚡", tier = 4, basePrice = 1800, volatility = 0.8 },
 
     -- Gattatino_Nyanino
-    Nyan1 = { id = "Nyan1", displayName = "Crumbly Cookie", icon = "🍪", tier = 1, basePrice = 5, volatility = 0.1 },
-    Nyan2 = { id = "Nyan2", displayName = "Rainbow Dust", icon = "🌈", tier = 2, basePrice = 35, volatility = 0.2 },
-    Nyan3 = { id = "Nyan3", displayName = "Space Jam", icon = "🍯", tier = 3, basePrice = 180, volatility = 0.5 },
-    Nyan4 = { id = "Nyan4", displayName = "Cosmic Pop-Tart", icon = "🌌", tier = 4, basePrice = 1400, volatility = 0.8 },
+    Nyan1 = { id = "Nyan1", shortId = 125, displayName = "Crumbly Cookie", icon = "🍪", tier = 1, basePrice = 5, volatility = 0.05 },
+    Nyan2 = { id = "Nyan2", shortId = 126, displayName = "Rainbow Dust", icon = "🌈", tier = 2, basePrice = 35, volatility = 0.15 },
+    Nyan3 = { id = "Nyan3", shortId = 127, displayName = "Space Jam", icon = "🍯", tier = 3, basePrice = 180, volatility = 0.4 },
+    Nyan4 = { id = "Nyan4", shortId = 128, displayName = "Cosmic Pop-Tart", icon = "🌌", tier = 4, basePrice = 1400, volatility = 0.8 },
 
     -- Girafa_Celestre
-    Giraffe1 = { id = "Giraffe1", displayName = "Long Grass", icon = "🌱", tier = 1, basePrice = 5, volatility = 0.1 },
-    Giraffe2 = { id = "Giraffe2", displayName = "Spotty Scarf", icon = "🧣", tier = 2, basePrice = 30, volatility = 0.2 },
-    Giraffe3 = { id = "Giraffe3", displayName = "Star Telescope", icon = "🔭", tier = 3, basePrice = 170, volatility = 0.5 },
-    Giraffe4 = { id = "Giraffe4", displayName = "Cloud Tower", icon = "☁️", tier = 4, basePrice = 1200, volatility = 0.8 },
+    Giraffe1 = { id = "Giraffe1", shortId = 129, displayName = "Long Grass", icon = "🌱", tier = 1, basePrice = 5, volatility = 0.05 },
+    Giraffe2 = { id = "Giraffe2", shortId = 130, displayName = "Spotty Scarf", icon = "🧣", tier = 2, basePrice = 30, volatility = 0.15 },
+    Giraffe3 = { id = "Giraffe3", shortId = 131, displayName = "Star Telescope", icon = "🔭", tier = 3, basePrice = 170, volatility = 0.4 },
+    Giraffe4 = { id = "Giraffe4", shortId = 132, displayName = "Cloud Tower", icon = "☁️", tier = 4, basePrice = 1200, volatility = 0.8 },
 
     -- Glorbo_Fruttodrillo
-    Glorbo1 = { id = "Glorbo1", displayName = "Fruit Pit", icon = "🍑", tier = 1, basePrice = 6, volatility = 0.1 },
-    Glorbo2 = { id = "Glorbo2", displayName = "Dragon Scale", icon = "🛡️", tier = 2, basePrice = 40, volatility = 0.2 },
-    Glorbo3 = { id = "Glorbo3", displayName = "Juicy Claw", icon = "🐾", tier = 3, basePrice = 210, volatility = 0.5 },
-    Glorbo4 = { id = "Glorbo4", displayName = "Tropical Emperor", icon = "👑", tier = 4, basePrice = 1550, volatility = 0.8 },
+    Glorbo1 = { id = "Glorbo1", shortId = 133, displayName = "Fruit Pit", icon = "🍑", tier = 1, basePrice = 6, volatility = 0.05 },
+    Glorbo2 = { id = "Glorbo2", shortId = 134, displayName = "Dragon Scale", icon = "🛡️", tier = 2, basePrice = 40, volatility = 0.15 },
+    Glorbo3 = { id = "Glorbo3", shortId = 135, displayName = "Juicy Claw", icon = "🐾", tier = 3, basePrice = 210, volatility = 0.4 },
+    Glorbo4 = { id = "Glorbo4", shortId = 136, displayName = "Tropical Emperor", icon = "👑", tier = 4, basePrice = 1550, volatility = 0.8 },
 
     -- Gorillo Watermelondrillo
-    Melon1 = { id = "Melon1", displayName = "Melon Seed", icon = "🌱", tier = 1, basePrice = 5, volatility = 0.1 },
-    Melon2 = { id = "Melon2", displayName = "Green Rind", icon = "🍉", tier = 2, basePrice = 35, volatility = 0.2 },
-    Melon3 = { id = "Melon3", displayName = "Gorilla Fist", icon = "👊", tier = 3, basePrice = 190, volatility = 0.5 },
-    Melon4 = { id = "Melon4", displayName = "The Giant Watermelon", icon = "🍉", tier = 4, basePrice = 1400, volatility = 0.8 },
+    Melon1 = { id = "Melon1", shortId = 137, displayName = "Melon Seed", icon = "🌱", tier = 1, basePrice = 5, volatility = 0.05 },
+    Melon2 = { id = "Melon2", shortId = 138, displayName = "Green Rind", icon = "🍉", tier = 2, basePrice = 35, volatility = 0.15 },
+    Melon3 = { id = "Melon3", shortId = 139, displayName = "Gorilla Fist", icon = "👊", tier = 3, basePrice = 190, volatility = 0.4 },
+    Melon4 = { id = "Melon4", shortId = 140, displayName = "The Giant Watermelon", icon = "🍉", tier = 4, basePrice = 1400, volatility = 0.8 },
 
     -- Graipuss_Medussi
-    Grai1 = { id = "Grai1", displayName = "Tentacle Scrap", icon = "🐙", tier = 1, basePrice = 6, volatility = 0.1 },
-    Grai2 = { id = "Grai2", displayName = "Frozen Grape", icon = "🍇", tier = 2, basePrice = 38, volatility = 0.2 },
-    Grai3 = { id = "Grai3", displayName = "Stone Eye", icon = "👁️", tier = 3, basePrice = 200, volatility = 0.5 },
-    Grai4 = { id = "Grai4", displayName = "Medusa's Jellyfish", icon = "🐍", tier = 4, basePrice = 1500, volatility = 0.8 },
+    Grai1 = { id = "Grai1", shortId = 141, displayName = "Tentacle Scrap", icon = "🐙", tier = 1, basePrice = 6, volatility = 0.05 },
+    Grai2 = { id = "Grai2", shortId = 142, displayName = "Frozen Grape", icon = "🍇", tier = 2, basePrice = 38, volatility = 0.15 },
+    Grai3 = { id = "Grai3", shortId = 143, displayName = "Stone Eye", icon = "👁️", tier = 3, basePrice = 200, volatility = 0.4 },
+    Grai4 = { id = "Grai4", shortId = 144, displayName = "Medusa's Jellyfish", icon = "🐍", tier = 4, basePrice = 1500, volatility = 0.8 },
 
     -- La_Grande_Combinasion
-    Combo1 = { id = "Combo1", displayName = "Small Cog", icon = "⚙️", tier = 1, basePrice = 8, volatility = 0.1 },
-    Combo2 = { id = "Combo2", displayName = "Mixed Battery", icon = "🔋", tier = 2, basePrice = 50, volatility = 0.2 },
-    Combo3 = { id = "Combo3", displayName = "Mechanical Heart", icon = "❤️", tier = 3, basePrice = 250, volatility = 0.5 },
-    Combo4 = { id = "Combo4", displayName = "The Ultimate Engine", icon = "🚀", tier = 4, basePrice = 2000, volatility = 0.8 },
+    Combo1 = { id = "Combo1", shortId = 145, displayName = "Small Cog", icon = "⚙️", tier = 1, basePrice = 8, volatility = 0.05 },
+    Combo2 = { id = "Combo2", shortId = 146, displayName = "Mixed Battery", icon = "🔋", tier = 2, basePrice = 50, volatility = 0.15 },
+    Combo3 = { id = "Combo3", shortId = 147, displayName = "Mechanical Heart", icon = "❤️", tier = 3, basePrice = 250, volatility = 0.4 },
+    Combo4 = { id = "Combo4", shortId = 148, displayName = "The Ultimate Engine", icon = "🚀", tier = 4, basePrice = 2000, volatility = 0.8 },
 
     -- La_Vacca_Saturno_Saturnita
-    Cow1 = { id = "Cow1", displayName = "Milk Pail", icon = "🪣", tier = 1, basePrice = 5, volatility = 0.1 },
-    Cow2 = { id = "Cow2", displayName = "Space Hay", icon = "🌾", tier = 2, basePrice = 32, volatility = 0.2 },
-    Cow3 = { id = "Cow3", displayName = "Saturn's Ring", icon = "🪐", tier = 3, basePrice = 190, volatility = 0.5 },
-    Cow4 = { id = "Cow4", displayName = "The Galactic Bovine", icon = "🐮", tier = 4, basePrice = 1400, volatility = 0.8 },
+    Cow1 = { id = "Cow1", shortId = 149, displayName = "Milk Pail", icon = "🪣", tier = 1, basePrice = 5, volatility = 0.05 },
+    Cow2 = { id = "Cow2", shortId = 150, displayName = "Space Hay", icon = "🌾", tier = 2, basePrice = 32, volatility = 0.15 },
+    Cow3 = { id = "Cow3", shortId = 151, displayName = "Saturn's Ring", icon = "🪐", tier = 3, basePrice = 190, volatility = 0.4 },
+    Cow4 = { id = "Cow4", shortId = 152, displayName = "The Galactic Bovine", icon = "🐮", tier = 4, basePrice = 1400, volatility = 0.8 },
 
     -- Las Tralaleritas
-    Trala1 = { id = "Trala1", displayName = "Sheet Music", icon = "📄", tier = 1, basePrice = 4, volatility = 0.1 },
-    Trala2 = { id = "Trala2", displayName = "Silver Bell", icon = "🔔", tier = 2, basePrice = 28, volatility = 0.2 },
-    Trala3 = { id = "Trala3", displayName = "Rhythm Sticks", icon = "🥁", tier = 3, basePrice = 150, volatility = 0.5 },
-    Trala4 = { id = "Trala4", displayName = "The Golden Choir", icon = "🎶", tier = 4, basePrice = 1100, volatility = 0.8 },
+    Trala1 = { id = "Trala1", shortId = 153, displayName = "Sheet Music", icon = "📄", tier = 1, basePrice = 4, volatility = 0.05 },
+    Trala2 = { id = "Trala2", shortId = 154, displayName = "Silver Bell", icon = "🔔", tier = 2, basePrice = 28, volatility = 0.15 },
+    Trala3 = { id = "Trala3", shortId = 155, displayName = "Rhythm Sticks", icon = "🥁", tier = 3, basePrice = 150, volatility = 0.4 },
+    Trala4 = { id = "Trala4", shortId = 156, displayName = "The Golden Choir", icon = "🎶", tier = 4, basePrice = 1100, volatility = 0.8 },
 
     -- Las Vaquitas Saturnitas
-    Vaqu1 = { id = "Vaqu1", displayName = "Mini Moon", icon = "🌑", tier = 1, basePrice = 6, volatility = 0.1 },
-    Vaqu2 = { id = "Vaqu2", displayName = "Asteroid Cheese", icon = "🧀", tier = 2, basePrice = 38, volatility = 0.2 },
-    Vaqu3 = { id = "Vaqu3", displayName = "Cosmic Bell", icon = "🔔", tier = 3, basePrice = 210, volatility = 0.5 },
-    Vaqu4 = { id = "Vaqu4", displayName = "Star-Dust Udder", icon = "🌌", tier = 4, basePrice = 1600, volatility = 0.8 },
+    Vaqu1 = { id = "Vaqu1", shortId = 157, displayName = "Mini Moon", icon = "🌑", tier = 1, basePrice = 6, volatility = 0.05 },
+    Vaqu2 = { id = "Vaqu2", shortId = 158, displayName = "Asteroid Cheese", icon = "🧀", tier = 2, basePrice = 38, volatility = 0.15 },
+    Vaqu3 = { id = "Vaqu3", shortId = 159, displayName = "Cosmic Bell", icon = "🔔", tier = 3, basePrice = 210, volatility = 0.4 },
+    Vaqu4 = { id = "Vaqu4", shortId = 160, displayName = "Star-Dust Udder", icon = "🌌", tier = 4, basePrice = 1600, volatility = 0.8 },
 
     -- Lionel_Cactuseli
-    Messi1 = { id = "Messi1", displayName = "Football Scraps", icon = "⚽", tier = 1, basePrice = 7, volatility = 0.1 },
-    Messi2 = { id = "Messi2", displayName = "Spiky Ball", icon = "🌵", tier = 2, basePrice = 45, volatility = 0.2 },
-    Messi3 = { id = "Messi3", displayName = "Golden Boot", icon = "👟", tier = 3, basePrice = 250, volatility = 0.5 },
-    Messi4 = { id = "Messi4", displayName = "World Cup Cactus", icon = "🏆", tier = 4, basePrice = 2000, volatility = 0.8 },
+    Messi1 = { id = "Messi1", shortId = 161, displayName = "Football Scraps", icon = "⚽", tier = 1, basePrice = 7, volatility = 0.05 },
+    Messi2 = { id = "Messi2", shortId = 162, displayName = "Spiky Ball", icon = "🌵", tier = 2, basePrice = 45, volatility = 0.15 },
+    Messi3 = { id = "Messi3", shortId = 163, displayName = "Golden Boot", icon = "👟", tier = 3, basePrice = 250, volatility = 0.4 },
+    Messi4 = { id = "Messi4", shortId = 164, displayName = "World Cup Cactus", icon = "🏆", tier = 4, basePrice = 2000, volatility = 0.8 },
 
     -- Lirilì_Larilà
-    Liri1 = { id = "Liri1", displayName = "Note Shard", icon = "🎵", tier = 1, basePrice = 5, volatility = 0.1 },
-    Liri2 = { id = "Liri2", displayName = "Humming Box", icon = "📻", tier = 2, basePrice = 32, volatility = 0.2 },
-    Liri3 = { id = "Liri3", displayName = "Echo Crystal", icon = "💎", tier = 3, basePrice = 180, volatility = 0.5 },
-    Liri4 = { id = "Liri4", displayName = "Grand Symphony", icon = "🎻", tier = 4, basePrice = 1300, volatility = 0.8 },
+    Liri1 = { id = "Liri1", shortId = 165, displayName = "Note Shard", icon = "🎵", tier = 1, basePrice = 5, volatility = 0.05 },
+    Liri2 = { id = "Liri2", shortId = 166, displayName = "Humming Box", icon = "📻", tier = 2, basePrice = 32, volatility = 0.15 },
+    Liri3 = { id = "Liri3", shortId = 167, displayName = "Echo Crystal", icon = "💎", tier = 3, basePrice = 180, volatility = 0.4 },
+    Liri4 = { id = "Liri4", shortId = 168, displayName = "Grand Symphony", icon = "🎻", tier = 4, basePrice = 1300, volatility = 0.8 },
 
     -- Los Crocodillitos
-    SmallCroc1 = { id = "SmallCroc1", displayName = "Egg Shell", icon = "🥚", tier = 1, basePrice = 5, volatility = 0.1 },
-    SmallCroc2 = { id = "SmallCroc2", displayName = "Baby Scale", icon = "🛡️", tier = 2, basePrice = 30, volatility = 0.2 },
-    SmallCroc3 = { id = "SmallCroc3", displayName = "Swamp Toy", icon = "🧸", tier = 3, basePrice = 160, volatility = 0.5 },
-    SmallCroc4 = { id = "SmallCroc4", displayName = "King of the Pond", icon = "👑", tier = 4, basePrice = 1200, volatility = 0.8 },
+    SmallCroc1 = { id = "SmallCroc1", shortId = 169, displayName = "Egg Shell", icon = "🥚", tier = 1, basePrice = 5, volatility = 0.05 },
+    SmallCroc2 = { id = "SmallCroc2", shortId = 170, displayName = "Baby Scale", icon = "🛡️", tier = 2, basePrice = 30, volatility = 0.15 },
+    SmallCroc3 = { id = "SmallCroc3", shortId = 171, displayName = "Swamp Toy", icon = "🧸", tier = 3, basePrice = 160, volatility = 0.4 },
+    SmallCroc4 = { id = "SmallCroc4", shortId = 172, displayName = "King of the Pond", icon = "👑", tier = 4, basePrice = 1200, volatility = 0.8 },
 
     -- Los_Tralaleritos
-    Traler1 = { id = "Traler1", displayName = "Toy Flute", icon = "🪈", tier = 1, basePrice = 4, volatility = 0.1 },
-    Traler2 = { id = "Traler2", displayName = "Small Drum", icon = "🥁", tier = 2, basePrice = 28, volatility = 0.2 },
-    Traler3 = { id = "Traler3", displayName = "Music Box", icon = "📻", tier = 3, basePrice = 150, volatility = 0.5 },
-    Traler4 = { id = "Traler4", displayName = "The Masterpiece", icon = "🎨", tier = 4, basePrice = 1100, volatility = 0.8 },
+    Traler1 = { id = "Traler1", shortId = 173, displayName = "Toy Flute", icon = "🪈", tier = 1, basePrice = 4, volatility = 0.05 },
+    Traler2 = { id = "Traler2", shortId = 174, displayName = "Small Drum", icon = "🥁", tier = 2, basePrice = 28, volatility = 0.15 },
+    Traler3 = { id = "Traler3", shortId = 175, displayName = "Music Box", icon = "📻", tier = 3, basePrice = 150, volatility = 0.4 },
+    Traler4 = { id = "Traler4", shortId = 176, displayName = "The Masterpiece", icon = "🎨", tier = 4, basePrice = 1100, volatility = 0.8 },
 
     -- Mat_teo
-    Matteo1 = { id = "Matteo1", displayName = "Ink Pen", icon = "🖋️", tier = 1, basePrice = 6, volatility = 0.1 },
-    Matteo2 = { id = "Matteo2", displayName = "Smart Glasses", icon = "👓", tier = 2, basePrice = 40, volatility = 0.2 },
-    Matteo3 = { id = "Matteo3", displayName = "Strategy Board", icon = "📋", tier = 3, basePrice = 210, volatility = 0.5 },
-    Matteo4 = { id = "Matteo4", displayName = "The Final Answer", icon = "🧠", tier = 4, basePrice = 1600, volatility = 0.8 },
+    Matteo1 = { id = "Matteo1", shortId = 177, displayName = "Ink Pen", icon = "🖋️", tier = 1, basePrice = 6, volatility = 0.05 },
+    Matteo2 = { id = "Matteo2", shortId = 178, displayName = "Smart Glasses", icon = "👓", tier = 2, basePrice = 40, volatility = 0.15 },
+    Matteo3 = { id = "Matteo3", shortId = 179, displayName = "Strategy Board", icon = "📋", tier = 3, basePrice = 210, volatility = 0.4 },
+    Matteo4 = { id = "Matteo4", shortId = 180, displayName = "The Final Answer", icon = "🧠", tier = 4, basePrice = 1600, volatility = 0.8 },
 
     -- Mythic Lucky Block
-    MythLuck1 = { id = "MythLuck1", displayName = "Silver Shard", icon = "✨", tier = 1, basePrice = 25, volatility = 0.3 },
-    MythLuck2 = { id = "MythLuck2", displayName = "Purple Box", icon = "📦", tier = 2, basePrice = 120, volatility = 0.4 },
-    MythLuck3 = { id = "MythLuck3", displayName = "Rare Key", icon = "🔑", tier = 3, basePrice = 600, volatility = 0.6 },
-    MythLuck4 = { id = "MythLuck4", displayName = "Mythical Prize", icon = "💎", tier = 4, basePrice = 4000, volatility = 0.9 },
+    MythLuck1 = { id = "MythLuck1", shortId = 181, displayName = "Silver Shard", icon = "✨", tier = 1, basePrice = 25, volatility = 0.05 },
+    MythLuck2 = { id = "MythLuck2", shortId = 182, displayName = "Purple Box", icon = "📦", tier = 2, basePrice = 120, volatility = 0.15 },
+    MythLuck3 = { id = "MythLuck3", shortId = 183, displayName = "Rare Key", icon = "🔑", tier = 3, basePrice = 600, volatility = 0.4 },
+    MythLuck4 = { id = "MythLuck4", shortId = 184, displayName = "Mythical Prize", icon = "💎", tier = 4, basePrice = 4000, volatility = 0.8 },
 
     -- Odin_Din_Din_Dun
-    Odin1 = { id = "Odin1", displayName = "Ancient Nail", icon = "🔨", tier = 1, basePrice = 10, volatility = 0.2 },
-    Odin2 = { id = "Odin2", displayName = "Viking Shield", icon = "🛡️", tier = 2, basePrice = 60, volatility = 0.3 },
-    Odin3 = { id = "Odin3", displayName = "Mjolnir Fragment", icon = "⚡", tier = 3, basePrice = 350, volatility = 0.6 },
-    Odin4 = { id = "Odin4", displayName = "The All-Father's Eye", icon = "👁️", tier = 4, basePrice = 2500, volatility = 0.9 },
+    Odin1 = { id = "Odin1", shortId = 185, displayName = "Ancient Nail", icon = "🔨", tier = 1, basePrice = 10, volatility = 0.05 },
+    Odin2 = { id = "Odin2", shortId = 186, displayName = "Viking Shield", icon = "🛡️", tier = 2, basePrice = 60, volatility = 0.15 },
+    Odin3 = { id = "Odin3", shortId = 187, displayName = "Mjolnir Fragment", icon = "⚡", tier = 3, basePrice = 350, volatility = 0.4 },
+    Odin4 = { id = "Odin4", shortId = 188, displayName = "The All-Father's Eye", icon = "👁️", tier = 4, basePrice = 2500, volatility = 0.8 },
 
     -- Orangutini_Ananassini
-    Orang1 = { id = "Orang1", displayName = "Pineapple Top", icon = "🍍", tier = 1, basePrice = 5, volatility = 0.1 },
-    Orang2 = { id = "Orang2", displayName = "Orange Peel", icon = "🍊", tier = 2, basePrice = 30, volatility = 0.2 },
-    Orang3 = { id = "Orang3", displayName = "Jungle Juice", icon = "🍹", tier = 3, basePrice = 170, volatility = 0.5 },
-    Orang4 = { id = "Orang4", displayName = "The Tropical King", icon = "🦍", tier = 4, basePrice = 1200, volatility = 0.8 },
+    Orang1 = { id = "Orang1", shortId = 189, displayName = "Pineapple Top", icon = "🍍", tier = 1, basePrice = 5, volatility = 0.05 },
+    Orang2 = { id = "Orang2", shortId = 190, displayName = "Orange Peel", icon = "🍊", tier = 2, basePrice = 30, volatility = 0.15 },
+    Orang3 = { id = "Orang3", shortId = 191, displayName = "Jungle Juice", icon = "🍹", tier = 3, basePrice = 170, volatility = 0.4 },
+    Orang4 = { id = "Orang4", shortId = 192, displayName = "The Tropical King", icon = "🦍", tier = 4, basePrice = 1200, volatility = 0.8 },
 
     -- Orcalero Orcala
-    Orca1 = { id = "Orca1", displayName = "Sea Shell", icon = "🐚", tier = 1, basePrice = 6, volatility = 0.1 },
-    Orca2 = { id = "Orca2", displayName = "Whale Fin", icon = "🐋", tier = 2, basePrice = 40, volatility = 0.2 },
-    Orca3 = { id = "Orca3", displayName = "Tidal Wave", icon = "🌊", tier = 3, basePrice = 220, volatility = 0.5 },
-    Orca4 = { id = "Orca4", displayName = "The Deep Sea Pearl", icon = "⚪", tier = 4, basePrice = 1700, volatility = 0.8 },
+    Orca1 = { id = "Orca1", shortId = 193, displayName = "Sea Shell", icon = "🐚", tier = 1, basePrice = 6, volatility = 0.05 },
+    Orca2 = { id = "Orca2", shortId = 194, displayName = "Whale Fin", icon = "🐋", tier = 2, basePrice = 40, volatility = 0.15 },
+    Orca3 = { id = "Orca3", shortId = 195, displayName = "Tidal Wave", icon = "🌊", tier = 3, basePrice = 220, volatility = 0.4 },
+    Orca4 = { id = "Orca4", shortId = 196, displayName = "The Deep Sea Pearl", icon = "⚪", tier = 4, basePrice = 1700, volatility = 0.8 },
 
     -- Pandaccini Bananini
-    Panda1 = { id = "Panda1", displayName = "Bamboo Leaf", icon = "🍃", tier = 1, basePrice = 5, volatility = 0.1 },
-    Panda2 = { id = "Panda2", displayName = "Banana Bread", icon = "🍞", tier = 2, basePrice = 35, volatility = 0.2 },
-    Panda3 = { id = "Panda3", displayName = "Panda Paw", icon = "🐾", tier = 3, basePrice = 180, volatility = 0.5 },
-    Panda4 = { id = "Panda4", displayName = "Zen Master's Banana", icon = "🧘", tier = 4, basePrice = 1300, volatility = 0.8 },
+    Panda1 = { id = "Panda1", shortId = 197, displayName = "Bamboo Leaf", icon = "🍃", tier = 1, basePrice = 5, volatility = 0.05 },
+    Panda2 = { id = "Panda2", shortId = 198, displayName = "Banana Bread", icon = "🍞", tier = 2, basePrice = 35, volatility = 0.15 },
+    Panda3 = { id = "Panda3", shortId = 199, displayName = "Panda Paw", icon = "🐾", tier = 3, basePrice = 180, volatility = 0.4 },
+    Panda4 = { id = "Panda4", shortId = 200, displayName = "Zen Master's Banana", icon = "🧘", tier = 4, basePrice = 1300, volatility = 0.8 },
 
     -- Perochello_Lemonchello
-    Lemon1 = { id = "Lemon1", displayName = "Lemon Slice", icon = "🍋", tier = 1, basePrice = 4, volatility = 0.1 },
-    Lemon2 = { id = "Lemon2", displayName = "Yellow Squeeze", icon = "🥤", tier = 2, basePrice = 25, volatility = 0.2 },
-    Lemon3 = { id = "Lemon3", displayName = "Zesty Spritz", icon = "🍸", tier = 3, basePrice = 140, volatility = 0.5 },
-    Lemon4 = { id = "Lemon4", displayName = "The Golden Lemon", icon = "🍋", tier = 4, basePrice = 1000, volatility = 0.8 },
+    Lemon1 = { id = "Lemon1", shortId = 201, displayName = "Lemon Slice", icon = "🍋", tier = 1, basePrice = 4, volatility = 0.05 },
+    Lemon2 = { id = "Lemon2", shortId = 202, displayName = "Yellow Squeeze", icon = "🥤", tier = 2, basePrice = 25, volatility = 0.15 },
+    Lemon3 = { id = "Lemon3", shortId = 203, displayName = "Zesty Spritz", icon = "🍸", tier = 3, basePrice = 140, volatility = 0.4 },
+    Lemon4 = { id = "Lemon4", shortId = 204, displayName = "The Golden Lemon", icon = "🍋", tier = 4, basePrice = 1000, volatility = 0.8 },
 
     -- Piccione Macchina
-    Pigeon1 = { id = "Pigeon1", displayName = "Bird Seed", icon = "🌾", tier = 1, basePrice = 5, volatility = 0.1 },
-    Pigeon2 = { id = "Pigeon2", displayName = "Iron Wing", icon = "⚙️", tier = 2, basePrice = 35, volatility = 0.2 },
-    Pigeon3 = { id = "Pigeon3", displayName = "Pigeon Message", icon = "📜", tier = 3, basePrice = 190, volatility = 0.5 },
-    Pigeon4 = { id = "Pigeon4", displayName = "The Cyber Dove", icon = "🕊️", tier = 4, basePrice = 1400, volatility = 0.8 },
+    Pigeon1 = { id = "Pigeon1", shortId = 205, displayName = "Bird Seed", icon = "🌾", tier = 1, basePrice = 5, volatility = 0.05 },
+    Pigeon2 = { id = "Pigeon2", shortId = 206, displayName = "Iron Wing", icon = "⚙️", tier = 2, basePrice = 35, volatility = 0.15 },
+    Pigeon3 = { id = "Pigeon3", shortId = 207, displayName = "Pigeon Message", icon = "📜", tier = 3, basePrice = 190, volatility = 0.4 },
+    Pigeon4 = { id = "Pigeon4", shortId = 208, displayName = "The Cyber Dove", icon = "🕊️", tier = 4, basePrice = 1400, volatility = 0.8 },
 
     -- Pipi_Kiwi
-    Kiwi1 = { id = "Kiwi1", displayName = "Kiwi Skin", icon = "🥝", tier = 1, basePrice = 5, volatility = 0.1 },
-    Kiwi2 = { id = "Kiwi2", displayName = "Fuzzy Feather", icon = "🪶", tier = 2, basePrice = 30, volatility = 0.2 },
-    Kiwi3 = { id = "Kiwi3", displayName = "Kiwi Egg", icon = "🥚", tier = 3, basePrice = 170, volatility = 0.5 },
-    Kiwi4 = { id = "Kiwi4", displayName = "The Emerald Bird", icon = "🐦", tier = 4, basePrice = 1200, volatility = 0.8 },
+    Kiwi1 = { id = "Kiwi1", shortId = 209, displayName = "Kiwi Skin", icon = "🥝", tier = 1, basePrice = 5, volatility = 0.05 },
+    Kiwi2 = { id = "Kiwi2", shortId = 210, displayName = "Fuzzy Feather", icon = "🪶", tier = 2, basePrice = 30, volatility = 0.15 },
+    Kiwi3 = { id = "Kiwi3", shortId = 211, displayName = "Kiwi Egg", icon = "🥚", tier = 3, basePrice = 170, volatility = 0.4 },
+    Kiwi4 = { id = "Kiwi4", shortId = 212, displayName = "The Emerald Bird", icon = "🐦", tier = 4, basePrice = 1200, volatility = 0.8 },
 
     -- Pot Hotspot
-    Pot1 = { id = "Pot1", displayName = "Clay Chunk", icon = "🧱", tier = 1, basePrice = 5, volatility = 0.1 },
-    Pot2 = { id = "Pot2", displayName = "Stone Pot", icon = "🏺", tier = 2, basePrice = 35, volatility = 0.2 },
-    Pot3 = { id = "Pot3", displayName = "Boiling Water", icon = "♨️", tier = 3, basePrice = 180, volatility = 0.5 },
-    Pot4 = { id = "Pot4", displayName = "The Iron Cauldron", icon = "🥘", tier = 4, basePrice = 1350, volatility = 0.8 },
+    Pot1 = { id = "Pot1", shortId = 213, displayName = "Clay Chunk", icon = "🧱", tier = 1, basePrice = 5, volatility = 0.05 },
+    Pot2 = { id = "Pot2", shortId = 214, displayName = "Stone Pot", icon = "🏺", tier = 2, basePrice = 35, volatility = 0.15 },
+    Pot3 = { id = "Pot3", shortId = 215, displayName = "Boiling Water", icon = "♨️", tier = 3, basePrice = 180, volatility = 0.4 },
+    Pot4 = { id = "Pot4", shortId = 216, displayName = "The Iron Cauldron", icon = "🥘", tier = 4, basePrice = 1350, volatility = 0.8 },
 
     -- Rhino_Toasterino
-    ToastRhino1 = { id = "ToastRhino1", displayName = "Crumbs", icon = "🍞", tier = 1, basePrice = 6, volatility = 0.1 },
-    ToastRhino2 = { id = "ToastRhino2", displayName = "Burnt Toast", icon = "🍞", tier = 2, basePrice = 35, volatility = 0.2 },
-    ToastRhino3 = { id = "ToastRhino3", displayName = "Electric Horn", icon = "🦏", tier = 3, basePrice = 200, volatility = 0.5 },
-    ToastRhino4 = { id = "ToastRhino4", displayName = "The Steel Rhino", icon = "🛡️", tier = 4, basePrice = 1500, volatility = 0.8 },
+    ToastRhino1 = { id = "ToastRhino1", shortId = 217, displayName = "Crumbs", icon = "🍞", tier = 1, basePrice = 6, volatility = 0.05 },
+    ToastRhino2 = { id = "ToastRhino2", shortId = 218, displayName = "Burnt Toast", icon = "🍞", tier = 2, basePrice = 35, volatility = 0.15 },
+    ToastRhino3 = { id = "ToastRhino3", shortId = 219, displayName = "Electric Horn", icon = "🦏", tier = 3, basePrice = 200, volatility = 0.4 },
+    ToastRhino4 = { id = "ToastRhino4", shortId = 220, displayName = "The Steel Rhino", icon = "🛡️", tier = 4, basePrice = 1500, volatility = 0.8 },
 
     -- Salamino Penguino
-    Penguin1 = { id = "Penguin1", displayName = "Small Fish", icon = "🐟", tier = 1, basePrice = 5, volatility = 0.1 },
-    Penguin2 = { id = "Penguin2", displayName = "Ice Pebble", icon = "🧊", tier = 2, basePrice = 32, volatility = 0.2 },
-    Penguin3 = { id = "Penguin3", displayName = "Tuxedo Bow", icon = "🎀", tier = 3, basePrice = 180, volatility = 0.5 },
-    Penguin4 = { id = "Penguin4", displayName = "King of the Arctic", icon = "👑", tier = 4, basePrice = 1300, volatility = 0.8 },
+    Penguin1 = { id = "Penguin1", shortId = 221, displayName = "Small Fish", icon = "🐟", tier = 1, basePrice = 5, volatility = 0.05 },
+    Penguin2 = { id = "Penguin2", shortId = 222, displayName = "Ice Pebble", icon = "🧊", tier = 2, basePrice = 32, volatility = 0.15 },
+    Penguin3 = { id = "Penguin3", shortId = 223, displayName = "Tuxedo Bow", icon = "🎀", tier = 3, basePrice = 180, volatility = 0.4 },
+    Penguin4 = { id = "Penguin4", shortId = 224, displayName = "King of the Arctic", icon = "👑", tier = 4, basePrice = 1300, volatility = 0.8 },
 
     -- Secret Lucky Block
-    SecLuck1 = { id = "SecLuck1", displayName = "Dusty Box", icon = "📦", tier = 1, basePrice = 20, volatility = 0.3 },
-    SecLuck2 = { id = "SecLuck2", displayName = "Hidden Note", icon = "📜", tier = 2, basePrice = 100, volatility = 0.4 },
-    SecLuck3 = { id = "SecLuck3", displayName = "Encrypted Key", icon = "🔑", tier = 3, basePrice = 500, volatility = 0.6 },
-    SecLuck4 = { id = "SecLuck4", displayName = "Classified Prize", icon = "📁", tier = 4, basePrice = 3500, volatility = 1.0 },
+    SecLuck1 = { id = "SecLuck1", shortId = 225, displayName = "Dusty Box", icon = "📦", tier = 1, basePrice = 20, volatility = 0.05 },
+    SecLuck2 = { id = "SecLuck2", shortId = 226, displayName = "Hidden Note", icon = "📜", tier = 2, basePrice = 100, volatility = 0.15 },
+    SecLuck3 = { id = "SecLuck3", shortId = 227, displayName = "Encrypted Key", icon = "🔑", tier = 3, basePrice = 500, volatility = 0.4 },
+    SecLuck4 = { id = "SecLuck4", shortId = 228, displayName = "Classified Prize", icon = "📁", tier = 4, basePrice = 3500, volatility = 0.8 },
 
     -- Noobini_Pizzanini
-    PizzaCrust = { id = "PizzaCrust", displayName = "Burnt Pizza Crust", icon = "🍕", tier = 1, basePrice = 5, volatility = 0.1 },
-    ColdPizza = { id = "ColdPizza", displayName = "Cold Pizza Slice", icon = "🍕", tier = 2, basePrice = 30, volatility = 0.2 },
-    DeepDish = { id = "DeepDish", displayName = "Deep Dish Pizza", icon = "🥧", tier = 3, basePrice = 160, volatility = 0.5 },
-    PartyPizza = { id = "PartyPizza", displayName = "Ultimate Party Pizza", icon = "🎉", tier = 4, basePrice = 1200, volatility = 0.8 },
+    PizzaCrust = { id = "PizzaCrust", shortId = 229, displayName = "Burnt Pizza Crust", icon = "🍕", tier = 1, basePrice = 5, volatility = 0.05 },
+    ColdPizza = { id = "ColdPizza", shortId = 230, displayName = "Cold Pizza Slice", icon = "🍕", tier = 2, basePrice = 30, volatility = 0.15 },
+    DeepDish = { id = "DeepDish", shortId = 231, displayName = "Deep Dish Pizza", icon = "🥧", tier = 3, basePrice = 160, volatility = 0.4 },
+    PartyPizza = { id = "PartyPizza", shortId = 232, displayName = "Ultimate Party Pizza", icon = "🎉", tier = 4, basePrice = 1200, volatility = 0.8 },
 
     -- Spioniro Golubiro
-    Spion1 = { id = "Spion1", displayName = "Mini Camera", icon = "📷", tier = 1, basePrice = 7, volatility = 0.1 },
-    Spion2 = { id = "Spion2", displayName = "Stealth Cloak", icon = "👤", tier = 2, basePrice = 45, volatility = 0.3 },
-    Spion3 = { id = "Spion3", displayName = "Binoculars", icon = "🔭", tier = 3, basePrice = 230, volatility = 0.5 },
-    Spion4 = { id = "Spion4", displayName = "The Master Spy", icon = "🕴️", tier = 4, basePrice = 1700, volatility = 0.8 },
+    Spion1 = { id = "Spion1", shortId = 233, displayName = "Mini Camera", icon = "📷", tier = 1, basePrice = 7, volatility = 0.05 },
+    Spion2 = { id = "Spion2", shortId = 234, displayName = "Stealth Cloak", icon = "👤", tier = 2, basePrice = 45, volatility = 0.15 },
+    Spion3 = { id = "Spion3", shortId = 235, displayName = "Binoculars", icon = "🔭", tier = 3, basePrice = 230, volatility = 0.4 },
+    Spion4 = { id = "Spion4", shortId = 236, displayName = "The Master Spy", icon = "🕴️", tier = 4, basePrice = 1700, volatility = 0.8 },
 
     -- Strawberrelli Flamingelli
-    Flam1 = { id = "Flam1", displayName = "Pink Feather", icon = "🪶", tier = 1, basePrice = 5, volatility = 0.1 },
-    Flam2 = { id = "Flam2", displayName = "Sweet Berry", icon = "🍓", tier = 2, basePrice = 30, volatility = 0.2 },
-    Flam3 = { id = "Flam3", displayName = "Flamingo Stand", icon = "🦩", tier = 3, basePrice = 170, volatility = 0.5 },
-    Flam4 = { id = "Flam4", displayName = "The Tropical Queen", icon = "👑", tier = 4, basePrice = 1300, volatility = 0.8 },
+    Flam1 = { id = "Flam1", shortId = 237, displayName = "Pink Feather", icon = "🪶", tier = 1, basePrice = 5, volatility = 0.05 },
+    Flam2 = { id = "Flam2", shortId = 238, displayName = "Sweet Berry", icon = "🍓", tier = 2, basePrice = 30, volatility = 0.15 },
+    Flam3 = { id = "Flam3", shortId = 239, displayName = "Flamingo Stand", icon = "🦩", tier = 3, basePrice = 170, volatility = 0.4 },
+    Flam4 = { id = "Flam4", shortId = 240, displayName = "The Tropical Queen", icon = "👑", tier = 4, basePrice = 1300, volatility = 0.8 },
 
     -- Svinina_Bombardino
-    PigBomb1 = { id = "PigBomb1", displayName = "Pig Tail", icon = "🐖", tier = 1, basePrice = 6, volatility = 0.1 },
-    PigBomb2 = { id = "PigBomb2", displayName = "Ham Casing", icon = "🍖", tier = 2, basePrice = 35, volatility = 0.2 },
-    PigBomb3 = { id = "PigBomb3", displayName = "Bacon Bomb", icon = "🥓", tier = 3, basePrice = 200, volatility = 0.5 },
-    PigBomb4 = { id = "PigBomb4", displayName = "The Atomic Porker", icon = "🐷", tier = 4, basePrice = 1500, volatility = 0.8 },
+    PigBomb1 = { id = "PigBomb1", shortId = 241, displayName = "Pig Tail", icon = "🐖", tier = 1, basePrice = 6, volatility = 0.05 },
+    PigBomb2 = { id = "PigBomb2", shortId = 242, displayName = "Ham Casing", icon = "🍖", tier = 2, basePrice = 35, volatility = 0.15 },
+    PigBomb3 = { id = "PigBomb3", shortId = 243, displayName = "Bacon Bomb", icon = "🥓", tier = 3, basePrice = 200, volatility = 0.4 },
+    PigBomb4 = { id = "PigBomb4", shortId = 244, displayName = "The Atomic Porker", icon = "🐷", tier = 4, basePrice = 1500, volatility = 0.8 },
 
     -- Ta_Ta_Ta_Ta_Sahur
-    Sahur1 = { id = "Sahur1", displayName = "Iron Scraps", icon = "⛓️", tier = 1, basePrice = 8, volatility = 0.1 },
-    Sahur2 = { id = "Sahur2", displayName = "Brass Trumpet", icon = "🎺", tier = 2, basePrice = 45, volatility = 0.2 },
-    Sahur3 = { id = "Sahur3", displayName = "Marching Drum", icon = "🥁", tier = 3, basePrice = 220, volatility = 0.5 },
-    Sahur4 = { id = "Sahur4", displayName = "The Grand Parade", icon = "🎪", tier = 4, basePrice = 1700, volatility = 0.8 },
+    Sahur1 = { id = "Sahur1", shortId = 245, displayName = "Iron Scraps", icon = "⛓️", tier = 1, basePrice = 8, volatility = 0.05 },
+    Sahur2 = { id = "Sahur2", shortId = 246, displayName = "Brass Trumpet", icon = "🎺", tier = 2, basePrice = 45, volatility = 0.15 },
+    Sahur3 = { id = "Sahur3", shortId = 247, displayName = "Marching Drum", icon = "🥁", tier = 3, basePrice = 220, volatility = 0.4 },
+    Sahur4 = { id = "Sahur4", shortId = 248, displayName = "The Grand Parade", icon = "🎪", tier = 4, basePrice = 1700, volatility = 0.8 },
 
     -- Talpa_Di_Fero
-    Mole1 = { id = "Mole1", displayName = "Dirt Clump", icon = "🪨", tier = 1, basePrice = 5, volatility = 0.1 },
-    Mole2 = { id = "Mole2", displayName = "Iron Claw", icon = "🐾", tier = 2, basePrice = 35, volatility = 0.2 },
-    Mole3 = { id = "Mole3", displayName = "Tunneler", icon = "🚇", tier = 3, basePrice = 190, volatility = 0.5 },
-    Mole4 = { id = "Mole4", displayName = "The Steel Driller", icon = "🚜", tier = 4, basePrice = 1450, volatility = 0.8 },
+    Mole1 = { id = "Mole1", shortId = 249, displayName = "Dirt Clump", icon = "🪨", tier = 1, basePrice = 5, volatility = 0.05 },
+    Mole2 = { id = "Mole2", shortId = 250, displayName = "Iron Claw", icon = "🐾", tier = 2, basePrice = 35, volatility = 0.15 },
+    Mole3 = { id = "Mole3", shortId = 251, displayName = "Tunneler", icon = "🚇", tier = 3, basePrice = 190, volatility = 0.4 },
+    Mole4 = { id = "Mole4", shortId = 252, displayName = "The Steel Driller", icon = "🚜", tier = 4, basePrice = 1450, volatility = 0.8 },
 
     -- Tigrilini Watermelini
-    TigMelon1 = { id = "TigMelon1", displayName = "Tiger Stripe", icon = "🦓", tier = 1, basePrice = 6, volatility = 0.1 },
-    TigMelon2 = { id = "TigMelon2", displayName = "Melon Slice", icon = "🍉", tier = 2, basePrice = 40, volatility = 0.2 },
-    TigMelon3 = { id = "TigMelon3", displayName = "Roaring Fruit", icon = "🦁", tier = 3, basePrice = 230, volatility = 0.5 },
-    TigMelon4 = { id = "TigMelon4", displayName = "The Jungle Melon", icon = "👑", tier = 4, basePrice = 1800, volatility = 0.8 },
+    TigMelon1 = { id = "TigMelon1", shortId = 253, displayName = "Tiger Stripe", icon = "🦓", tier = 1, basePrice = 6, volatility = 0.05 },
+    TigMelon2 = { id = "TigMelon2", shortId = 254, displayName = "Melon Slice", icon = "🍉", tier = 2, basePrice = 40, volatility = 0.15 },
+    TigMelon3 = { id = "TigMelon3", shortId = 255, displayName = "Roaring Fruit", icon = "🦁", tier = 3, basePrice = 230, volatility = 0.4 },
+    TigMelon4 = { id = "TigMelon4", shortId = 256, displayName = "The Jungle Melon", icon = "👑", tier = 4, basePrice = 1800, volatility = 0.8 },
 
     -- Tigroligre Frutonni
-    Ligre1 = { id = "Ligre1", displayName = "Claw Scrap", icon = "🐾", tier = 1, basePrice = 7, volatility = 0.1 },
-    Ligre2 = { id = "Ligre2", displayName = "Juicy Hide", icon = "🧥", tier = 2, basePrice = 45, volatility = 0.2 },
-    Ligre3 = { id = "Ligre3", displayName = "Fruit Armor", icon = "🛡️", tier = 3, basePrice = 250, volatility = 0.5 },
-    Ligre4 = { id = "Ligre4", displayName = "The Hybrid King", icon = "🦁", tier = 4, basePrice = 1900, volatility = 0.8 },
+    Ligre1 = { id = "Ligre1", shortId = 257, displayName = "Claw Scrap", icon = "🐾", tier = 1, basePrice = 7, volatility = 0.05 },
+    Ligre2 = { id = "Ligre2", shortId = 258, displayName = "Juicy Hide", icon = "🧥", tier = 2, basePrice = 45, volatility = 0.15 },
+    Ligre3 = { id = "Ligre3", shortId = 259, displayName = "Fruit Armor", icon = "🛡️", tier = 3, basePrice = 250, volatility = 0.4 },
+    Ligre4 = { id = "Ligre4", shortId = 260, displayName = "The Hybrid King", icon = "🦁", tier = 4, basePrice = 1900, volatility = 0.8 },
 
     -- Tim_Cheese
-    Cheese1 = { id = "Cheese1", displayName = "Yellow Crumb", icon = "🧀", tier = 1, basePrice = 4, volatility = 0.1 },
-    Cheese2 = { id = "Cheese2", displayName = "Wedge of Swiss", icon = "🧀", tier = 2, basePrice = 25, volatility = 0.2 },
-    Cheese3 = { id = "Cheese3", displayName = "Melting Fondue", icon = "🫕", tier = 3, basePrice = 140, volatility = 0.5 },
-    Cheese4 = { id = "Cheese4", displayName = "The Golden Wheel", icon = "🌕", tier = 4, basePrice = 1000, volatility = 0.8 },
+    Cheese1 = { id = "Cheese1", shortId = 261, displayName = "Yellow Crumb", icon = "🧀", tier = 1, basePrice = 4, volatility = 0.05 },
+    Cheese2 = { id = "Cheese2", shortId = 262, displayName = "Wedge of Swiss", icon = "🧀", tier = 2, basePrice = 25, volatility = 0.15 },
+    Cheese3 = { id = "Cheese3", shortId = 263, displayName = "Melting Fondue", icon = "🫕", tier = 3, basePrice = 140, volatility = 0.4 },
+    Cheese4 = { id = "Cheese4", shortId = 264, displayName = "The Golden Wheel", icon = "🌕", tier = 4, basePrice = 1000, volatility = 0.8 },
 
     -- Torrtuginni Dragonfrutini
-    Dragon1 = { id = "Dragon1", displayName = "Pink Scale", icon = "🛡️", tier = 1, basePrice = 7, volatility = 0.1 },
-    Dragon2 = { id = "Dragon2", displayName = "Dragon Fruit", icon = "🌵", tier = 2, basePrice = 45, volatility = 0.2 },
-    Dragon3 = { id = "Dragon3", displayName = "Turtle Shell", icon = "🐢", tier = 3, basePrice = 240, volatility = 0.5 },
-    Dragon4 = { id = "Dragon4", displayName = "The Mythic Dragon", icon = "🐲", tier = 4, basePrice = 1900, volatility = 0.8 },
+    Dragon1 = { id = "Dragon1", shortId = 265, displayName = "Pink Scale", icon = "🛡️", tier = 1, basePrice = 7, volatility = 0.05 },
+    Dragon2 = { id = "Dragon2", shortId = 266, displayName = "Dragon Fruit", icon = "🌵", tier = 2, basePrice = 45, volatility = 0.15 },
+    Dragon3 = { id = "Dragon3", shortId = 267, displayName = "Turtle Shell", icon = "🐢", tier = 3, basePrice = 240, volatility = 0.4 },
+    Dragon4 = { id = "Dragon4", shortId = 268, displayName = "The Mythic Dragon", icon = "🐲", tier = 4, basePrice = 1900, volatility = 0.8 },
 
     -- Tralalero_Tralala
-    Tra1 = { id = "Tra1", displayName = "Single Note", icon = "🎵", tier = 1, basePrice = 4, volatility = 0.1 },
-    Tra2 = { id = "Tra2", displayName = "Music Sheet", icon = "📄", tier = 2, basePrice = 25, volatility = 0.2 },
-    Tra3 = { id = "Tra3", displayName = "Microphone", icon = "🎤", tier = 3, basePrice = 150, volatility = 0.5 },
-    Tra4 = { id = "Tra4", displayName = "Grand Piano", icon = "🎹", tier = 4, basePrice = 1100, volatility = 0.8 },
+    Tra1 = { id = "Tra1", shortId = 269, displayName = "Single Note", icon = "🎵", tier = 1, basePrice = 4, volatility = 0.05 },
+    Tra2 = { id = "Tra2", shortId = 270, displayName = "Music Sheet", icon = "📄", tier = 2, basePrice = 25, volatility = 0.15 },
+    Tra3 = { id = "Tra3", shortId = 271, displayName = "Microphone", icon = "🎤", tier = 3, basePrice = 150, volatility = 0.4 },
+    Tra4 = { id = "Tra4", shortId = 272, displayName = "Grand Piano", icon = "🎹", tier = 4, basePrice = 1100, volatility = 0.8 },
 
     -- Trenostruzzo_Turbo_3000
-    Train1 = { id = "Train1", displayName = "Iron Bolt", icon = "🔩", tier = 1, basePrice = 10, volatility = 0.1 },
-    Train2 = { id = "Train2", displayName = "Coal Lump", icon = "🪨", tier = 2, basePrice = 55, volatility = 0.2 },
-    Train3 = { id = "Train3", displayName = "Turbo Engine", icon = "⚙️", tier = 3, basePrice = 300, volatility = 0.5 },
-    Train4 = { id = "Train4", displayName = "The Bullet Ostrich", icon = "🚄", tier = 4, basePrice = 2200, volatility = 0.8 },
+    Train1 = { id = "Train1", shortId = 273, displayName = "Iron Bolt", icon = "🔩", tier = 1, basePrice = 10, volatility = 0.05 },
+    Train2 = { id = "Train2", shortId = 274, displayName = "Coal Lump", icon = "🪨", tier = 2, basePrice = 55, volatility = 0.15 },
+    Train3 = { id = "Train3", shortId = 275, displayName = "Turbo Engine", icon = "⚙️", tier = 3, basePrice = 300, volatility = 0.4 },
+    Train4 = { id = "Train4", shortId = 276, displayName = "The Bullet Ostrich", icon = "🚄", tier = 4, basePrice = 2200, volatility = 0.8 },
 
     -- Tric_Trac_Baraboom
-    Boom1 = { id = "Boom1", displayName = "Fused Wire", icon = "🧵", tier = 1, basePrice = 6, volatility = 0.1 },
-    Boom2 = { id = "Boom2", displayName = "Gunpowder", icon = "🧂", tier = 2, basePrice = 40, volatility = 0.3 },
-    Boom3 = { id = "Boom3", displayName = "Heavy Crate", icon = "📦", tier = 3, basePrice = 220, volatility = 0.5 },
-    Boom4 = { id = "Boom4", displayName = "The Grand Finale", icon = "🎆", tier = 4, basePrice = 1600, volatility = 0.8 },
+    Boom1 = { id = "Boom1", shortId = 277, displayName = "Fused Wire", icon = "🧵", tier = 1, basePrice = 6, volatility = 0.05 },
+    Boom2 = { id = "Boom2", shortId = 278, displayName = "Gunpowder", icon = "🧂", tier = 2, basePrice = 40, volatility = 0.15 },
+    Boom3 = { id = "Boom3", shortId = 279, displayName = "Heavy Crate", icon = "📦", tier = 3, basePrice = 220, volatility = 0.4 },
+    Boom4 = { id = "Boom4", shortId = 280, displayName = "The Grand Finale", icon = "🎆", tier = 4, basePrice = 1600, volatility = 0.8 },
 
     -- Trippi_Troppi
-    Trip1 = { id = "Trip1", displayName = "Old Shoe", icon = "👟", tier = 1, basePrice = 5, volatility = 0.1 },
-    Trip2 = { id = "Trip2", displayName = "Energy Bar", icon = "🍫", tier = 2, basePrice = 30, volatility = 0.2 },
-    Trip3 = { id = "Trip3", displayName = "Hiking Staff", icon = "🦯", tier = 3, basePrice = 180, volatility = 0.5 },
-    Trip4 = { id = "Trip4", displayName = "World Traveler", icon = "🌍", tier = 4, basePrice = 1300, volatility = 0.8 },
+    Trip1 = { id = "Trip1", shortId = 281, displayName = "Old Shoe", icon = "👟", tier = 1, basePrice = 5, volatility = 0.05 },
+    Trip2 = { id = "Trip2", shortId = 282, displayName = "Energy Bar", icon = "🍫", tier = 2, basePrice = 30, volatility = 0.15 },
+    Trip3 = { id = "Trip3", shortId = 283, displayName = "Hiking Staff", icon = "🦯", tier = 3, basePrice = 180, volatility = 0.4 },
+    Trip4 = { id = "Trip4", shortId = 284, displayName = "World Traveler", icon = "🌍", tier = 4, basePrice = 1300, volatility = 0.8 },
 
     -- Trulimero_Trulicina
-    Truli1 = { id = "Truli1", displayName = "Small Shard", icon = "💎", tier = 1, basePrice = 5, volatility = 0.1 },
-    Truli2 = { id = "Truli2", displayName = "Glow Stone", icon = "🪨", tier = 2, basePrice = 35, volatility = 0.2 },
-    Truli3 = { id = "Truli3", displayName = "Magic Charm", icon = "🧿", tier = 3, basePrice = 190, volatility = 0.5 },
-    Truli4 = { id = "Truli4", displayName = "The Divine Spark", icon = "✨", tier = 4, basePrice = 1450, volatility = 0.8 },
+    Truli1 = { id = "Truli1", shortId = 285, displayName = "Small Shard", icon = "💎", tier = 1, basePrice = 5, volatility = 0.05 },
+    Truli2 = { id = "Truli2", shortId = 286, displayName = "Glow Stone", icon = "🪨", tier = 2, basePrice = 35, volatility = 0.15 },
+    Truli3 = { id = "Truli3", shortId = 287, displayName = "Magic Charm", icon = "🧿", tier = 3, basePrice = 190, volatility = 0.4 },
+    Truli4 = { id = "Truli4", shortId = 288, displayName = "The Divine Spark", icon = "✨", tier = 4, basePrice = 1450, volatility = 0.8 },
 
     -- Tung_Tung_Tung_Sahur
-    Tung1 = { id = "Tung1", displayName = "Steel Plate", icon = "🧱", tier = 1, basePrice = 8, volatility = 0.1 },
-    Tung2 = { id = "Tung2", displayName = "Heavy Hammer", icon = "🔨", tier = 2, basePrice = 50, volatility = 0.2 },
-    Tung3 = { id = "Tung3", displayName = "Drum Kit", icon = "🥁", tier = 3, basePrice = 260, volatility = 0.5 },
-    Tung4 = { id = "Tung4", displayName = "The Sahur Master", icon = "👑", tier = 4, basePrice = 2000, volatility = 0.8 },
+    Tung1 = { id = "Tung1", shortId = 289, displayName = "Steel Plate", icon = "🧱", tier = 1, basePrice = 8, volatility = 0.05 },
+    Tung2 = { id = "Tung2", shortId = 290, displayName = "Heavy Hammer", icon = "🔨", tier = 2, basePrice = 50, volatility = 0.15 },
+    Tung3 = { id = "Tung3", shortId = 291, displayName = "Drum Kit", icon = "🥁", tier = 3, basePrice = 260, volatility = 0.4 },
+    Tung4 = { id = "Tung4", shortId = 292, displayName = "The Sahur Master", icon = "👑", tier = 4, basePrice = 2000, volatility = 0.8 },
 
     -- Unclito_Samito
-    Sam1 = { id = "Sam1", displayName = "Red Stripe", icon = "🧣", tier = 1, basePrice = 6, volatility = 0.1 },
-    Sam2 = { id = "Sam2", displayName = "Blue Star", icon = "⭐", tier = 2, basePrice = 40, volatility = 0.2 },
-    Sam3 = { id = "Sam3", displayName = "Top Hat", icon = "🎩", tier = 3, basePrice = 220, volatility = 0.5 },
-    Sam4 = { id = "Sam4", displayName = "The Patriot's Pride", icon = "🇺🇸", tier = 4, basePrice = 1600, volatility = 0.8 },
+    Sam1 = { id = "Sam1", shortId = 293, displayName = "Red Stripe", icon = "🧣", tier = 1, basePrice = 6, volatility = 0.05 },
+    Sam2 = { id = "Sam2", shortId = 294, displayName = "Blue Star", icon = "⭐", tier = 2, basePrice = 40, volatility = 0.15 },
+    Sam3 = { id = "Sam3", shortId = 295, displayName = "Top Hat", icon = "🎩", tier = 3, basePrice = 220, volatility = 0.4 },
+    Sam4 = { id = "Sam4", shortId = 296, displayName = "The Patriot's Pride", icon = "🇺🇸", tier = 4, basePrice = 1600, volatility = 0.8 },
 
     -- Zibra Zubra Zibralini
-    Zebra1 = { id = "Zebra1", displayName = "Black Stripe", icon = "🦓", tier = 1, basePrice = 5, volatility = 0.1 },
-    Zebra2 = { id = "Zebra2", displayName = "White Stripe", icon = "⚪", tier = 2, basePrice = 30, volatility = 0.2 },
-    Zebra3 = { id = "Zebra3", displayName = "Savannah Grass", icon = "🌾", tier = 3, basePrice = 170, volatility = 0.5 },
-    Zebra4 = { id = "Zebra4", displayName = "The Prism Zebra", icon = "🌈", tier = 4, basePrice = 1300, volatility = 0.8 },
+    Zebra1 = { id = "Zebra1", shortId = 297, displayName = "Black Stripe", icon = "🦓", tier = 1, basePrice = 5, volatility = 0.05 },
+    Zebra2 = { id = "Zebra2", shortId = 298, displayName = "White Stripe", icon = "⚪", tier = 2, basePrice = 30, volatility = 0.15 },
+    Zebra3 = { id = "Zebra3", shortId = 299, displayName = "Savannah Grass", icon = "🌾", tier = 3, basePrice = 170, volatility = 0.4 },
+    Zebra4 = { id = "Zebra4", shortId = 300, displayName = "The Prism Zebra", icon = "🌈", tier = 4, basePrice = 1300, volatility = 0.8 },
 
     -- V3: Synergy composite items (produced when specific pairs are in the same cluster)
-    AvocadoToast = { id = "AvocadoToast", displayName = "Avocado Toast", icon = "🥑🍞", tier = 3, basePrice = 320, volatility = 0.6 },
-    PizzaCoffee = { id = "PizzaCoffee", displayName = "Pizza Latte", icon = "🍕☕", tier = 3, basePrice = 280, volatility = 0.5 },
-    NukeCroc = { id = "NukeCroc", displayName = "Nuclear Crocodile", icon = "☢️🐊", tier = 4, basePrice = 2500, volatility = 0.9 },
-    BananaSplit = { id = "BananaSplit", displayName = "Banana Split Deluxe", icon = "🍌🍨", tier = 3, basePrice = 300, volatility = 0.5 },
-    GrandChoir = { id = "GrandChoir", displayName = "Grand Tralala Choir", icon = "🎵🎶", tier = 4, basePrice = 1800, volatility = 0.7 },
+    AvocadoToast = { id = "AvocadoToast", shortId = 301, displayName = "Avocado Toast", icon = "🥑🍞", tier = 3, basePrice = 320, volatility = 0.4 },
+    PizzaCoffee = { id = "PizzaCoffee", shortId = 302, displayName = "Pizza Latte", icon = "🍕☕", tier = 3, basePrice = 280, volatility = 0.4 },
+    NukeCroc = { id = "NukeCroc", shortId = 303, displayName = "Nuclear Crocodile", icon = "☢️🐊", tier = 4, basePrice = 2500, volatility = 0.8 },
+    BananaSplit = { id = "BananaSplit", shortId = 304, displayName = "Banana Split Deluxe", icon = "🍌🍨", tier = 3, basePrice = 300, volatility = 0.4 },
+    GrandChoir = { id = "GrandChoir", shortId = 305, displayName = "Grand Tralala Choir", icon = "🎵🎶", tier = 4, basePrice = 1800, volatility = 0.8 },
 }
+
+ItemConfig.ID_TO_SHORT = {}
+ItemConfig.SHORT_TO_ID = {}
+for _, item in pairs(ItemConfig.Items) do
+    if item.shortId then
+        ItemConfig.ID_TO_SHORT[item.id] = item.shortId
+        ItemConfig.SHORT_TO_ID[item.shortId] = item.id
+    end
+end
 
 --------------------------------------------------------------------------------
 -- BRAINROT → ITEM MAPPING (Hver model har sin egen række)
@@ -521,7 +530,7 @@ ItemConfig.BrainrotItems = {
     ["Cacto Hipopotamo"] = { tier1 = "Cact1", tier2 = "Cact2", tier3 = "Cact3", tier4 = "Cact4" },
     ["Cappuccino_Assassino"] = { tier1 = "KillerCoffee1", tier2 = "KillerCoffee2", tier3 = "KillerCoffee3", tier4 = "KillerCoffee4" },
     ["Cavallo_Virtuoso"] = { tier1 = "Horse1", tier2 = "Horse2", tier3 = "Horse3", tier4 = "Horse4" },
-    ["Chef_Crabracadabra"] = { tier1 = "Crab1", tier2 = "Crab2", tier3 = "Crab3", tier4 = "Crab4" },
+    ["Chef_Crabracadabra"] = { tier1 = "Crab1", tier2 = "Crab2", tier3 = "Crab3", tier4 = "Crab4", consumes1 = { Guac1 = 1, Toast1 = 1 }, consumes2 = { Guac2 = 1, Toast2 = 1 }, consumes3 = { Guac3 = 1, Toast3 = 1 }, consumes4 = { Guac4 = 1, Toast4 = 1 } },
     ["Chicleteira Bicicleteira"] = { tier1 = "Bike1", tier2 = "Bike2", tier3 = "Bike3", tier4 = "Bike4" },
     ["Chimpanzini Spiderini"] = { tier1 = "ChimpSpy1", tier2 = "ChimpSpy2", tier3 = "ChimpSpy3", tier4 = "ChimpSpy4" },
     ["Chimpanzini_Bananini"] = { tier1 = "ChimpBan1", tier2 = "ChimpBan2", tier3 = "ChimpBan3", tier4 = "ChimpBan4" },
@@ -537,7 +546,7 @@ ItemConfig.BrainrotItems = {
     ["Glorbo_Fruttodrillo"] = { tier1 = "Glorbo1", tier2 = "Glorbo2", tier3 = "Glorbo3", tier4 = "Glorbo4" },
     ["Gorillo Watermelondrillo"] = { tier1 = "Melon1", tier2 = "Melon2", tier3 = "Melon3", tier4 = "Melon4" },
     ["Graipuss_Medussi"] = { tier1 = "Grai1", tier2 = "Grai2", tier3 = "Grai3", tier4 = "Grai4" },
-    ["La_Grande_Combinasion"] = { tier1 = "Combo1", tier2 = "Combo2", tier3 = "Combo3", tier4 = "Combo4" },
+    ["La_Grande_Combinasion"] = { tier1 = "Combo1", tier2 = "Combo2", tier3 = "Combo3", tier4 = "Combo4", consumes1 = { Bike1 = 1, Neon1 = 1 }, consumes2 = { Bike2 = 1, Neon2 = 1 }, consumes3 = { Bike3 = 1, Neon3 = 1 }, consumes4 = { Bike4 = 1, Neon4 = 1 } },
     ["La_Vacca_Saturno_Saturnita"] = { tier1 = "Cow1", tier2 = "Cow2", tier3 = "Cow3", tier4 = "Cow4" },
     ["Las Tralaleritas"] = { tier1 = "Trala1", tier2 = "Trala2", tier3 = "Trala3", tier4 = "Trala4" },
     ["Las Vaquitas Saturnitas"] = { tier1 = "Vaqu1", tier2 = "Vaqu2", tier3 = "Vaqu3", tier4 = "Vaqu4" },
@@ -589,10 +598,10 @@ ItemConfig.BrainrotItems = {
 ItemConfig.BrainrotModes = {}
 for modelName, tiers in pairs(ItemConfig.BrainrotItems) do
     ItemConfig.BrainrotModes[modelName] = {
-        { itemId = tiers.tier1, unlockLevel = ItemConfig.MilestoneThresholds.tier1, rate = ItemConfig.ProductionRates.tier1 },
-        { itemId = tiers.tier2, unlockLevel = ItemConfig.MilestoneThresholds.tier2, rate = ItemConfig.ProductionRates.tier2 },
-        { itemId = tiers.tier3, unlockLevel = ItemConfig.MilestoneThresholds.tier3, rate = ItemConfig.ProductionRates.tier3 },
-        { itemId = tiers.tier4, unlockLevel = ItemConfig.MilestoneThresholds.tier4, rate = ItemConfig.ProductionRates.tier4 },
+        { itemId = tiers.tier1, unlockLevel = ItemConfig.MilestoneThresholds.tier1, rate = ItemConfig.ProductionSettings.tier1.rate, consumes = tiers.consumes1 },
+        { itemId = tiers.tier2, unlockLevel = ItemConfig.MilestoneThresholds.tier2, rate = ItemConfig.ProductionSettings.tier2.rate, consumes = tiers.consumes2 },
+        { itemId = tiers.tier3, unlockLevel = ItemConfig.MilestoneThresholds.tier3, rate = ItemConfig.ProductionSettings.tier3.rate, consumes = tiers.consumes3 },
+        { itemId = tiers.tier4, unlockLevel = ItemConfig.MilestoneThresholds.tier4, rate = ItemConfig.ProductionSettings.tier4.rate, consumes = tiers.consumes4 },
     }
 end
 
@@ -635,10 +644,10 @@ function ItemConfig.GetProductions(modelName: string, ownedCount: number): {{ite
     local thresholds = ItemConfig.MilestoneThresholds
     local rates = ItemConfig.ProductionRates
     
-    if ownedCount >= thresholds.tier1 then table.insert(productions, {itemId = mapping.tier1, rate = rates.tier1}) end
-    if ownedCount >= thresholds.tier2 then table.insert(productions, {itemId = mapping.tier2, rate = rates.tier2}) end
-    if ownedCount >= thresholds.tier3 then table.insert(productions, {itemId = mapping.tier3, rate = rates.tier3}) end
-    if ownedCount >= thresholds.tier4 then table.insert(productions, {itemId = mapping.tier4, rate = rates.tier4}) end
+    if ownedCount >= thresholds.tier1 then table.insert(productions, {itemId = mapping.tier1, rate = ItemConfig.ProductionSettings.tier1.rate, consumes = mapping.consumes1}) end
+    if ownedCount >= thresholds.tier2 then table.insert(productions, {itemId = mapping.tier2, rate = ItemConfig.ProductionSettings.tier2.rate, consumes = mapping.consumes2}) end
+    if ownedCount >= thresholds.tier3 then table.insert(productions, {itemId = mapping.tier3, rate = ItemConfig.ProductionSettings.tier3.rate, consumes = mapping.consumes3}) end
+    if ownedCount >= thresholds.tier4 then table.insert(productions, {itemId = mapping.tier4, rate = ItemConfig.ProductionSettings.tier4.rate, consumes = mapping.consumes4}) end
     
     return productions
 end
@@ -659,7 +668,7 @@ function ItemConfig.GetModeProduction(modelName: string, modeIndex: number, leve
     local adjustedRate = mode.rate / speedMult
     adjustedRate = math.max(adjustedRate, 0.1) -- Floor at 0.1s
     
-    return { itemId = mode.itemId, rate = adjustedRate }
+    return { itemId = mode.itemId, rate = adjustedRate, consumes = mode.consumes }
 end
 
 --[[
@@ -693,6 +702,7 @@ function ItemConfig.GetAvailableModes(modelName: string, level: number): {{modeI
             unlockLevel = mode.unlockLevel,
             isUnlocked = isUnlocked,
             rate = adjustedRate,
+            consumes = mode.consumes,
         })
     end
     return result
@@ -722,6 +732,7 @@ function ItemConfig.GetMode(modelName: string, level: number, modeIndex: number)
         unlockLevel = mode.unlockLevel,
         isUnlocked = isUnlocked,
         rate = adjustedRate,
+        consumes = mode.consumes,
     }
 end
 

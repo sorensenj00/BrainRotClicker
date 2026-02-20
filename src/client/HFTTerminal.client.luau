@@ -81,7 +81,9 @@ local marketPrices = {}         -- {[itemId] = {currentPrice, sector, sectorRate
 local sectorRates = {}          -- {[sector] = rate}
 local itemRates = {}            -- {[itemId] = rate}
 local sectorHistories = {}      -- {[sector] = {number}}
+local itemHistories = {}        -- {[itemId] = {number}}
 local sectorSparklines = {}     -- {[sector] = SparklineRenderer}
+local itemSparkline = nil       -- SparklineRenderer
 local inspectedItem = nil       -- itemId currently inspected (nil = sector view)
 
 -- UI refs
@@ -210,6 +212,15 @@ local function parseItemRates()
 	if ok and decoded then
 		for itemId, rate in pairs(decoded) do
 			itemRates[itemId] = rate
+			if not itemHistories[itemId] then
+				itemHistories[itemId] = {}
+				-- pad with current rate to quickly draw a flatline until populated
+				for i=1, 20 do table.insert(itemHistories[itemId], rate) end
+			end
+			table.insert(itemHistories[itemId], rate)
+			if #itemHistories[itemId] > 30 then
+				table.remove(itemHistories[itemId], 1)
+			end
 		end
 	end
 end
@@ -571,6 +582,24 @@ local function createCenterColumn(parent)
 		Position = UDim2.new(0, 0, 0, 95),
 		XAlign = Enum.TextXAlignment.Center,
 	})
+	
+	-- Item Sparkline graph
+	local iGraphFrame = Instance.new("Frame")
+	iGraphFrame.Name = "GraphFrame"
+	iGraphFrame.Size = UDim2.new(0.8, 0, 0.4, 0)
+	iGraphFrame.Position = UDim2.new(0.1, 0, 0, 140)
+	iGraphFrame.BackgroundColor3 = C.bg
+	iGraphFrame.BackgroundTransparency = 0.5
+	iGraphFrame.BorderSizePixel = 0
+	iGraphFrame.Parent = inspector
+	addCorner(iGraphFrame, UDim.new(0, 4))
+
+	task.spawn(function()
+		local spark = SparklineRenderer.new(iGraphFrame, Vector2.new(512, 160))
+		if spark and not spark.disabled then
+			itemSparkline = spark
+		end
+	end)
 
 	inspectorFrame = inspector
 	return col, backBtn
@@ -685,6 +714,14 @@ function showItemInspector(itemId)
 	if sectorInfo then
 		sectorInfo.Text = string.format("SECTOR: %s | RATE: ×%.2f", string.upper(sector), rate)
 		sectorInfo.TextColor3 = trending and C.green or C.red
+	end
+	
+	-- Update sparkline
+	if itemSparkline then
+		local history = itemHistories[itemId]
+		if history and #history >= 2 then
+			itemSparkline:Update(history, C.green, C.red)
+		end
 	end
 end
 

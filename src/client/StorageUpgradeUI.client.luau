@@ -516,6 +516,15 @@ local function initialize()
 		end
 	end
 	
+	local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
+	if adminEvent then
+		adminEvent.Event:Connect(function(shopName)
+			if shopName == "StorageUpgrades" then
+				showPanel()
+			end
+		end)
+	end
+	
 	print("StorageUpgradeUI: Ready!")
 end
 

@@ -897,3 +897,12 @@ end
 
 task.spawn(setupCloseButton)
 task.spawn(setupBindableEventListener)
+
+local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
+if adminEvent then
+	adminEvent.Event:Connect(function(shopName)
+		if shopName == "MachineShop" then
+			if not ShopVisible then openShop() end
+		end
+	end)
+end

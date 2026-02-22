@@ -378,4 +378,13 @@ local _interaction = ShopInteraction.new({
 	OnClose = closeShop,
 })
 
+local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
+if adminEvent then
+	adminEvent.Event:Connect(function(shopName)
+		if shopName == "IslandShop" then
+			openShop()
+		end
+	end)
+end
+
 print("✓ IslandShopUI initialized")

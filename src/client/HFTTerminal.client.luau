@@ -332,10 +332,26 @@ local function createLeftColumn(parent)
 	})
 
 	-- Storage capacity mini-bar
+	makeLabel(col, {
+		Name = "CapacityLabel", Text = "INVENTORY CAPACITY",
+		Color = C.muted, Font = FONT_BOLD, Size = 10,
+		UDim2Size = UDim2.new(1, -16, 0, 12),
+		Position = UDim2.new(0, 8, 0, 36),
+	})
+	
+	local capWarning = makeLabel(col, {
+		Name = "CapacityWarning", Text = "⚠️ FULL - SELL ITEMS!",
+		Color = C.red, Font = FONT_BOLD, Size = 10,
+		UDim2Size = UDim2.new(1, -16, 0, 12),
+		Position = UDim2.new(0, 8, 0, 36),
+		XAlign = Enum.TextXAlignment.Right,
+	})
+	capWarning.Visible = false
+
 	local capFrame = Instance.new("Frame")
 	capFrame.Name = "CapBar"
 	capFrame.Size = UDim2.new(1, -16, 0, 12)
-	capFrame.Position = UDim2.new(0, 8, 0, 34)
+	capFrame.Position = UDim2.new(0, 8, 0, 50)
 	capFrame.BackgroundColor3 = C.dimBg
 	capFrame.BorderSizePixel = 0
 	capFrame.Parent = col
@@ -359,8 +375,8 @@ local function createLeftColumn(parent)
 	-- Scrolling item list
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "AssetList"
-	scroll.Size = UDim2.new(1, -8, 1, -54)
-	scroll.Position = UDim2.new(0, 4, 0, 50)
+	scroll.Size = UDim2.new(1, -8, 1, -135)
+	scroll.Position = UDim2.new(0, 4, 0, 68)
 	scroll.BackgroundTransparency = 1
 	scroll.ScrollBarThickness = 3
 	scroll.ScrollBarImageColor3 = C.amber
@@ -372,6 +388,46 @@ local function createLeftColumn(parent)
 	local layout = Instance.new("UIListLayout")
 	layout.Padding = UDim.new(0, 2)
 	layout.Parent = scroll
+
+	-- Portfolio Value section
+	local portFrame = Instance.new("Frame")
+	portFrame.Name = "PortfolioFrame"
+	portFrame.Size = UDim2.new(1, -16, 0, 50)
+	portFrame.Position = UDim2.new(0, 8, 1, -56)
+	portFrame.BackgroundColor3 = C.bg
+	portFrame.BorderSizePixel = 0
+	portFrame.Parent = col
+	addCorner(portFrame, UDim.new(0, 4))
+	
+	makeLabel(portFrame, {
+		Name = "LabelLiquid", Text = "LIQUID CASH",
+		Color = C.muted, Font = FONT_BOLD, Size = 9,
+		UDim2Size = UDim2.new(0.5, 0, 0, 14),
+		Position = UDim2.new(0, 6, 0, 6),
+	})
+	
+	makeLabel(portFrame, {
+		Name = "LiquidVal", Text = "$0",
+		Color = C.green, Font = FONT_MONO, Size = 14,
+		UDim2Size = UDim2.new(0.5, 0, 0, 20),
+		Position = UDim2.new(0, 6, 0, 22),
+	})
+	
+	makeLabel(portFrame, {
+		Name = "LabelAssets", Text = "PORTFOLIO VALUE",
+		Color = C.muted, Font = FONT_BOLD, Size = 9,
+		UDim2Size = UDim2.new(0.5, -6, 0, 14),
+		Position = UDim2.new(0.5, 0, 0, 6),
+		XAlign = Enum.TextXAlignment.Right,
+	})
+	
+	makeLabel(portFrame, {
+		Name = "AssetsVal", Text = "$0",
+		Color = C.amber, Font = FONT_MONO, Size = 14,
+		UDim2Size = UDim2.new(0.5, -6, 0, 20),
+		Position = UDim2.new(0.5, 0, 0, 22),
+		XAlign = Enum.TextXAlignment.Right,
+	})
 
 	leftScroll = scroll
 	return col, capFill, capText
@@ -569,9 +625,45 @@ local function createCenterColumn(parent)
 	makeLabel(inspector, {
 		Name = "BigPrice", Text = "$0.00",
 		Color = C.amber, Font = FONT_MONO, Size = 42,
-		UDim2Size = UDim2.new(1, 0, 0, 50),
-		Position = UDim2.new(0, 0, 0, 40),
-		XAlign = Enum.TextXAlignment.Center,
+		UDim2Size = UDim2.new(0, 200, 0, 50),
+		Position = UDim2.new(0, 10, 0, 35),
+		XAlign = Enum.TextXAlignment.Left,
+	})
+	
+	-- Extra Stats frame
+	local statsFrame = Instance.new("Frame")
+	statsFrame.Name = "ExtraStats"
+	statsFrame.Size = UDim2.new(1, -220, 0, 50)
+	statsFrame.Position = UDim2.new(0, 210, 0, 35)
+	statsFrame.BackgroundTransparency = 1
+	statsFrame.Parent = inspector
+
+	-- High
+	makeLabel(statsFrame, {
+		Name = "LblHigh", Text = "24H HIGH", Color = C.muted, Font = FONT_BOLD, Size = 9,
+		UDim2Size = UDim2.new(0.3, 0, 0, 15), Position = UDim2.new(0, 0, 0, 5),
+	})
+	makeLabel(statsFrame, {
+		Name = "ValHigh", Text = "$--", Color = C.green, Font = FONT_MONO, Size = 14,
+		UDim2Size = UDim2.new(0.3, 0, 0, 20), Position = UDim2.new(0, 0, 0, 20),
+	})
+	-- Low
+	makeLabel(statsFrame, {
+		Name = "LblLow", Text = "24H LOW", Color = C.muted, Font = FONT_BOLD, Size = 9,
+		UDim2Size = UDim2.new(0.3, 0, 0, 15), Position = UDim2.new(0.33, 0, 0, 5),
+	})
+	makeLabel(statsFrame, {
+		Name = "ValLow", Text = "$--", Color = C.red, Font = FONT_MONO, Size = 14,
+		UDim2Size = UDim2.new(0.3, 0, 0, 20), Position = UDim2.new(0.33, 0, 0, 20),
+	})
+	-- Vol
+	makeLabel(statsFrame, {
+		Name = "LblVol", Text = "TOTAL VOLUME", Color = C.muted, Font = FONT_BOLD, Size = 9,
+		UDim2Size = UDim2.new(0.3, 0, 0, 15), Position = UDim2.new(0.66, 0, 0, 5),
+	})
+	makeLabel(statsFrame, {
+		Name = "ValVol", Text = "--", Color = C.white, Font = FONT_MONO, Size = 14,
+		UDim2Size = UDim2.new(0.3, 0, 0, 20), Position = UDim2.new(0.66, 0, 0, 20),
 	})
 
 	-- Sector + trend row
@@ -582,7 +674,7 @@ local function createCenterColumn(parent)
 		Position = UDim2.new(0, 0, 0, 95),
 		XAlign = Enum.TextXAlignment.Center,
 	})
-	
+
 	-- Item Sparkline graph
 	local iGraphFrame = Instance.new("Frame")
 	iGraphFrame.Name = "GraphFrame"
@@ -593,6 +685,28 @@ local function createCenterColumn(parent)
 	iGraphFrame.BorderSizePixel = 0
 	iGraphFrame.Parent = inspector
 	addCorner(iGraphFrame, UDim.new(0, 4))
+	
+	-- Your Position Box
+	local posFrame = Instance.new("Frame")
+	posFrame.Name = "PositionFrame"
+	posFrame.Size = UDim2.new(0.9, 0, 0, 45)
+	posFrame.Position = UDim2.new(0.05, 0, 1, -55)
+	posFrame.BackgroundColor3 = C.bg
+	posFrame.BorderSizePixel = 0
+	posFrame.Parent = inspector
+	addCorner(posFrame)
+	addStroke(posFrame)
+
+	makeLabel(posFrame, {
+		Name = "PosTitle", Text = "YOUR POSITION", Color = C.amberDim, Font = FONT_BOLD, Size = 10,
+		UDim2Size = UDim2.new(1, -16, 0, 14), Position = UDim2.new(0, 8, 0, 6)
+	})
+
+	makeLabel(posFrame, {
+		Name = "PosText", Text = "You own: 0  |  Avg Buy Price: $--  |  Total Profit: $--",
+		Color = C.white, Font = FONT_MONO, Size = 12,
+		UDim2Size = UDim2.new(1, -16, 0, 20), Position = UDim2.new(0, 8, 0, 22)
+	}).RichText = true
 
 	task.spawn(function()
 		local spark = SparklineRenderer.new(iGraphFrame, Vector2.new(512, 160))
@@ -637,7 +751,7 @@ local function createAssetRow(parent, itemId, count)
 	makeLabel(row, {
 		Name = "Name", Text = itemInfo.displayName or itemId,
 		Color = C.white, Font = FONT_REG, Size = 10,
-		UDim2Size = UDim2.new(1, -72, 1, 0),
+		UDim2Size = UDim2.new(1, -110, 1, 0),
 		Position = UDim2.new(0, 22, 0, 0),
 	})
 
@@ -646,18 +760,20 @@ local function createAssetRow(parent, itemId, count)
 		Name = "Qty", Text = "x" .. count,
 		Color = C.amber, Font = FONT_MONO, Size = 10,
 		UDim2Size = UDim2.new(0, 30, 1, 0),
-		Position = UDim2.new(1, -50, 0, 0),
+		Position = UDim2.new(1, -90, 0, 0),
 		XAlign = Enum.TextXAlignment.Right,
 	})
 
-	-- Trend arrow
+	-- Trend arrow + amount
+	local pctChange = (rate - 1.0) * 100
 	makeLabel(row, {
 		Name = "Trend",
-		Text = trending and "▲" or "▼",
+		Text = string.format("%s %+.1f%%", trending and "▲" or "▼", pctChange),
 		Color = trending and C.green or C.red,
-		Font = FONT_MONO, Size = 12,
-		UDim2Size = UDim2.new(0, 16, 1, 0),
-		Position = UDim2.new(1, -18, 0, 0),
+		Font = FONT_MONO, Size = 11,
+		UDim2Size = UDim2.new(0, 55, 1, 0),
+		Position = UDim2.new(1, -55, 0, 0),
+		XAlign = Enum.TextXAlignment.Right,
 	})
 
 	-- Click → inspect
@@ -716,9 +832,54 @@ function showItemInspector(itemId)
 		sectorInfo.TextColor3 = trending and C.green or C.red
 	end
 	
+	-- Update Stats
+	local history = itemHistories[itemId]
+	local highest = rate
+	local lowest = rate
+	if history then
+		for _, r in ipairs(history) do
+			if r > highest then highest = r end
+			if r < lowest then lowest = r end
+		end
+	end
+	
+	local basePrice = itemInfo.basePrice or 1
+	local highPrice = math.floor(basePrice * highest)
+	local lowPrice = math.floor(basePrice * lowest)
+	
+	local seed = 0
+	for i = 1, #itemId do seed = seed + string.byte(itemId, i) end
+	local hour = math.floor(os.time() / 3600)
+	local mockVol = math.floor(math.noise(seed, hour) * 5000 + 10000)
+	if mockVol < 0 then mockVol = -mockVol end
+
+	local statsFrame = inspectorFrame:FindFirstChild("ExtraStats")
+	if statsFrame then
+		local valHigh = statsFrame:FindFirstChild("ValHigh")
+		local valLow = statsFrame:FindFirstChild("ValLow")
+		local valVol = statsFrame:FindFirstChild("ValVol")
+		if valHigh then valHigh.Text = formatMoney(highPrice) end
+		if valLow then valLow.Text = formatMoney(lowPrice) end
+		if valVol then valVol.Text = tostring(mockVol) end
+	end
+	
+	local posFrame = inspectorFrame:FindFirstChild("PositionFrame")
+	if posFrame then
+		local posText = posFrame:FindFirstChild("PosText")
+		if posText then
+			local owned = currentStorage[itemId] or 0
+			local avgBuy = basePrice
+			local profit = owned * (price - avgBuy)
+			local profitStr = (profit >= 0) and ("+" .. formatMoney(profit)) or ("-" .. formatMoney(math.abs(profit)))
+			local profitColor = profit >= 0 and "#00ff88" or "#ff3333"
+			
+			posText.Text = string.format("You own: %d  |  Avg Buy Price: %s  |  Total Profit: <font color=\"%s\">%s</font>",
+				owned, formatMoney(avgBuy), profitColor, profitStr)
+		end
+	end
+	
 	-- Update sparkline
 	if itemSparkline then
-		local history = itemHistories[itemId]
 		if history and #history >= 2 then
 			itemSparkline:Update(history, C.green, C.red)
 		end
@@ -748,19 +909,39 @@ local function updateLeftColumn()
 	end
 	table.sort(sorted, function(a, b) return a.count > b.count end)
 
+	local totalAssetValue = 0
 	for _, item in ipairs(sorted) do
 		createAssetRow(leftScroll, item.id, item.count)
+		local price = getLivePrice(item.id)
+		totalAssetValue = totalAssetValue + (price * item.count)
 	end
 
 	-- Update capacity bar
 	if stoCapFill then
 		local ratio = math.clamp(storageUsage / math.max(1, storageCapacity), 0, 1)
 		TweenService:Create(stoCapFill, TweenInfo.new(0.3), {Size = UDim2.new(ratio, 0, 1, 0)}):Play()
-		local color = ratio > 0.9 and C.red or (ratio > 0.7 and C.amber or C.amber)
+		local color = ratio >= 1 and C.red or (ratio > 0.7 and C.amber or C.amber)
 		stoCapFill.BackgroundColor3 = color
+		
+		local warnLabel = leftScroll.Parent:FindFirstChild("CapacityWarning")
+		if warnLabel then
+			warnLabel.Visible = (ratio >= 1)
+		end
 	end
 	if stoCapText then
 		stoCapText.Text = string.format("%d/%d", storageUsage, storageCapacity)
+	end
+	
+	local portFrame = leftScroll.Parent:FindFirstChild("PortfolioFrame")
+	if portFrame then
+		local liquidVal = portFrame:FindFirstChild("LiquidVal")
+		if liquidVal and Player:FindFirstChild("leaderstats") and Player.leaderstats:FindFirstChild("Money") then
+			liquidVal.Text = formatMoney(Player.leaderstats.Money.Value)
+		end
+		local assetsVal = portFrame:FindFirstChild("AssetsVal")
+		if assetsVal then
+			assetsVal.Text = formatMoney(totalAssetValue)
+		end
 	end
 end
 

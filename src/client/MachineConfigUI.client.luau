@@ -10,7 +10,7 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
--- Removed unused TweenService and RunService
+local CollectionService = game:GetService("CollectionService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -271,7 +271,7 @@ local function buildUI()
 		Text = "⚙️ Production",
 		Color = COLORS.TAB_ACTIVE,
 		Size = 14,
-		FrameSize = UDim2.new(0.5, -4, 1, 0),
+		FrameSize = UDim2.new(0.33, -4, 1, 0),
 		Corner = 8,
 		Parent = tabsContainer,
 	})
@@ -281,7 +281,17 @@ local function buildUI()
 		Text = "📿 Equipment",
 		Color = COLORS.TAB_INACTIVE,
 		Size = 14,
-		FrameSize = UDim2.new(0.5, -4, 1, 0),
+		FrameSize = UDim2.new(0.33, -4, 1, 0),
+		Corner = 8,
+		Parent = tabsContainer,
+	})
+	
+	local synTab = createButton({
+		Name = "SynergiesTab",
+		Text = "🔗 Synergies",
+		Color = COLORS.TAB_INACTIVE,
+		Size = 14,
+		FrameSize = UDim2.new(0.34, -4, 1, 0),
 		Corner = 8,
 		Parent = tabsContainer,
 	})
@@ -445,6 +455,30 @@ local function buildUI()
 	invLayout.Padding = UDim.new(0, 4)
 	invLayout.Parent = invScroll
 	
+	-- 3. Synergies Container (Synergies Tab)
+	local synergiesContainer = createFrame({
+		Name = "SynergiesContainer",
+		Transparency = 1,
+		Size = UDim2.new(1, 0, 1, 0),
+		Parent = contentArea,
+	})
+	synergiesContainer.Visible = false
+	
+	local synScroll = Instance.new("ScrollingFrame")
+	synScroll.Name = "Scroll"
+	synScroll.Size = UDim2.new(1, 0, 1, 0)
+	synScroll.BackgroundTransparency = 1
+	synScroll.BorderSizePixel = 0
+	synScroll.ScrollBarThickness = 4
+	synScroll.ScrollBarImageColor3 = COLORS.ACCENT
+	synScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+	synScroll.Parent = synergiesContainer
+	
+	local synLayout = Instance.new("UIListLayout")
+	synLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	synLayout.Padding = UDim.new(0, 8)
+	synLayout.Parent = synScroll
+	
 	return {
 		gui = screenGui,
 		backdrop = backdrop,
@@ -454,8 +488,12 @@ local function buildUI()
 		closeBtn = closeBtn,
 		prodTab = prodTab,
 		equipTab = equipTab,
+		synTab = synTab,
 		modesContainer = modesContainer,
 		equipmentContainer = equipmentContainer,
+		synergiesContainer = synergiesContainer,
+		synScroll = synScroll,
+		synLayout = synLayout,
 		applyBtn = applyBtn,
 		previewFrame = previewFrame,
 		slotsFrame = slotsFrame,
@@ -476,23 +514,30 @@ local modeCards = {}
 local function switchTab(tabName)
 	currentTab = tabName
 	
+	ui.prodTab.BackgroundColor3 = COLORS.TAB_INACTIVE
+	ui.equipTab.BackgroundColor3 = COLORS.TAB_INACTIVE
+	ui.synTab.BackgroundColor3 = COLORS.TAB_INACTIVE
+	ui.modesContainer.Visible = false
+	ui.equipmentContainer.Visible = false
+	ui.synergiesContainer.Visible = false
+	ui.applyBtn.Visible = false
+	
 	if tabName == "Production" then
 		ui.prodTab.BackgroundColor3 = COLORS.TAB_ACTIVE
-		ui.equipTab.BackgroundColor3 = COLORS.TAB_INACTIVE
 		ui.modesContainer.Visible = true
-		ui.equipmentContainer.Visible = false
 		ui.applyBtn.Visible = true
-	else
-		ui.prodTab.BackgroundColor3 = COLORS.TAB_INACTIVE
+	elseif tabName == "Equipment" then
 		ui.equipTab.BackgroundColor3 = COLORS.TAB_ACTIVE
-		ui.modesContainer.Visible = false
 		ui.equipmentContainer.Visible = true
-		ui.applyBtn.Visible = false
+	elseif tabName == "Synergies" then
+		ui.synTab.BackgroundColor3 = COLORS.TAB_ACTIVE
+		ui.synergiesContainer.Visible = true
 	end
 end
 
 ui.prodTab.MouseButton1Click:Connect(function() switchTab("Production") end)
 ui.equipTab.MouseButton1Click:Connect(function() switchTab("Equipment") end)
+ui.synTab.MouseButton1Click:Connect(function() switchTab("Synergies") end)
 
 --------------------------------------------------------------------------------
 -- PRODUCTION TAB LOGIC
@@ -659,11 +704,15 @@ local function createModeCard(modeInfo, index, isCurrent, isBest)
 end
 
 function refreshModeCards()
-	-- Clear existing cards
+	-- Clear existing cards and banner
 	for _, card in ipairs(modeCards) do
 		card:Destroy()
 	end
 	modeCards = {}
+	
+	if ui.modesContainer:FindFirstChild("SynergyBanner") then
+		ui.modesContainer.SynergyBanner:Destroy()
+	end
 	
 	if not currentData then return end
 	
@@ -672,6 +721,56 @@ function refreshModeCards()
 	local modes = ItemConfig.GetAvailableModes(unitType, level)
 	
 	if #modes == 0 then return end
+	
+	-- Synergy checking
+	local activeSynergy = nil
+	if currentData.gridSlot and currentData.unitType then
+		local slotToUnit = {}
+		for _, unit in CollectionService:GetTagged("ActiveBrainrot") do
+			if unit:GetAttribute("OwnerId") == player.UserId then
+				local slot = unit:GetAttribute("GridSlot")
+				if slot then slotToUnit[slot] = unit end
+			end
+		end
+		local clusterIdx = math.floor((currentData.gridSlot - 1) / 4)
+		local baseSlot = clusterIdx * 4 + 1
+		local clusterSlots = { baseSlot, baseSlot+1, baseSlot+2, baseSlot+3 }
+		for _, neighborSlot in ipairs(clusterSlots) do
+			if neighborSlot ~= currentData.gridSlot and slotToUnit[neighborSlot] then
+				local nType = slotToUnit[neighborSlot]:GetAttribute("UnitType")
+				if nType then
+					local syn = ItemConfig.GetSynergyOverride(currentData.unitType, nType)
+					if syn then activeSynergy = syn; break end
+				end
+			end
+		end
+	end
+
+	-- Add Active Synergy Banner
+	if activeSynergy then
+		local synItem = ItemConfig.Items[activeSynergy.synergyItem]
+		local bannerStr = string.format("✨ SYNERGY ACTIVE: Producing %s %s at %sx Speed! ✨", synItem.icon or "", synItem.displayName or "", activeSynergy.bonus)
+		local banner = createFrame({
+			Name = "SynergyBanner",
+			Color = Color3.fromRGB(80, 40, 100), -- Deep purple
+			Size = UDim2.new(1, 0, 0, 36),
+			Corner = 8,
+			Stroke = COLORS.SYNERGY,
+			Parent = ui.modesContainer,
+		})
+		banner.LayoutOrder = -1 -- Keep it at the top
+		
+		createLabel({
+			Name = "BannerText",
+			Text = bannerStr,
+			Font = FONT.TITLE,
+			Size = 13,
+			Color = Color3.fromRGB(240, 200, 255),
+			AlignX = Enum.TextXAlignment.Center,
+			FrameSize = UDim2.new(1, 0, 1, 0),
+			Parent = banner,
+		})
+	end
 	
 	-- Find best RPS mode
 	local bestIdx = 1
@@ -694,6 +793,138 @@ function refreshModeCards()
 		local card = createModeCard(mode, mode.modeIndex, isCurrent, isBest)
 		table.insert(modeCards, card)
 	end
+end
+
+function refreshSynergies()
+	for _, c in ui.synScroll:GetChildren() do
+		if c:IsA("Frame") then c:Destroy() end
+	end
+	
+	if not currentData or not currentData.unitType then return end
+	
+	-- Active synergy detection
+	local slotToUnit = {}
+	for _, unit in CollectionService:GetTagged("ActiveBrainrot") do
+		if unit:GetAttribute("OwnerId") == player.UserId then
+			local slot = unit:GetAttribute("GridSlot")
+			if slot then slotToUnit[slot] = unit end
+		end
+	end
+	local clusterIdx = math.floor((currentData.gridSlot - 1) / 4)
+	local baseSlot = clusterIdx * 4 + 1
+	local clusterSlots = { baseSlot, baseSlot+1, baseSlot+2, baseSlot+3 }
+	local activeNeighbors = {}
+	for _, neighborSlot in ipairs(clusterSlots) do
+		if neighborSlot ~= currentData.gridSlot and slotToUnit[neighborSlot] then
+			local nType = slotToUnit[neighborSlot]:GetAttribute("UnitType")
+			if nType then activeNeighbors[nType] = true end
+		end
+	end
+
+	-- List all possible synergies for this unit
+	local possibleSynergies = {}
+	for _, syn in ipairs(ItemConfig.Synergies or {}) do
+		if syn.unitA == currentData.unitType then
+			table.insert(possibleSynergies, { partner = syn.unitB, data = syn })
+		elseif syn.unitB == currentData.unitType then
+			table.insert(possibleSynergies, { partner = syn.unitA, data = syn })
+		end
+	end
+	
+	if #possibleSynergies == 0 then
+		createLabel({
+			Text = "This unit has no known synergies.",
+			Color = COLORS.TEXT_DIM,
+			Size = 14,
+			AlignX = Enum.TextXAlignment.Center,
+			Parent = ui.synScroll,
+		})
+		return
+	end
+	
+	for i, pSyn in ipairs(possibleSynergies) do
+		local isActive = activeNeighbors[pSyn.partner] == true
+		local color = isActive and COLORS.CARD_SELECTED or COLORS.CARD
+		local strokeColor = isActive and COLORS.SYNERGY or COLORS.BORDER
+		
+		local card = createFrame({
+			Name = "SynCard_" .. i,
+			Color = color,
+			Size = UDim2.new(1, -10, 0, 80),
+			Position = UDim2.new(0, 5, 0, 0),
+			Corner = 8,
+			Stroke = strokeColor,
+			Parent = ui.synScroll,
+		})
+		card.LayoutOrder = i
+		
+		local outItem = ItemConfig.Items[pSyn.data.synergyItem]
+		local outName = outItem and outItem.displayName or "Unknown"
+		local outIcon = outItem and outItem.icon or "📦"
+		
+		createLabel({
+			Text = outIcon,
+			Size = 32,
+			AlignX = Enum.TextXAlignment.Center,
+			FrameSize = UDim2.new(0, 60, 1, 0),
+			Parent = card,
+		})
+		
+		createLabel({
+			Text = string.format("Produces: %s %s", outIcon, outName),
+			Font = FONT.TITLE,
+			Size = 14,
+			Color = COLORS.TEXT,
+			FrameSize = UDim2.new(1, -140, 0, 20),
+			Position = UDim2.new(0, 60, 0, 10),
+			Parent = card,
+		})
+		
+		createLabel({
+			Text = string.format("Requires: 🧩 %s", pSyn.partner),
+			Size = 12,
+			Color = COLORS.TEXT_DIM,
+			FrameSize = UDim2.new(1, -140, 0, 16),
+			Position = UDim2.new(0, 60, 0, 32),
+			Parent = card,
+		})
+		
+		createLabel({
+			Text = string.format("⚡ +%.0f%% Speed", (pSyn.data.bonus - 1) * 100),
+			Size = 12,
+			Color = COLORS.ACCENT_GREEN,
+			FrameSize = UDim2.new(1, -140, 0, 16),
+			Position = UDim2.new(0, 60, 0, 52),
+			Parent = card,
+		})
+		
+		if isActive then
+			createLabel({
+				Name = "ActiveLabel",
+				Text = "▶ ACTIVE",
+				Font = FONT.TITLE,
+				Size = 12,
+				Color = COLORS.SYNERGY,
+				AlignX = Enum.TextXAlignment.Right,
+				FrameSize = UDim2.new(0, 70, 0, 20),
+				Position = UDim2.new(1, -86, 0.5, -10),
+				Parent = card,
+			})
+		else
+			createLabel({
+				Name = "InactiveLabel",
+				Text = "INACTIVE",
+				Size = 12,
+				Color = COLORS.TEXT_LOCKED,
+				AlignX = Enum.TextXAlignment.Right,
+				FrameSize = UDim2.new(0, 70, 0, 20),
+				Position = UDim2.new(1, -86, 0.5, -10),
+				Parent = card,
+			})
+		end
+	end
+	
+	ui.synScroll.CanvasSize = UDim2.new(0, 0, 0, ui.synLayout.AbsoluteContentSize.Y + 10)
 end
 
 --------------------------------------------------------------------------------
@@ -1006,6 +1237,7 @@ local function openUI(unitData)
 	refreshModeCards()
 	setupPreview(unitData.unitType)
 	refreshEquipment()
+	refreshSynergies()
 	
 	-- Reset tab to Production
 	switchTab("Production")

@@ -214,17 +214,28 @@ local function produceItems(player)
 			
 			-- Determine what to produce
 			local outputItemId, outputRate, consumes
-			
-			-- Check synergy override first
 			local synergy = checkClusterSynergy(gridPositions, slotIndex, unitType)
+			local unitModel = findUnitInSlot(player, slotIndex)
 			
 			if synergy then
-				-- Synergy active: produce composite item with bonus rate
-				local baseProd = ItemConfig.GetModeProduction(unitType, currentMode, level)
-				if baseProd then
-					outputItemId = synergy.synergyItem
-					outputRate = baseProd.rate / synergy.bonus -- Faster with synergy bonus
-					consumes = baseProd.consumes
+				-- Synergy active: only the primary unit (unitA) actually produces the composite item
+				if unitType == synergy.unitA then
+					local baseProd = ItemConfig.GetModeProduction(unitType, currentMode, level)
+					if baseProd then
+						outputItemId = synergy.synergyItem
+						outputRate = baseProd.rate / synergy.bonus -- Faster with synergy bonus
+						consumes = baseProd.consumes
+					end
+				elseif unitType == synergy.unitB then
+					-- This is the secondary unit providing the synergy.
+					-- It does not produce anything itself.
+					-- We still update its attributes so the HUD shows its status
+					if unitModel then
+						unitModel:SetAttribute("LastProductionTime", now)
+						unitModel:SetAttribute("IncomeInterval", 9999) -- effectively paused
+						unitModel:SetAttribute("CurrentProducing", "SYNERGY_PROVIDER")
+					end
+					continue
 				end
 			else
 				-- Normal: produce selected mode item
@@ -239,7 +250,6 @@ local function produceItems(player)
 			if not outputItemId or not outputRate then continue end
 			
 			-- Apply tile/artifact bonuses
-			local unitModel = findUnitInSlot(player, slotIndex)
 			local bonuses = calculateUnitBonuses(player, unitModel)
 			local adjustedRate = math.max(0.1, outputRate * bonuses.speedMult)
 			

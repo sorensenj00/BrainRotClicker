@@ -501,4 +501,13 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
+local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
+if adminEvent then
+	adminEvent.Event:Connect(function(shopName)
+		if shopName == "ConvenienceUpgrades" then
+			openShop()
+		end
+	end)
+end
+
 print("✓ ConvenienceUpgradesUI initialized")

@@ -326,4 +326,13 @@ closeBtn.MouseButton1Click:Connect(function()
 	_interaction:Close()
 end)
 
+local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
+if adminEvent then
+	adminEvent.Event:Connect(function(shopName)
+		if shopName == "CartShop" then
+			openShop()
+		end
+	end)
+end
+
 print("✓ CartShopUI initialized")

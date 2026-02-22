@@ -126,8 +126,19 @@ function BuildGridVisualizer.Render(gridState)
 	
 	gridTiles = {}
 	
-	-- Create 16 tiles (Standard layout)
-	for slotIndex = 1, 16 do
+	local totalSlots = 16
+	if gridState.gridSize then
+		local sizes = {
+			starter = 16,
+			bronze = 20,
+			silver = 25,
+			gold = 36
+		}
+		totalSlots = sizes[gridState.gridSize] or 16
+	end
+	
+	-- Create tiles dynamically based on grid size
+	for slotIndex = 1, totalSlots do
 		local cframe = GridTopology.GetSlotCFrame(plotCF, plotSize, slotIndex, 0.1)
 		
 		-- FIX: Safely check for number key (1) OR string key ("1")

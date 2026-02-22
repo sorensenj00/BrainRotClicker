@@ -359,7 +359,7 @@ function GridManager.Init(services)
 		}
 		for k, v in pairs(gridData.slots) do
 			if v.Unit then
-				serialized.slots[k] = {
+				serialized.slots[tostring(k)] = {
 					UnitName = v.Unit.Name
 				}
 			end

@@ -23,7 +23,8 @@ local AdminAction = RemoteEvents:WaitForChild("AdminAction")
 -- Configuration
 local UI_CONFIG = {
 	BUTTON_SIZE = UDim2.new(0, 50, 0, 50),
-	PANEL_SIZE = UDim2.new(0, 200, 0, 320), -- Increased for 4 buttons
+	PANEL_SIZE = UDim2.new(0, 200, 0, 560), -- Increased for 9 buttons
+
 	COLOR_PRIMARY = Color3.fromRGB(40, 40, 50),
 	COLOR_ACCENT = Color3.fromRGB(255, 100, 100), -- Red for dev
 	TEXT_COLOR = Color3.fromRGB(255, 255, 255),
@@ -131,6 +132,33 @@ createButton("💀 WIPE DATA", function()
 	if success then
 		game.Players.LocalPlayer:Kick("Data wiped! Rejoin for fresh start.")
 	end
+end)
+
+local adminEvent = ReplicatedStorage:FindFirstChild("AdminOpenShop")
+if not adminEvent then
+	adminEvent = Instance.new("BindableEvent")
+	adminEvent.Name = "AdminOpenShop"
+	adminEvent.Parent = ReplicatedStorage
+end
+
+createButton("🛒 Cart Shop", function()
+	adminEvent:Fire("CartShop")
+end)
+
+createButton("🏝️ Island Shop", function()
+	adminEvent:Fire("IslandShop")
+end)
+
+createButton("🧠 Machine Shop", function()
+	adminEvent:Fire("MachineShop")
+end)
+
+createButton("📦 Storage Shop", function()
+	adminEvent:Fire("StorageUpgrades")
+end)
+
+createButton("⚡ Conv. Shop", function()
+	adminEvent:Fire("ConvenienceUpgrades")
 end)
 
 -- Toggle Logic

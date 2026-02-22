@@ -53,91 +53,6 @@ local function getMarketManager()
 	return rawget(Services, "MarketManager")
 end
 
-local function createPlaceholderCart()
-	local m = Instance.new("Model")
-	m.Name = "TransportCart"
-	
-	-- Base (Anchored, PrimaryPart)
-	local base = Instance.new("Part")
-	base.Name = "PrimaryPart"
-	base.Size = Vector3.new(6, 2, 8)
-	base.BrickColor = BrickColor.new("Brown")
-	base.Material = Enum.Material.Wood
-	base.TopSurface = Enum.SurfaceType.Smooth
-	base.BottomSurface = Enum.SurfaceType.Smooth
-	base.Anchored = true -- Driven by TweenService
-	base.CanCollide = false -- Prevent sticking in geometry
-	base.Parent = m
-	m.PrimaryPart = base
-	
-	-- Wheels (Unanchored, Welded)
-	local function addWheel(name, x, z)
-		local w = Instance.new("Part")
-		w.Name = name
-		w.Size = Vector3.new(1, 2, 2)
-		w.BrickColor = BrickColor.new("Really black")
-		w.Material = Enum.Material.Metal
-		w.Shape = Enum.PartType.Cylinder
-		w.CFrame = base.CFrame * CFrame.new(x, -1, z) * CFrame.Angles(0, 0, math.pi/2)
-		w.Anchored = false
-		w.CanCollide = false
-		w.Parent = m
-		
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = base
-		weld.Part1 = w
-		weld.Parent = base
-	end
-	addWheel("Wheel_FR", 3.5, 3)
-	addWheel("Wheel_BR", 3.5, -3)
-	addWheel("Wheel_FL", -3.5, 3)
-	addWheel("Wheel_BL", -3.5, -3)
-	
-	-- Box (Unanchored, Welded)
-	local box = Instance.new("Part")
-	box.Name = "CartBox"
-	box.Size = Vector3.new(5, 3, 7)
-	box.Position = base.Position + Vector3.new(0, 2.5, 0)
-	box.BrickColor = BrickColor.new("Dirt brown")
-	box.Material = Enum.Material.WoodPlanks
-	box.Anchored = false
-	box.CanCollide = false
-	box.Transparency = 0
-	box.TopSurface = Enum.SurfaceType.Smooth
-	box.Parent = m
-	
-	local boxWeld = Instance.new("WeldConstraint")
-	boxWeld.Part0 = base
-	boxWeld.Part1 = box
-	boxWeld.Parent = base
-	
-	-- Capacity Bar (SurfaceGui)
-	local sg = Instance.new("SurfaceGui")
-	sg.Face = Enum.NormalId.Back
-	sg.CanvasSize = Vector2.new(200, 50)
-	sg.Parent = box
-	
-	local frame = Instance.new("Frame")
-	frame.Size = UDim2.new(1, 0, 1, 0)
-	frame.BackgroundColor3 = Color3.new(0, 0, 0)
-	frame.Parent = sg
-	
-	local bar = Instance.new("Frame")
-	bar.Name = "FillBar"
-	bar.Size = UDim2.new(0, 0, 1, 0)
-	bar.BackgroundColor3 = Color3.new(0, 1, 0)
-	bar.BorderSizePixel = 0
-	bar.Parent = frame
-	
-	-- Attachment for ProximityPrompt
-	local att = Instance.new("Attachment")
-	att.Name = "PromptAttachment"
-	att.Position = Vector3.new(0, 2, -4)
-	att.Parent = base
-	
-	return m
-end
-
 local function getCartTemplate(tier)
 	local tierName = "CartTier" .. (tier or 1)
 	local models = ReplicatedStorage:FindFirstChild("Models")
@@ -151,10 +66,7 @@ local function getCartTemplate(tier)
 	
 	if not t then
 		t = ServerStorage:FindFirstChild("TransportCart")
-		if not t then
-			t = createPlaceholderCart()
-			t.Parent = ServerStorage
-		end
+
 	end
 	return t
 end

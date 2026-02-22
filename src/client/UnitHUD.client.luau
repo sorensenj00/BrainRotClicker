@@ -314,26 +314,72 @@ end
 	Gets the item produced by a brainrot based on its model type.
 ]]
 --[[
-	Gets the item produced by a brainrot based on its model type.
-	Returns { icon: string, name: string, id: string }
+	Gets the item produced by a brainrot based on its model type, mode, and synergies.
+	Returns { icon: string, name: string, id: string, isSynergy: boolean }
 ]]
 local function getProducedItemInfo(brainrot: Instance)
+	
+	-- 1. Local Synergy Check (immediate update without waiting for server tick)
 	local unitType = brainrot:GetAttribute("UnitType")
+	local gridSlot = brainrot:GetAttribute("GridSlot")
+	
+	if unitType and gridSlot then
+		-- Find neighbors
+		local slotToUnit = {}
+		for _, unit in CollectionService:GetTagged("ActiveBrainrot") do
+			if unit:GetAttribute("OwnerId") == Player.UserId then
+				local slot = unit:GetAttribute("GridSlot")
+				if slot then slotToUnit[slot] = unit end
+			end
+		end
+		
+		local clusterIdx = math.floor((gridSlot - 1) / 4)
+		local baseSlot = clusterIdx * 4 + 1
+		local clusterSlots = { baseSlot, baseSlot+1, baseSlot+2, baseSlot+3 }
+		
+		for _, neighborSlot in ipairs(clusterSlots) do
+			if neighborSlot ~= gridSlot and slotToUnit[neighborSlot] then
+				local nType = slotToUnit[neighborSlot]:GetAttribute("UnitType")
+				if nType then
+					local syn = ItemConfig.GetSynergyOverride(unitType, nType)
+					if syn then
+						-- This unit is part of a synergy!
+						local synItemDef = ItemConfig.Items[syn.synergyItem]
+						if synItemDef then
+							return {
+								icon = synItemDef.icon or "✨",
+								name = synItemDef.displayName or "Synergy Item",
+								id = syn.synergyItem,
+								isSynergy = true
+							}
+						end
+					end
+				end
+			end
+		end
+	end
+	
+	-- 2. Fallback: Use selected mode and unit type
 	if unitType then
-		local mapping = ItemConfig.BrainrotItems[unitType]
-		if mapping then
-			local itemId = mapping.tier1 -- Always show tier 1 as baseline
+		local level = brainrot:GetAttribute("Level") or 1
+		local currentMode = brainrot:GetAttribute("CurrentMode") or 1
+		local prod = ItemConfig.GetModeProduction(unitType, currentMode, level)
+		
+		if prod then
+			local itemId = prod.itemId
 			local item = ItemConfig.Items[itemId]
 			if item then
 				return {
 					icon = item.icon or "📦",
 					name = item.displayName or "Item",
-					id = itemId
+					id = itemId,
+					isSynergy = false
 				}
 			end
 		end
 	end
-	return { icon = "📦", name = "Item", id = "" }
+	
+	return { icon = "📦", name = "Item", id = "", isSynergy = false }
 end
 
 --[[
@@ -374,7 +420,15 @@ local function updateHUDLabels(brainrot: Instance, billboard: BillboardGui)
 	local prodLabel = container:FindFirstChild("ProductionLabel")
 	if prodLabel then
 		local info = getProducedItemInfo(brainrot)
-		prodLabel.Text = string.format("Produces %s %s", info.icon, info.name)
+		
+		-- Highlight text if it's a synergy item
+		if info.isSynergy then
+			prodLabel.Text = string.format("✨ Produces %s %s ✨", info.icon, info.name)
+			prodLabel.TextColor3 = Color3.fromRGB(200, 100, 255) -- Purple Synergy Color
+		else
+			prodLabel.Text = string.format("Produces %s %s", info.icon, info.name)
+			prodLabel.TextColor3 = HUD_CONFIG.FLOAT_TEXT_COLOR
+		end
 	end
 end
 
@@ -420,7 +474,7 @@ local function setupBrainrotHUD(brainrot: Instance)
 	
 	-- Listen for attribute changes to keep HUD in sync
 	brainrot.AttributeChanged:Connect(function(attributeName)
-		if attributeName == "Level" or attributeName == "ItemTier" or attributeName == "Rarity" then
+		if attributeName == "Level" or attributeName == "ItemTier" or attributeName == "Rarity" or attributeName == "CurrentProducing" or attributeName == "CurrentMode" then
 			updateHUDLabels(brainrot, billboard)
 		end
 		if attributeName == "IncomeInterval" then

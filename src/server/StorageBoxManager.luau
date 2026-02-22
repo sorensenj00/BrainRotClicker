@@ -16,7 +16,7 @@ local STORAGE_CONFIG = {
 }
 
 local StorageBoxManager = {}
-local _Services = {}
+local _Services: any = {}
 
 --------------------------------------------------------------------------------
 -- STORAGE LOGIC

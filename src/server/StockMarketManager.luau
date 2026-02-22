@@ -39,7 +39,7 @@ local SECTORS = MarketConfig.SECTORS
 --------------------------------------------------------------------------------
 
 local StockMarketManager = {}
-local _Services = {}
+local _Services: any = {}
 
 local sectorRates = {}        -- { [sector] = currentMarketRate (DISPLAY RATE) }
 local baseSectorRates = {}    -- { [sector] = underlyingBaseRate (REAL VALUE) }
@@ -344,7 +344,7 @@ end
 
 function StockMarketManager.Init(services)
 	print("   StockMarketManager (Module) - Initializing")
-	Services = services or {}
+	_Services = services or {}
 	
 	MarketVolatilityService.Init()
 

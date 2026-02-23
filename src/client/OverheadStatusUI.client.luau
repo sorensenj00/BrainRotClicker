@@ -27,7 +27,7 @@ local BRAINROT_TAG = "ActiveBrainrot"
 
 local BILLBOARD_CONFIG = {
 	Size = UDim2.new(0, 52, 0, 52),
-	StudsOffset = Vector3.new(0, 4.5, 0),
+	StudsOffset = Vector3.new(0, 10, 0),
 	MaxDistance = 45,
 	AlwaysOnTop = false,
 }

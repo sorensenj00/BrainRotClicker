@@ -254,9 +254,6 @@ local function updateUI()
 	-- 1. Capacity
 	createUpgradeCard(contentFrame, "Capacity", "Cart Capacity", "📦", currentInfo.Capacity, "Capacity").LayoutOrder = 1
 	
-	-- 2. Speed
-	createUpgradeCard(contentFrame, "Speed", "Cart Speed", "⚡", currentInfo.Speed, "Speed").LayoutOrder = 2
-	
 	-- 3. Model
 	local modelData = currentInfo.Model
 	-- For display, show current model vs next model name

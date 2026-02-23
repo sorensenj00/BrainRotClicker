@@ -31,18 +31,6 @@ CartShopConfig.Upgrades = {
 			{ Price = 25000, Value = 6000 },-- Tier 5
 		}
 	},
-	Speed = {
-		Name = "Cart Speed",
-		Description = "Increase the speed of your cart.",
-		BaseValue = 40, -- Tier 0 (Default)
-		Tiers = {
-			{ Price = 750, Value = 60 },    -- Tier 1
-			{ Price = 2000, Value = 90 },   -- Tier 2
-			{ Price = 5000, Value = 130 },  -- Tier 3
-			{ Price = 12500, Value = 180 }, -- Tier 4
-			{ Price = 30000, Value = 250 }, -- Tier 5
-		}
-	}
 }
 
 CartShopConfig.Carts = {

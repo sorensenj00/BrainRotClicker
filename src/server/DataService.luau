@@ -43,7 +43,6 @@ type DataHandler = {
 
 type CartUpgrades = {
 	Capacity: number,
-	Speed: number,
 	Model: number
 }
 
@@ -72,7 +71,6 @@ local ProfileStore = ProfileService.GetProfileStore(
 		-- Cart Upgrades (Persisted)
 		CartUpgrades = {
 			Capacity = 0,
-			Speed = 0,
 			Model = 1 -- Tier 1 default
 		},
 		
@@ -154,9 +152,9 @@ end
 function DataService.GetCartUpgrades(player: Player)
 	local profile = Profiles[player]
 	if profile and profile.Data then
-		return profile.Data.CartUpgrades or { Capacity = 0, Speed = 0, Model = 1 }
+		return profile.Data.CartUpgrades or { Capacity = 0, Model = 1 }
 	end
-	return { Capacity = 0, Speed = 0, Model = 1 }
+	return { Capacity = 0, Model = 1 }
 end
 
 function DataService.SetCartUpgrades(player: Player, upgrades: CartUpgrades)

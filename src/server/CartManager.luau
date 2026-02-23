@@ -11,7 +11,7 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
-local Shared -- = ReplicatedStorage:WaitForChild("Shared") -- Moved to lazy load
+local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 
@@ -126,7 +126,7 @@ local function spawnCart(player)
 	
 	-- Get Data
 	local DataService = rawget(Services, "DataService")
-	local upgrades = { Capacity = CONFIG.DEFAULT_CAPACITY, Speed = CONFIG.ROLL_SPEED, Model = 1 }
+	local upgrades = { Capacity = CONFIG.DEFAULT_CAPACITY, Model = 1 }
 	if DataService then
 		upgrades = DataService.GetCartUpgrades(player)
 	end
@@ -147,14 +147,13 @@ local function spawnCart(player)
 	
 	local Config = require(ReplicatedStorage.Shared.CartShopConfig)
 	local capOverride = Config.GetValue("Capacity", upgrades.Capacity or 0)
-	local speedOverride = Config.GetValue("Speed", upgrades.Speed or 0)
 	
 	local data = {
 		Model = model,
 		State = "idle",
 		Inventory = {},
 		Capacity = capOverride > 0 and capOverride or CONFIG.DEFAULT_CAPACITY,
-		Speed = speedOverride > 0 and speedOverride or CONFIG.ROLL_SPEED,
+		Speed = CONFIG.ROLL_SPEED,
 		ModelTier = upgrades.Model or 1,
 		StartPos = spawnPos,
 		EndPos = mainPos + (dir * -12), -- Roll all the way down to the hole
@@ -287,7 +286,6 @@ function CartManager.ApplyUpgrades(player, upgrades)
 		return 
 	end
 
-	local Shared = ReplicatedStorage:WaitForChild("Shared")
 	local Config = require(Shared:WaitForChild("CartShopConfig"))
 	
 	-- Capacity
@@ -296,13 +294,8 @@ function CartManager.ApplyUpgrades(player, upgrades)
 		data.Capacity = capVal
 	end
 	
-	-- Speed
-	local speedVal = Config.GetValue("Speed", upgrades.Speed or 0)
-	if speedVal > 0 then
-		data.Speed = speedVal
-	else
-		data.Speed = CONFIG.ROLL_SPEED
-	end
+	-- Speed is now fixed
+	data.Speed = CONFIG.ROLL_SPEED
 	
 	updateCartVisuals(data)
 	CartUpdateEvent:FireClient(player, data.State, data.Inventory, data.Capacity)

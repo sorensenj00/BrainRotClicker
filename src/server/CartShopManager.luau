@@ -103,14 +103,13 @@ end
 
 function CartShopManager.GetUpgradeInfo(player)
 	local DataService = rawget(Services, "DataService")
-	local data = { Capacity = 0, Speed = 0, Model = 1 }
+	local data = { Capacity = 0, Model = 1 }
 	if DataService then
 		data = DataService.GetCartUpgrades(player)
 	end
 	
 	return {
 		Capacity = CartShopConfig.GetUpgradeInfo("Capacity", data.Capacity or 0),
-		Speed = CartShopConfig.GetUpgradeInfo("Speed", data.Speed or 0),
 		Model = CartShopConfig.GetUpgradeInfo("Model", data.Model or 1),
 		CurrentTiers = data
 	}

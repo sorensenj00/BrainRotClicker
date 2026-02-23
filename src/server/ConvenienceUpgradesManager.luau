@@ -295,6 +295,12 @@ function ConvenienceUpgradesManager.HandleUpgradePurchase(player, upgradeName)
 	updateCollectorBots(player)
 	ConvenienceUpgradesManager.ApplyBrainrotUpgrades(player)
 	
+	-- Refresh all global bonuses
+	local BonusManager = rawget(Services, "BonusManager")
+	if BonusManager and BonusManager.RefreshAll then
+		BonusManager.RefreshAll(player)
+	end
+	
 	return true, "Purchased!"
 end
 

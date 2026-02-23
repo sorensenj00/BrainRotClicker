@@ -269,7 +269,7 @@ local function createHoverTooltip(item, slotPosition)
 	tooltip.Parent = guiParent
 	
 	addCorner(tooltip, 12)
-	addStroke(tooltip, getRarityColor(item.Rarity), 2)
+	addStroke(tooltip, (item.Type == "Artifact" and getRarityColor(item.Rarity) or UI_CONFIG.COLOR_ACCENT), 2)
 	
 	-- Content padding
 	local padding = Instance.new("UIPadding")
@@ -292,8 +292,9 @@ local function createHoverTooltip(item, slotPosition)
 	
 	-- Header with rarity glow
 	local header = Instance.new("TextLabel")
-	header.Text = item.Rarity .. "  " .. item.Name
-	header.TextColor3 = getRarityColor(item.Rarity)
+	local rarityPrefix = item.Type == "Artifact" and (item.Rarity .. "  ") or ""
+	header.Text = rarityPrefix .. item.Name
+	header.TextColor3 = item.Type == "Artifact" and getRarityColor(item.Rarity) or UI_CONFIG.COLOR_TEXT
 	header.Font = Enum.Font.GothamBold
 	header.TextSize = 14
 	header.TextTruncate = Enum.TextTruncate.AtEnd
@@ -460,7 +461,7 @@ local function openDetailPopup(item)
 	popup.Parent = BackpackGui
 	
 	addCorner(popup, 16)
-	addStroke(popup, getRarityColor(item.Rarity), 2)
+	addStroke(popup, (item.Type == "Artifact" and getRarityColor(item.Rarity) or UI_CONFIG.COLOR_ACCENT), 2)
 	
 	-- Close Button (Top Right)
 	local close = Instance.new("TextButton")
@@ -489,7 +490,7 @@ local function openDetailPopup(item)
 	-- 1. Header (Name & Rarity)
 	local header = Instance.new("TextLabel")
 	header.Text = item.Name
-	header.TextColor3 = getRarityColor(item.Rarity)
+	header.TextColor3 = item.Type == "Artifact" and getRarityColor(item.Rarity) or UI_CONFIG.COLOR_TEXT
 	header.Font = Enum.Font.GothamBold
 	header.TextSize = 18
 	header.Size = UDim2.new(1, 0, 0, 24)

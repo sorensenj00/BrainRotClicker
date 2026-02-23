@@ -116,11 +116,21 @@ local function getItemPrice(itemId)
 	return math.floor((info.basePrice or 1) * getMarketRate(itemId))
 end
 
--- Player-specific price (uses welfare check)
+-- Player-specific price (uses welfare check + global bonuses)
 local function getPlayerItemPrice(player, itemId)
 	local info = ItemConfig.Items[itemId]
 	if not info then return 0 end
-	return math.floor((info.basePrice or 1) * getPlayerRate(player, itemId))
+	
+	local basePrice = info.basePrice or 1
+	local marketRate = getPlayerRate(player, itemId)
+	
+	local multi = 1.0
+	local BonusManager = rawget(Services, "BonusManager")
+	if BonusManager and BonusManager.GetTotalIncomeMultiplier then
+		multi = BonusManager.GetTotalIncomeMultiplier(player)
+	end
+	
+	return math.floor(basePrice * marketRate * multi)
 end
 
 -- Report sold volume to StockMarketManager for global price influence

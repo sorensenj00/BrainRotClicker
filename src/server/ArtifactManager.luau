@@ -188,6 +188,13 @@ function ArtifactManager.EquipArtifact(player, unitGUID, artifactGUID, slot)
 	-- We can skip visual sync attribute here if not critical or find unit manually.
 	
 	ArtifactEquippedEvent:FireClient(player, artifactGUID, unitGUID, slot, true)
+	
+	-- Refresh attributes to reflect new artifact stats in HUD
+	local ItemProductionManager = rawget(Services, "ItemProductionManager")
+	if ItemProductionManager and ItemProductionManager.RefreshUnitAttributes then
+		ItemProductionManager.RefreshUnitAttributes(player)
+	end
+	
 	return true
 end
 
@@ -203,6 +210,13 @@ function ArtifactManager.UnequipArtifact(player, unitGUID, slot)
 	targetArt.EquippedTo = nil
 	
 	ArtifactEquippedEvent:FireClient(player, targetArt.GUID, unitGUID, slot, false)
+	
+	-- Refresh attributes to reflect removed artifact stats in HUD
+	local ItemProductionManager = rawget(Services, "ItemProductionManager")
+	if ItemProductionManager and ItemProductionManager.RefreshUnitAttributes then
+		ItemProductionManager.RefreshUnitAttributes(player)
+	end
+	
 	return true
 end
 

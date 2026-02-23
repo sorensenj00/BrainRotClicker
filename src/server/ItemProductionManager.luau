@@ -10,17 +10,17 @@
 	- Speed scales smoothly with level via SpeedExponent
 ]]
 
-local Players = game:GetService("Players")
+local _Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 -- Lazy Configs
-local ItemConfig, ArtifactConfig
+local ItemConfig, _ArtifactConfig
 
-local function loadConfigs()
+local function _loadConfigs()
 	if not ItemConfig then
 		local Shared = ReplicatedStorage:WaitForChild("Shared")
 		ItemConfig = require(Shared:WaitForChild("ItemConfig"))
-		ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+		_ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
 	end
 end
 
@@ -118,13 +118,21 @@ local function calculateUnitBonuses(player, brainrot)
 	
 	-- Tile Bonus (REMOVED)
 	
-	-- Artifact Bonus
+	-- 1. Artifact Bonus (Per-Unit)
 	local ArtifactManager = rawget(Services, "ArtifactManager")
 	if unitGUID and ArtifactManager and ArtifactManager.CalculateUnitArtifactStats then
 		local artifactStats = ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
 		bonuses.speedMult = bonuses.speedMult * artifactStats.CycleTimeMult
 		bonuses.luckMult = bonuses.luckMult + artifactStats.LuckBonus
 		bonuses.tierBonus = bonuses.tierBonus + artifactStats.ItemTierBonus
+	end
+
+	-- 2. Global Bonus Aggregator (Prestige, Upgrades, Mewing)
+	local BonusManager = rawget(Services, "BonusManager")
+	if BonusManager then
+		bonuses.speedMult = bonuses.speedMult * BonusManager.GetTotalSpeedMultiplier(player)
+		-- Global luck is multiplier-based here for simplicity
+		bonuses.luckMult = bonuses.luckMult * BonusManager.GetTotalLuckMultiplier(player)
 	end
 	
 	bonuses.speedMult = math.max(bonuses.speedMult, 0.1)
@@ -164,6 +172,19 @@ local function checkClusterSynergy(gridPositions, slotIndex, unitType)
 	end
 	return nil
 end
+
+local function _calculateItemTier(level: number): number
+	local CONFIG_TIER_MILESTONES = { [1] = 1, [10] = 2, [50] = 3, [100] = 4 }
+	local currentTier = 1
+	local milestones = {1, 10, 50, 100}
+	for _, reqLevel in ipairs(milestones) do
+		if level >= reqLevel then
+			currentTier = CONFIG_TIER_MILESTONES[reqLevel]
+		end
+	end
+	return currentTier
+end
+
 
 --------------------------------------------------------------------------------
 -- V3: PER-SLOT PRODUCTION LOOP
@@ -331,15 +352,15 @@ function ItemProductionManager.Init(services)
 	print("   ItemProductionManager (Module) - Initializing [V3: Mode-Based]")
 	Services = services or {}
 	
-	loadConfigs()
-	CONFIG.BASE_ARTIFACT_DROP_CHANCE = ArtifactConfig.BaseDropChance
-	CONFIG.MAX_ARTIFACT_DROP_CHANCE = ArtifactConfig.MaxDropChance
+	_loadConfigs()
+	CONFIG.BASE_ARTIFACT_DROP_CHANCE = _ArtifactConfig.BaseDropChance
+	CONFIG.MAX_ARTIFACT_DROP_CHANCE = _ArtifactConfig.MaxDropChance
 	
 	-- Production Loop (no longer needs cache polling — reads grid directly)
 	task.spawn(function()
 		while true do
 			task.wait(CONFIG.PRODUCTION_TICK)
-			for _, player in Players:GetPlayers() do
+			for _, player in _Players:GetPlayers() do
 				local success, err = pcall(produceItems, player)
 				if not success then
 					warn("ItemProductionManager: Error producing for " .. player.Name .. ": " .. tostring(err))
@@ -348,10 +369,10 @@ function ItemProductionManager.Init(services)
 		end
 	end)
 	
-	Players.PlayerAdded:Connect(initPlayerCache)
-	Players.PlayerRemoving:Connect(function(player) PlayerCache[player] = nil end)
+	_Players.PlayerAdded:Connect(initPlayerCache)
+	_Players.PlayerRemoving:Connect(function(player) PlayerCache[player] = nil end)
 	
-	for _, p in Players:GetPlayers() do initPlayerCache(p) end
+	for _, p in _Players:GetPlayers() do initPlayerCache(p) end
 	
 	print("✓ ItemProductionManager Initialized [V3]")
 end
@@ -370,6 +391,63 @@ ItemProductionManager.GetCategoryCounts = function(player)
 		end
 	end
 	return counts
+end
+
+--[[
+	RefreshUnitAttributes: Updates physical model attributes (HUD/Visuals) for all placed units.
+	Ensures synergy, mode, and artifact bonuses are immediately reflected in the UI.
+]]
+function ItemProductionManager.RefreshUnitAttributes(player: Player)
+	local GridManager = rawget(Services, "GridManager")
+	if not GridManager then return end
+	
+	local gridPositions = GridManager.GetGridPositions(player)
+	if not gridPositions then return end
+	
+	_loadConfigs()
+	local _now = tick()
+	
+	for slotKey, slotData in pairs(gridPositions) do
+		local slotIndex = tonumber(slotKey)
+		local unitModel = findUnitInSlot(player, slotIndex)
+		if not unitModel then continue end
+		
+		local unitType = slotData.Unit.unitType
+		local level = slotData.Unit.level or 1
+		local currentMode = slotData.CurrentMode or 1
+		
+		local outputItemId, outputRate
+		local synergy = checkClusterSynergy(gridPositions, slotIndex, unitType)
+		
+		if synergy then
+			if unitType == synergy.unitA then
+				local baseProd = ItemConfig.GetModeProduction(unitType, currentMode, level)
+				if baseProd then
+					outputItemId = synergy.synergyItem
+					outputRate = baseProd.rate / synergy.bonus
+				end
+			elseif unitType == synergy.unitB then
+				outputItemId = "SYNERGY_PROVIDER"
+				outputRate = 9999
+			end
+		else
+			local prod = ItemConfig.GetModeProduction(unitType, currentMode, level)
+			if prod then
+				outputItemId = prod.itemId
+				outputRate = prod.rate
+			end
+		end
+		
+		if outputItemId and outputRate then
+			local bonuses = calculateUnitBonuses(player, unitModel)
+			local adjustedRate = math.max(0.1, outputRate * bonuses.speedMult)
+			
+			unitModel:SetAttribute("IncomeInterval", adjustedRate)
+			unitModel:SetAttribute("CurrentProducing", outputItemId)
+			unitModel:SetAttribute("ItemTier", _calculateItemTier(level))
+			unitModel:SetAttribute("Level", level)
+		end
+	end
 end
 
 return ItemProductionManager

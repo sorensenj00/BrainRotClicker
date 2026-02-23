@@ -81,6 +81,12 @@ local function breakStreak(player, reason)
 	
 	if had then
 		MewingUpdateEvent:FireClient(player, { type = "break", reason = reason })
+		
+		-- Refresh all global bonuses when streak breaks
+		local BonusManager = rawget(Services, "BonusManager")
+		if BonusManager and BonusManager.RefreshAll then
+			BonusManager.RefreshAll(player)
+		end
 	end
 end
 
@@ -131,6 +137,12 @@ local function updateMewingStreaks()
 				MewingUpdateEvent:FireClient(player, {
 					type = "tier_up", tier = newTier, name = tData.name, emoji = tData.emoji, multiplier = tData.multiplier
 				})
+				
+				-- Refresh all global bonuses when tier increases
+				local BonusManager = rawget(Services, "BonusManager")
+				if BonusManager and BonusManager.RefreshAll then
+					BonusManager.RefreshAll(player)
+				end
 			end
 		end
 	end

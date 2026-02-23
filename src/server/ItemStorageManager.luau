@@ -56,7 +56,7 @@ local _ItemConfig -- Reserved for future item validation
 
 -- State: Player storage holds FactoryItems (transient production resources)
 -- NOT for BrainrotUnits (permanent assets) - those go in InventoryManager
-local PlayerStorage: {[Player]: {items: ItemMap, capacity: number}} = {} 
+local PlayerStorage: {[Player]: {items: ItemMap, capacity: number, baseCapacity: number}} = {} 
 local PlayerBackpack: {[Player]: {items: ItemMap, capacity: number}} = {}
 
 -- Remotes
@@ -150,26 +150,24 @@ function ItemStorageManager.Init(services)
 	ds.RegisterHandler("ItemStorage", {
 		DefaultData = {},
 		OnLoad = function(player, data)
-			if not PlayerStorage[player] then
-				PlayerStorage[player] = { items = {}, capacity = CONFIG.DEFAULT_STORAGE_CAPACITY }
-			end
-			PlayerStorage[player].items = data or {}
-			
 			local root = ds.GetData(player)
-			if root and root.storageCapacity then
-				local cap = tonumber(root.storageCapacity)
-				if cap and cap > 0 then
-					PlayerStorage[player].capacity = cap
-				else
-					print("ItemStorageManager: Found invalid capacity " .. tostring(cap) .. ", resetting to default")
-					PlayerStorage[player].capacity = CONFIG.DEFAULT_STORAGE_CAPACITY
-				end
+			local baseCap = root and tonumber(root.baseStorageCapacity) or root and tonumber(root.storageCapacity) or CONFIG.DEFAULT_STORAGE_CAPACITY
+			local currentCap = root and tonumber(root.storageCapacity) or CONFIG.DEFAULT_STORAGE_CAPACITY
+			
+			if not PlayerStorage[player] then
+				PlayerStorage[player] = { 
+					items = data or {}, 
+					capacity = currentCap,
+					baseCapacity = baseCap
+				}
 			else
-				PlayerStorage[player].capacity = CONFIG.DEFAULT_STORAGE_CAPACITY
+				PlayerStorage[player].items = data or {}
+				PlayerStorage[player].capacity = currentCap
+				PlayerStorage[player].baseCapacity = baseCap
 			end
-
-			-- Sync attribute for UI
-			player:SetAttribute("StorageCapacity", PlayerStorage[player].capacity)
+			
+			-- Re-apply any global multipliers immediately on load
+			ItemStorageManager.RefreshCapacity(player)
 		end,
 		OnSave = function(player, data)
 			if PlayerStorage[player] then
@@ -336,15 +334,35 @@ function ItemStorageManager.SetBackpackCapacity(player, cap)
 end
 
 function ItemStorageManager.SetStorageCapacity(player, cap)
-	if not PlayerStorage[player] then PlayerStorage[player] = { items={}, capacity=cap} end
-	PlayerStorage[player].capacity = cap
-	player:SetAttribute("StorageCapacity", cap)
+	if not PlayerStorage[player] then PlayerStorage[player] = { items={}, capacity=cap, baseCapacity=cap } end
+	PlayerStorage[player].baseCapacity = cap
+	
+	ItemStorageManager.RefreshCapacity(player)
+end
 
-	-- Update DataService root if needed (legacy capacity storage)
+function ItemStorageManager.RefreshCapacity(player)
+	local storage = PlayerStorage[player]
+	if not storage then return end
+	
+	local BonusManager = rawget(Services, "BonusManager")
+	local multi = 1.0
+	if BonusManager and BonusManager.GetTotalStorageMultiplier then
+		multi = BonusManager.GetTotalStorageMultiplier(player)
+	end
+	
+	local newCap = math.floor(storage.baseCapacity * multi)
+	storage.capacity = newCap
+	
+	player:SetAttribute("StorageCapacity", newCap)
+	player:SetAttribute("BaseStorageCapacity", storage.baseCapacity)
+	
 	local ds = getDataService()
-	if ds then ds.SetComponentData(player, "storageCapacity", cap) end
+	if ds then 
+		ds.SetComponentData(player, "storageCapacity", newCap) 
+		ds.SetComponentData(player, "baseStorageCapacity", storage.baseCapacity)
+	end
 
-	StorageUpdatedEvent:FireClient(player, encodeItems(PlayerStorage[player].items), getTotalItemCount(PlayerStorage[player].items), cap)
+	StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), getTotalItemCount(storage.items), newCap)
 end
 
 function ItemStorageManager.TransferToBackpack(player, itemId, count)

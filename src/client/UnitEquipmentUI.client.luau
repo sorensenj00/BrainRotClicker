@@ -352,7 +352,7 @@ local function createEquipmentUI()
 	statsText.Size = UDim2.new(0.5, -5, 0, 50)
 	statsText.Position = UDim2.new(0, 5, 0, 22)
 	statsText.BackgroundTransparency = 1
-	statsText.Text = "Level: 1\nRarity: Normal\nGrid Slot: N/A"
+	statsText.Text = "Level: 1\nGrid Slot: N/A"
 	statsText.TextColor3 = CONFIG.THEME_TEXT_SECONDARY
 	statsText.TextSize = 11
 	statsText.Font = Enum.Font.Gotham
@@ -662,23 +662,8 @@ local function refreshEquipmentSlots()
 		end
 	end
 	
-	-- Display rarity bonus
-	if rarityBonusText and currentUnitData then
-		local rarity = currentUnitData.rarity or "Normal"
-		local Shared = ReplicatedStorage:FindFirstChild("Shared")
-		if Shared then
-			local RarityConfig = Shared:FindFirstChild("RarityConfig")
-			if RarityConfig then
-				local config = require(RarityConfig)
-				local mult = config.GetMultiplier(rarity)
-				if mult > 1 then
-					rarityBonusText.Text = "✨ Rarity Bonus: x" .. string.format("%.1f", mult) .. " income"
-				else
-					rarityBonusText.Text = ""
-				end
-			end
-		end
-	end
+	-- Rarity bonus removed
+	if rarityBonusText then rarityBonusText.Text = "" end
 end
 
 --[[

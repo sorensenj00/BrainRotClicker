@@ -169,6 +169,18 @@ local function findPlayerPlot(player)
 	return nil
 end
 
+local function _calculateItemTier(level: number): number
+	local CONFIG_TIER_MILESTONES = { [1] = 1, [10] = 2, [50] = 3, [100] = 4 }
+	local currentTier = 1
+	local milestones = {1, 10, 50, 100}
+	for _, reqLevel in ipairs(milestones) do
+		if level >= reqLevel then
+			currentTier = CONFIG_TIER_MILESTONES[reqLevel]
+		end
+	end
+	return currentTier
+end
+
 local function getPlotCFrameAndSize(plot)
 	-- Prioritize the explicit bounds part if it exists (New MapSystem)
 	local bounds = plot:FindFirstChild("PlotBounds_80x80")
@@ -189,21 +201,6 @@ local function getPlotCFrameAndSize(plot)
 	return CFrame.new(0, 5, 0), Vector3.new(50, 10, 50)
 end
 
-local function getTileAtSlot(player, slotIndex)
-	local gridData = getPlayerGrid(player)
-	local slot = gridData.slots[slotIndex]
-	return slot and slot.Tile
-end
-
-local function getFloorTopY(player)
-	local plot = findPlayerPlot(player)
-	if not plot then return 10 end
-	local floor = plot:FindFirstChild("Island") or plot:FindFirstChild("PlotFloor") or plot:FindFirstChild("Floor") or plot:FindFirstChildWhichIsA("BasePart")
-	if floor and floor:IsA("BasePart") then
-		return floor.Position.Y + (floor.Size.Y / 2)
-	end
-	return 10
-end
 
 local function getSlotCFrame(player, slotIndex)
 	local plot = findPlayerPlot(player)
@@ -220,9 +217,13 @@ local function repositionUnitOnTile(player, brainrot, slotIndex)
 		return 
 	end
 	local baseCFrame = getSlotCFrame(player, slotIndex)
-	print(string.format("[DEBUG] repositionUnitOnTile: Moving %s to slot %d at Y=%.1f", 
-		brainrot.Name, slotIndex, baseCFrame.Position.Y))
 	brainrot:PivotTo(baseCFrame)
+	
+	-- Immediately refresh unit attributes (Synergies, Production Info, HUD)
+	local ItemProductionManager = rawget(Services, "ItemProductionManager")
+	if ItemProductionManager and ItemProductionManager.RefreshUnitAttributes then
+		ItemProductionManager.RefreshUnitAttributes(player)
+	end
 end
 
 local function syncToProfile(player)
@@ -249,6 +250,7 @@ local function syncToProfile(player)
 		ds.SetComponentData(player, "GridPlacements", positions)
 	end
 end
+
 
 --------------------------------------------------------------------------------
 -- PUBLIC API
@@ -398,8 +400,14 @@ function GridManager.PlaceUnit(player, brainrot, slotIndex)
 		if part:IsA("BasePart") then part.Anchored = true end
 	end
 	
-	UnitPlacedEvent:FireClient(player, slotIndex, brainrot.Name)
 	syncToProfile(player)
+	
+	-- Refresh attributes for immediate synergy/HUD update
+	local IPM = rawget(Services, "ItemProductionManager")
+	if IPM and IPM.RefreshUnitAttributes then
+		IPM.RefreshUnitAttributes(player)
+	end
+	
 	return true
 end
 
@@ -491,6 +499,12 @@ function GridManager.MoveUnit(player, fromSlot, toSlot)
 	GridUpdatedEvent:FireClient(player, toSlot, brainrot.Name, "moved")
 	syncToProfile(player)
 	
+	-- Refresh attributes for immediate synergy/HUD update
+	local ItemProductionManager = rawget(Services, "ItemProductionManager")
+	if ItemProductionManager and ItemProductionManager.RefreshUnitAttributes then
+		ItemProductionManager.RefreshUnitAttributes(player)
+	end
+	
 	return true
 end
 
@@ -514,6 +528,13 @@ function GridManager.SwapUnits(player, slot1, slot2)
 	end
 	
 	syncToProfile(player)
+	
+	-- Refresh attributes for immediate synergy/HUD update
+	local IPM = rawget(Services, "ItemProductionManager")
+	if IPM and IPM.RefreshUnitAttributes then
+		IPM.RefreshUnitAttributes(player)
+	end
+	
 	return true
 end
 
@@ -532,6 +553,13 @@ function GridManager.StashUnit(player, slotIndex)
 	end
 	
 	syncToProfile(player)
+
+	-- Refresh attributes for immediate synergy/HUD update
+	local IPM = rawget(Services, "ItemProductionManager")
+	if IPM and IPM.RefreshUnitAttributes then
+		IPM.RefreshUnitAttributes(player)
+	end
+	
 	return true
 end
 
@@ -593,6 +621,13 @@ function GridManager.SetUnitMode(player, slotIndex, modeIndex)
 	ModeChangedEvent:FireClient(player, slotIndex, modeIndex, targetMode.itemId)
 	
 	syncToProfile(player)
+	
+	-- Refresh attributes for immediate mode UI update
+	local IPM = rawget(Services, "ItemProductionManager")
+	if IPM and IPM.RefreshUnitAttributes then
+		IPM.RefreshUnitAttributes(player)
+	end
+	
 	return true
 end
 

@@ -21,8 +21,7 @@ local Player = Players.LocalPlayer
 local ShopConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ShopConfig"))
 local ItemConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ItemConfig"))
 
--- Wait for RarityConfig to get colors
-local RarityConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("RarityConfig"))
+-- RarityConfig removed
 
 -- Configuration
 local HUD_CONFIG = {
@@ -167,24 +166,11 @@ local function createProgressHUD(brainrot: Instance): BillboardGui
 	statsLabel.TextXAlignment = Enum.TextXAlignment.Center
 	statsLabel.Parent = container
 	
-	-- Rarity label
-	local rarityLabel = Instance.new("TextLabel")
-	rarityLabel.Name = "RarityLabel"
-	rarityLabel.Size = UDim2.new(1, 0, 0, 12)
-	rarityLabel.Position = UDim2.new(0, 0, 0, 14)
-	rarityLabel.BackgroundTransparency = 1
-	rarityLabel.Text = "Normal"
-	rarityLabel.TextColor3 = HUD_CONFIG.SUBTEXT_COLOR
-	rarityLabel.TextSize = 10
-	rarityLabel.Font = Enum.Font.Gotham
-	rarityLabel.TextXAlignment = Enum.TextXAlignment.Center
-	rarityLabel.Parent = container
-
 	-- Production label (What it makes)
 	local prodLabel = Instance.new("TextLabel")
 	prodLabel.Name = "ProductionLabel"
 	prodLabel.Size = UDim2.new(1, 0, 0, 12)
-	prodLabel.Position = UDim2.new(0, 0, 0, 26)
+	prodLabel.Position = UDim2.new(0, 0, 0, 18)
 	prodLabel.BackgroundTransparency = 1
 	prodLabel.Text = "Produces: Item"
 	prodLabel.TextColor3 = HUD_CONFIG.FLOAT_TEXT_COLOR
@@ -401,7 +387,6 @@ local function updateHUDLabels(brainrot: Instance, billboard: BillboardGui)
 	
 	local level = brainrot:GetAttribute("Level") or 1
 	local tier = brainrot:GetAttribute("ItemTier") or 1
-	local rarity = brainrot:GetAttribute("Rarity") or "Normal"
 	
 	-- Update stats label
 	local statsLabel = container:FindFirstChild("StatsLabel")
@@ -409,12 +394,7 @@ local function updateHUDLabels(brainrot: Instance, billboard: BillboardGui)
 		statsLabel.Text = string.format("Lvl %d | Tier %d", level, tier)
 	end
 	
-	-- Update rarity label with color
-	local rarityLabel = container:FindFirstChild("RarityLabel")
-	if rarityLabel then
-		rarityLabel.Text = rarity
-		rarityLabel.TextColor3 = RarityConfig.GetColor(rarity)
-	end
+	-- Rarity label removed
 
 	-- Update production label
 	local prodLabel = container:FindFirstChild("ProductionLabel")
@@ -474,7 +454,7 @@ local function setupBrainrotHUD(brainrot: Instance)
 	
 	-- Listen for attribute changes to keep HUD in sync
 	brainrot.AttributeChanged:Connect(function(attributeName)
-		if attributeName == "Level" or attributeName == "ItemTier" or attributeName == "Rarity" or attributeName == "CurrentProducing" or attributeName == "CurrentMode" then
+		if attributeName == "Level" or attributeName == "ItemTier" or attributeName == "CurrentProducing" or attributeName == "CurrentMode" then
 			updateHUDLabels(brainrot, billboard)
 		end
 		if attributeName == "IncomeInterval" then

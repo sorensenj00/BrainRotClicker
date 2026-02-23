@@ -193,6 +193,12 @@ function PrestigeManager.Init(services)
 						upgrades = data.meatballUpgrades
 					})
 				end
+				
+				-- Refresh all global bonuses
+				local BonusManager = rawget(Services, "BonusManager")
+				if BonusManager and BonusManager.RefreshAll then
+					BonusManager.RefreshAll(player)
+				end
 			end
 		end
 	end)
@@ -262,6 +268,13 @@ function PrestigeManager.ExecutePrestige(player)
 	
 	player:LoadCharacter()
 	PrestigeEvent:FireClient(player, "PrestigeCompleted", { gained = pending, total = data.totalMeatballs })
+	
+	-- Refresh all global bonuses after prestige
+	local BonusManager = rawget(Services, "BonusManager")
+	if BonusManager and BonusManager.RefreshAll then
+		BonusManager.RefreshAll(player)
+	end
+	
 	return true
 end
 

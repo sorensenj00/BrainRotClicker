@@ -16,7 +16,7 @@ local Services = {}
 MapSystem.CONFIG = {
 	MAX_PLAYERS = 8,
 	PLOT_RADIUS = 400,
-	MAIN_ISLAND_HEIGHT = 30,
+	MAIN_ISLAND_HEIGHT = 60,
 }
 
 --------------------------------------------------------------------------------

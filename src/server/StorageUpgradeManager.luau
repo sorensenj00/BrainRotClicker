@@ -63,8 +63,9 @@ local function handleUpgradeStorage(player)
 	if not ISM then return false, "ItemStorageManager failed" end
 	
 	-- Calculate price
-	local currentCap = ISM.GetStorageCapacity(player)
-	local lvl = getUpgradeLevel(currentCap)
+	-- Calculate price using the BASE capacity (unmultiplied)
+	local baseCap = player:GetAttribute("BaseStorageCapacity") or CONFIG.BASE_STORAGE
+	local lvl = getUpgradeLevel(baseCap)
 	local price = getUpgradePrice(lvl)
 
 	local ls = player:FindFirstChild("leaderstats")
@@ -72,16 +73,17 @@ local function handleUpgradeStorage(player)
 	if not money or money.Value < price then return false, "Not enough money" end
 
 	money.Value -= price
-	local newCap = getNewMaxStorage(currentCap)
+	local newBaseCap = getNewMaxStorage(baseCap)
 
-	ISM.SetStorageCapacity(player, newCap)
+	-- Update the base capacity; RefreshCapacity will apply multipliers automatically
+	ISM.SetStorageCapacity(player, newBaseCap)
 
 	local nextLvl = lvl + 1
 	local nextPrice = getUpgradePrice(nextLvl)
-	local nextCap = getNewMaxStorage(newCap)
+	local nextCap = getNewMaxStorage(newBaseCap)
 
 	StorageUpgradedEvent:FireClient(player, {
-		currentMax = newCap,
+		currentMax = newBaseCap, -- Sending base values, client-side BonusManager handles display if needed
 		upgradeLevel = nextLvl,
 		nextPrice = nextPrice,
 		nextMaxStorage = nextCap

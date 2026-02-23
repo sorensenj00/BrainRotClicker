@@ -330,8 +330,6 @@ local StockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket")
 StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
 	if total >= capacity then
 		ShowToast("Storage is FULL! Units have stopped producing.", "error", 5)
-	elseif total >= capacity * 0.9 then
-		ShowToast("Storage is almost full! (" .. total .. "/" .. capacity .. ")", "warning", 3)
 	end
 end)
 

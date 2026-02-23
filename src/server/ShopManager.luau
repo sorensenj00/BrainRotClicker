@@ -222,8 +222,7 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	local InvMgr = rawget(Services, "InventoryManager")
 	if not InvMgr then return false, "Inventory System Offline" end
 	
-	local rarity = RarityConfig.RollRarity()
-	local newData = InvMgr.AddUnit(player, unitName, rarity)
+	local newData = InvMgr.AddUnit(player, unitName)
 	local newLevel = newData.level
 	
 	updateLegacyOwnedCount(player, unitName, newLevel)

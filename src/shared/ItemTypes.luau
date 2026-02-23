@@ -42,7 +42,6 @@ export type BrainrotUnit = {
 	Type: "Unit",               -- Always "Unit" for BrainrotUnits
 	Id: string,                 -- Model name (e.g. "Skibidi_Toilet")
 	Name: string,               -- Display name (e.g. "Skibidi Toilet")
-	Rarity: string,             -- "Normal", "Rare", "Legendary", etc.
 	Icon: string,               -- TextureId or Emoji for UI display
 	
 	-- State
@@ -114,7 +113,6 @@ export type CollectionItem = {
 	Type: CollectionItemType,
 	Id: string,
 	Name: string,
-	Rarity: string,
 	Icon: string,
 	
 	-- State (one will be relevant depending on Type)

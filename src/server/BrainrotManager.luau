@@ -117,17 +117,14 @@ end
 local function recalculateStats(unit: Instance)
 	local unitName = unit:GetAttribute("UnitType")
 	local level = unit:GetAttribute("Level") or 1
-	local rarity = unit:GetAttribute("Rarity") or "Normal"
 
 	if not unitName then return end
 	
-	local sc, rc = getConfigs()
+	local sc, _rc = getConfigs()
 	local effectiveIncome = sc.CalculateEffectiveIncome(unitName, level)
 	local effectiveCycleTime = sc.CalculateEffectiveCycleTime(unitName, level)
-	local rarityMult = rc.GetMultiplier(rarity)
-
-	local finalIncome = math.floor(effectiveIncome * rarityMult)
-	local finalInterval = math.max(0.1, effectiveCycleTime / rarityMult)
+	local finalIncome = effectiveIncome
+	local finalInterval = effectiveCycleTime
 
 	unit:SetAttribute("IncomeAmount", finalIncome)
 	unit:SetAttribute("IncomeInterval", finalInterval)
@@ -158,10 +155,7 @@ local function spawnOrUpdateUnit(player: Player, unitName: string, data: any): I
 	if existingUnit then
 		-- Update existing
 		local level = data.level or data.Level or 1
-		local rarity = data.rarity or data.Rarity or "Normal"
-		
 		existingUnit:SetAttribute("Level", level)
-		existingUnit:SetAttribute("Rarity", rarity)
 		
 		recalculateStats(existingUnit)
 		return existingUnit
@@ -180,10 +174,7 @@ local function spawnOrUpdateUnit(player: Player, unitName: string, data: any): I
 		brainrot:SetAttribute("UnitId", savedUnitId)
 		
 		local level = data.level or data.Level or 1
-		local rarity = data.rarity or data.Rarity or "Normal"
-		
 		brainrot:SetAttribute("Level", level)
-		brainrot:SetAttribute("Rarity", rarity)
 		brainrot:SetAttribute("GridSlot", nil)
 		brainrot:SetAttribute("IsStored", true)
 		
@@ -243,6 +234,12 @@ function BrainrotManager.Init(services)
 						
 						if existing then
 							spawnOrUpdateUnit(player, unitName, newData)
+							
+							-- Refresh all attributes (synergies/stats) after level up
+							local IPM = rawget(Services, "ItemProductionManager")
+							if IPM and IPM.RefreshUnitAttributes then
+								IPM.RefreshUnitAttributes(player)
+							end
 						end
 					end
 				end
@@ -260,12 +257,12 @@ function BrainrotManager.SpawnForGrid(player: Player, unitName: string, data: an
 	return spawnOrUpdateUnit(player, unitName, data)
 end
 
-function BrainrotManager.AddUnit(player: Player, unitName: string, forceRarity: string?, forceLevel: number?): Instance?
+function BrainrotManager.AddUnit(player: Player, unitName: string, forceLevel: number?): Instance?
 	-- Delegate to InventoryManager
 	local InventoryManager = rawget(Services, "InventoryManager")
 	
 	if InventoryManager then
-		local newData = InventoryManager.AddUnit(player, unitName, forceRarity, forceLevel)
+		local newData = InventoryManager.AddUnit(player, unitName, forceLevel)
 		if newData then
 			return spawnOrUpdateUnit(player, unitName, newData)
 		end
@@ -297,7 +294,6 @@ function BrainrotManager.GetPlacementData(player: Player)
 				
 				local unitData = data.Unit
 				entry.unitType = unitData.unitType
-				entry.rarity = unitData.rarity
 				entry.level = unitData.level
 				
 				table.insert(placements, entry)
@@ -315,7 +311,6 @@ function BrainrotManager.SpawnFromPlacement(player: Player, data: any)
 	local GridManager = rawget(Services, "GridManager")
 	
 	local unitType = data.unitType or (data.Unit and data.Unit.unitType)
-	local rarity = data.rarity or (data.Unit and data.Unit.rarity)
 	local level = data.level or (data.Unit and data.Unit.level)
 	local unitId = data.unitId or (data.Unit and data.Unit.unitId)
 	
@@ -323,7 +318,6 @@ function BrainrotManager.SpawnFromPlacement(player: Player, data: any)
 	
 	local unit = spawnOrUpdateUnit(player, unitType, {
 		level = level,
-		rarity = rarity,
 		unitId = unitId
 	})
 	
@@ -334,11 +328,9 @@ function BrainrotManager.SpawnFromPlacement(player: Player, data: any)
 end
 
 function BrainrotManager.SetInventoryData(player: Player, inventoryData: any)
-	for unitName, rarityData in pairs(inventoryData) do
-		for rarity, counts in pairs(rarityData) do
-			if counts.total > 0 then
-				BrainrotManager.AddUnit(player, unitName, rarity, counts.total)
-			end
+	for unitName, levelData in pairs(inventoryData) do
+		if levelData.total > 0 then
+			BrainrotManager.AddUnit(player, unitName, levelData.total)
 		end
 	end
 end
@@ -360,14 +352,13 @@ function BrainrotManager.GetPlayerPlot(player)
 end
 
 -- Spawn directly at slot (legacy wrapper)
-function BrainrotManager.SpawnBrainrotAtSlot(player, unitName, slotIndex, rarity, level, unitId)
+function BrainrotManager.SpawnBrainrotAtSlot(player, unitName, slotIndex, level, unitId)
 	local GridManager = rawget(Services, "GridManager")
 	
 	-- No more retry loop. If GridManager isn't there, we fail.
 	if GridManager then
 		local unit = spawnOrUpdateUnit(player, unitName, {
 			level = level or 1,
-			rarity = rarity or "Normal",
 			unitId = unitId
 		})
 		

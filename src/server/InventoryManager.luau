@@ -43,14 +43,13 @@ local _ItemTypes = require(Shared:WaitForChild("ItemTypes")) -- For type referen
 -- See ItemTypes.luau for full type: BrainrotUnit
 export type UnitData = {
 	level: number,
-	rarity: string,
 	unitId: string,
 }
 
 -- Lazy Config
 local RarityConfig
 
-local function getRarityConfig()
+local function _getRarityConfig()
 	if not RarityConfig then
 		local Shared = ReplicatedStorage:WaitForChild("Shared")
 		RarityConfig = require(Shared:WaitForChild("RarityConfig"))
@@ -170,7 +169,6 @@ function InventoryManager.Init(services)
 			if unitData.level and unitData.level > 0 then
 				inventory.units[unitName] = {
 					level = unitData.level or 1,
-					rarity = unitData.rarity or "Normal",
 					status = placedUnits[unitName] and "placed" or "stored"
 				}
 			end
@@ -215,11 +213,9 @@ function InventoryManager.Init(services)
 					Type = "Unit",
 					UUID = unitName, -- For units, UUID is the unit name
 					Name = unitName,
-					Rarity = unitData.rarity or "Normal",
 					IsPlaced = placedUnits[unitName] or false,
 					Data = {
 						Level = unitData.level or 1,
-						Rarity = unitData.rarity or "Normal",
 					}
 				})
 			end
@@ -290,7 +286,7 @@ end
 	   Do NOT use this for FactoryItems (transient production resources).
 	   FactoryItems should go to ItemStorageManager.AddToStorage() instead.
 ]]
-function InventoryManager.AddUnit(player: Player, unitName: string, rarity: string?, level: number?): UnitData?
+function InventoryManager.AddUnit(player: Player, unitName: string, level: number?): UnitData?
 	-- GUARD: Reject if this looks like a FactoryItem (has itemId/count pattern)
 	-- This catches accidental misuse of the wrong manager
 	if type(unitName) == "table" then
@@ -308,25 +304,10 @@ function InventoryManager.AddUnit(player: Player, unitName: string, rarity: stri
 	local currentData = inventory[unitName]
 
 	local newLevel = level
-	local newRarity = rarity or "Normal"
 
 	if currentData then
 		if not newLevel then
 			newLevel = currentData.level + 1
-		end
-		
-		if rarity then
-			local rc = getRarityConfig()
-			local currentRank = rc.GetRarityValue(currentData.rarity)
-			local newRank = rc.GetRarityValue(rarity)
-
-			if newRank > currentRank then
-				newRarity = rarity
-			else
-				newRarity = currentData.rarity
-			end
-		else
-			newRarity = currentData.rarity
 		end
 	else
 		if not newLevel then
@@ -336,7 +317,6 @@ function InventoryManager.AddUnit(player: Player, unitName: string, rarity: stri
 
 	local newData: UnitData = {
 		level = newLevel,
-		rarity = newRarity,
 		unitId = currentData and currentData.unitId or HttpService:GenerateGUID(false)
 	}
 

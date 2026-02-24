@@ -146,8 +146,12 @@ local function findStorageForUnit(brainrot: Instance): BasePart?
 		local plot = parent.Parent
 		if plot then
 			local storage = plot:FindFirstChild("Storage")
-			if storage and storage:IsA("BasePart") then
-				return storage
+			if storage then
+				if storage:IsA("BasePart") then
+					return storage
+				elseif storage:IsA("Model") then
+					return storage.PrimaryPart or storage:FindFirstChildWhichIsA("BasePart", true)
+				end
 			end
 		end
 	end
@@ -162,8 +166,12 @@ local function findStorageForUnit(brainrot: Instance): BasePart?
 			local plotOwnerId = plot:GetAttribute("OwnerId")
 			if plotOwnerId == ownerId then
 				local storage = plot:FindFirstChild("Storage")
-				if storage and storage:IsA("BasePart") then
-					return storage
+				if storage then
+					if storage:IsA("BasePart") then
+						return storage
+					elseif storage:IsA("Model") then
+						return storage.PrimaryPart or storage:FindFirstChildWhichIsA("BasePart", true)
+					end
 				end
 			end
 		end

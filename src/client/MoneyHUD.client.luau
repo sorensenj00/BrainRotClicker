@@ -14,6 +14,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local HttpService = game:GetService("HttpService")
+local CollectionService = game:GetService("CollectionService")
 
 -- Player reference
 local Player = Players.LocalPlayer
@@ -214,19 +215,6 @@ local function createMoneyHUD(): ScreenGui
 	moneyLabel.TextXAlignment = Enum.TextXAlignment.Left
 	moneyLabel.Parent = moneyContainer
 	
-	-- Money per second
-	local mpsLabel = Instance.new("TextLabel")
-	mpsLabel.Name = "MPSLabel"
-	mpsLabel.Size = UDim2.new(1, 0, 0, 18)
-	mpsLabel.Position = UDim2.new(0, 40, 0, 32)
-	mpsLabel.BackgroundTransparency = 1
-	mpsLabel.Text = "+$0/s"
-	mpsLabel.TextColor3 = UI_CONFIG.MPS_COLOR
-	mpsLabel.TextSize = 14
-	mpsLabel.Font = Enum.Font.Gotham
-	mpsLabel.TextXAlignment = Enum.TextXAlignment.Left
-	mpsLabel.Parent = hudPanel
-	
 	-- Storage Section
 	local storageContainer = Instance.new("Frame")
 	storageContainer.Name = "ItemsContainer"
@@ -239,7 +227,7 @@ local function createMoneyHUD(): ScreenGui
 	storageTitle.Name = "ItemsAmount"
 	storageTitle.Size = UDim2.new(1, 0, 0, 20)
 	storageTitle.BackgroundTransparency = 1
-	storageTitle.Text = "📦 ITEMS: 0 / 0"
+	storageTitle.Text = "📦 ITEMS IN STORAGE: 0 / 0"
 	storageTitle.TextColor3 = UI_CONFIG.THEME_TEXT_PRIMARY
 	storageTitle.TextSize = 12
 	storageTitle.Font = Enum.Font.GothamBold
@@ -321,21 +309,6 @@ local function createMoneyHUD(): ScreenGui
 	emptyLabel.Font = Enum.Font.Gotham
 	emptyLabel.Visible = true
 	emptyLabel.Parent = holdingsList
-	
-	-- View Full Portfolio button
-	local portfolioBtn = Instance.new("TextButton")
-	portfolioBtn.Name = "PortfolioButton"
-	portfolioBtn.Size = UDim2.new(1, 0, 0, 30)
-	portfolioBtn.Position = UDim2.new(0, 0, 0, holdingsY)
-	portfolioBtn.BackgroundColor3 = Color3.fromRGB(40, 45, 60)
-	portfolioBtn.Text = "📋 View Full Portfolio"
-	portfolioBtn.TextColor3 = UI_CONFIG.THEME_TEXT_PRIMARY
-	portfolioBtn.TextSize = 12
-	portfolioBtn.Font = Enum.Font.GothamBold
-	portfolioBtn.BorderSizePixel = 0
-	portfolioBtn.Parent = hudPanel
-	addCorner(portfolioBtn, 8)
-	addStroke(portfolioBtn, UI_CONFIG.THEME_STROKE, 1)
 	
 	----------------------------------------------------------------------
 	-- BOTTOM CENTER ACTION BAR (7 buttons in a row)
@@ -461,35 +434,44 @@ end
 
 local MoneyHUDGui: ScreenGui
 local MoneyLabel: TextLabel
-local MPSLabel: TextLabel
 local ItemsBarFill: Frame
 local ItemsAmountLabel: TextLabel
 
 local previousMoney: number = 0
 local OwnedCounts: {[string]: number} = {}
 
-local function calculateMPS(): number
-	local totalMPS = 0
-	for unitName, count in OwnedCounts do
-		if count > 0 then
-			local config = ShopConfig.GetConfig(unitName)
-			if config then
-				local incomePerSecond = (config.BaseIncome / config.CycleTime) * count
-				totalMPS = totalMPS + incomePerSecond
+local function calculateItemRate(itemId: string): number
+	local rate = 0
+	
+	-- Count placed units that are producing this item
+	for _, unit in CollectionService:GetTagged("ActiveBrainrot") do
+		if unit:GetAttribute("OwnerId") == Player.UserId then
+			local producingId = unit:GetAttribute("CurrentProducing")
+			
+			-- Fallback to default mode if producingId is missing
+			if not producingId then
+				local unitType = unit:GetAttribute("UnitType")
+				local currentMode = unit:GetAttribute("CurrentMode") or 1
+				if unitType and ItemConfig.BrainrotModes and ItemConfig.BrainrotModes[unitType] and ItemConfig.BrainrotModes[unitType][currentMode] then
+					producingId = ItemConfig.BrainrotModes[unitType][currentMode].itemId
+				end
+			end
+			
+			if producingId == itemId then
+				local unitType = unit:GetAttribute("UnitType")
+				local config = unitType and ShopConfig.GetConfig(unitType)
+				if config and config.CycleTime and config.CycleTime > 0 then
+					rate += (1 / config.CycleTime)
+				end
 			end
 		end
 	end
-	return totalMPS
+	
+	return rate
 end
 
 local function updateMPSDisplay()
-	if not MPSLabel then return end
-	local mps = calculateMPS()
-	if mps >= 1000 then
-		MPSLabel.Text = string.format("+$%.1fK/s", mps / 1000)
-	else
-		MPSLabel.Text = string.format("+$%.1f/s", mps)
-	end
+	-- Removed globally
 end
 
 local function updateBrainrotCount()
@@ -557,7 +539,7 @@ local function updateItemsDisplay(currentItems: number, maxItems: number)
 		Size = UDim2.new(fillPercent, 0, 1, 0)
 	}):Play()
 	
-	ItemsAmountLabel.Text = string.format("📦 ITEMS: %d / %d", currentItems, maxItems)
+	ItemsAmountLabel.Text = string.format("📦 ITEMS IN STORAGE: %d / %d", currentItems, maxItems)
 	
 	local targetColor
 	if fillPercent >= 1 then
@@ -604,12 +586,14 @@ local function updateHoldingsDisplay()
 				local sector = ItemConfig.GetSector(itemId) -- item-level lookup
 				local rate = sectorRates[sector] or 1.0
 				local totalValue = count * itemDef.basePrice * rate
+				local itemRate = calculateItemRate(itemId)
 				table.insert(sortedItems, {
 					id = itemId,
 					count = count,
 					icon = itemDef.icon or "📦",
 					name = itemDef.displayName or itemId,
 					value = totalValue,
+					itemRate = itemRate,
 					rate = rate,
 				})
 			end
@@ -671,12 +655,12 @@ local function updateHoldingsDisplay()
 		countLabel.TextXAlignment = Enum.TextXAlignment.Right
 		countLabel.Parent = row
 		
-		-- Value
+		-- Item Rate (replaces total value)
 		local valueLabel = Instance.new("TextLabel")
 		valueLabel.Size = UDim2.new(0, 50, 1, 0)
 		valueLabel.Position = UDim2.new(0, 115, 0, 0)
 		valueLabel.BackgroundTransparency = 1
-		valueLabel.Text = formatMoney(data.value)
+		valueLabel.Text = string.format("+%.1f/s", data.itemRate)
 		valueLabel.TextColor3 = UI_CONFIG.HOLDINGS_VALUE_COLOR
 		valueLabel.TextSize = 10
 		valueLabel.Font = Enum.Font.GothamBold
@@ -718,7 +702,6 @@ local function initialize()
 		if moneyContainer then
 			MoneyLabel = moneyContainer:FindFirstChild("MoneyLabel")
 		end
-		MPSLabel = hudPanel:FindFirstChild("MPSLabel")
 		
 		local itemsContainer = hudPanel:FindFirstChild("ItemsContainer")
 		if itemsContainer then
@@ -805,32 +788,6 @@ local function initialize()
 			Color3.fromRGB(250, 190, 60), Color3.fromRGB(255, 210, 100))
 	end
 	
-	-- Portfolio button
-	local portfolioBtn = hudPanel and hudPanel:FindFirstChild("PortfolioButton")
-	if portfolioBtn then
-		local backpackToggle = ReplicatedStorage:FindFirstChild("BackpackToggleEvent")
-		if not backpackToggle then
-			backpackToggle = Instance.new("BindableEvent")
-			backpackToggle.Name = "BackpackToggleEvent"
-			backpackToggle.Parent = ReplicatedStorage
-		end
-		
-		portfolioBtn.MouseButton1Click:Connect(function()
-			backpackToggle:Fire()
-		end)
-		
-		portfolioBtn.MouseEnter:Connect(function()
-			TweenService:Create(portfolioBtn, TweenInfo.new(0.1), {
-				BackgroundColor3 = Color3.fromRGB(55, 60, 80)
-			}):Play()
-		end)
-		portfolioBtn.MouseLeave:Connect(function()
-			TweenService:Create(portfolioBtn, TweenInfo.new(0.1), {
-				BackgroundColor3 = Color3.fromRGB(40, 45, 60)
-			}):Play()
-		end)
-	end
-	
 	----------------------------------------------------------------------
 	-- OWNERSHIP / MPS (unchanged logic)
 	----------------------------------------------------------------------
@@ -907,7 +864,7 @@ local function initialize()
 		local cur = 0
 		if ItemsAmountLabel then
 			local txt = ItemsAmountLabel.Text
-			local val = txt:match("ITEMS: (%d+)")
+			local val = txt:match("ITEMS IN STORAGE: (%d+)")
 			cur = tonumber(val) or 0
 		end
 		updateItemsDisplay(cur, Player:GetAttribute("StorageCapacity") or 0)

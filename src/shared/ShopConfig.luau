@@ -833,6 +833,8 @@ local function CalculateEffectiveIncome(unitName: string, amountOwned: number): 
 		return 0
 	end
 	
+	amountOwned = tonumber(amountOwned) or 1
+	
 	local profitMultiplier = 1
 	
 	-- Apply all profit milestones that have been reached
@@ -858,6 +860,8 @@ local function CalculateEffectiveCycleTime(unitName: string, amountOwned: number
 		warn("ShopConfig: Unknown unit " .. unitName)
 		return 3 -- Default fallback
 	end
+	
+	amountOwned = tonumber(amountOwned) or 1
 	
 	local speedMultiplier = 1
 	

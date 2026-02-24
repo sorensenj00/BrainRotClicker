@@ -31,31 +31,36 @@ function GridTopology.GetSlotCFrame(plotCFrame: CFrame, plotSize: Vector3, slotI
 	local posY = plotCenter.Y + (plotSize.Y / 2) + GridTopology.CONSTANTS.GRID_OFFSET_Y + tileHeight
 
 	local TILE_SPACING = GridTopology.CONSTANTS.TILE_SIZE
-	local CLUSTER_SIZE = GridTopology.CONSTANTS.CLUSTER_SIZE
 
-	-- Calculate corner offsets dynamically based on plot size
-	local cornerOffsetX = (plotSize.X / 2) - (CLUSTER_SIZE * TILE_SPACING / 2) - TILE_SPACING
-	local cornerOffsetZ = (plotSize.Z / 2) - (CLUSTER_SIZE * TILE_SPACING / 2) - TILE_SPACING
-
+	-- Push the clusters further towards the edges of the plot
+	local centerDistance = (plotSize.X / 2) * 0.55 -- Push out to 55% of the radius
+	
 	-- 4 Clusters of 4 slots each (standard 16 slot layout)
 	local cornerIndex = math.floor((slotIndex - 1) / 4)
 	local posInCorner = (slotIndex - 1) % 4
-
-	local localRow = math.floor(posInCorner / 2)
-	local localCol = posInCorner % 2
+	
+	-- Diamond pattern offsets instead of 2x2 square
+	local diamondOffsets = {
+		[0] = {x = 0, z = -1}, -- Top
+		[1] = {x = -1, z = 0}, -- Left
+		[2] = {x = 1, z = 0},  -- Right
+		[3] = {x = 0, z = 1},  -- Bottom
+	}
+	
+	local localOffset = diamondOffsets[posInCorner] or {x = 0, z = 0}
 
 	local cornerPositions = {
-		{x = -cornerOffsetX, z = -cornerOffsetZ}, -- Top-Left
-		{x = cornerOffsetX, z = -cornerOffsetZ},  -- Top-Right
-		{x = -cornerOffsetX, z = cornerOffsetZ},  -- Bottom-Left
-		{x = cornerOffsetX, z = cornerOffsetZ},   -- Bottom-Right
+		{x = -centerDistance, z = -centerDistance},  -- Top-Left
+		{x = centerDistance, z = -centerDistance},   -- Top-Right
+		{x = -centerDistance, z = centerDistance},   -- Bottom-Left
+		{x = centerDistance, z = centerDistance},    -- Bottom-Right
 	}
 
 	-- Fallback to first corner if index is out of bounds (should happen only if grid expands)
 	local corner = cornerPositions[cornerIndex + 1] or cornerPositions[1]
 
-	local posX = plotCenter.X + corner.x + (localCol - 0.5) * TILE_SPACING
-	local posZ = plotCenter.Z + corner.z + (localRow - 0.5) * TILE_SPACING
+	local posX = plotCenter.X + corner.x + (localOffset.x * TILE_SPACING)
+	local posZ = plotCenter.Z + corner.z + (localOffset.z * TILE_SPACING)
 
 	local unitPos = Vector3.new(posX, posY, posZ)
 

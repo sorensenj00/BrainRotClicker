@@ -197,7 +197,17 @@ RunService.Heartbeat:Connect(function()
         end
         
         if targetCFrame and model.PrimaryPart then
-            model:PivotTo(targetCFrame)
+            -- Add drone bobbing effect
+            local bobOffset = Vector3.new(0, math.sin(now * 3) * 1.5, 0)
+            
+            -- Add tilt effect based on state (only tilt when moving)
+            local tiltCFrame = CFrame.identity
+            if state == "rolling_to_market" or state == "rolling_to_plot" then
+                -- Pitch forward slightly (-X rotation relative to facing direction)
+                tiltCFrame = CFrame.Angles(math.rad(-15), 0, 0)
+            end
+            
+            model:PivotTo(targetCFrame * tiltCFrame + bobOffset)
         end
 	end
 end)

@@ -153,12 +153,12 @@ local function spawnCart(player)
 	-- From PlotManager: plotEdge = Vector3.new(plotPos.X - dir2D.X * 60, plotPos.Y, plotPos.Z - dir2D.Z * 60)
 	local plotEdgePos = Vector3.new(plotPos.X - dir2D.X * 60, plotPos.Y, plotPos.Z - dir2D.Z * 60)
 	
-	-- Add slightly to Y so the cart doesn't clip into the bridge/ground
-	local yOffset = Vector3.new(0, 3, 0)
+	-- Add more to Y so the drone/cart doesn't clip into the bridge/ground, starting higher
+	local yOffset = Vector3.new(0, 20, 0)
 	
 	local wp1 = plotEdgePos + yOffset
 	local wp2 = hubEdgePos + yOffset
-	local wp3 = Vector3.new(0, hubEdgePos.Y + 3, 0) -- Hole is at center, so X=0, Z=0
+	local wp3 = Vector3.new(0, hubEdgePos.Y + 10, 0) -- Hole is at center, so X=0, Z=0
 	
 	local dir = (wp3 - wp1).Unit -- General direction for facing at spawn
 	

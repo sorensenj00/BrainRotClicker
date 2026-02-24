@@ -140,6 +140,14 @@ local function recalculateStats(unit: Instance)
 	
 	if unit:IsA("Model") then
 		unit:ScaleTo(scaleMultiplier)
+		
+		local player = _Players:GetPlayerByUserId(unit:GetAttribute("OwnerId"))
+		if player then
+			local GridManager = rawget(Services, "GridManager")
+			if GridManager and GridManager.RegroundUnit then
+				GridManager.RegroundUnit(player, unit)
+			end
+		end
 	end
 
 	updateVisuals(unit :: Model)

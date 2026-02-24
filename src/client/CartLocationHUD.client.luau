@@ -69,12 +69,11 @@ local cartInventory = {}       -- {[itemId] = count}
 local cartCapacity = 200       -- Current cart capacity
 local cartItemCount = 0        -- Total items in cart
 
--- UI refs
-local screenGui
 local cartIconFrame
 local trackFrame
 local capBarFill, capBarText
 local recallBtn, sendBtn
+local storageBtn, marketBtn
 local statusLabel
 
 --------------------------------------------------------------------------------
@@ -146,40 +145,26 @@ end
 --------------------------------------------------------------------------------
 
 local function buildHUD()
-	screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "CartLocationHUD"
-	screenGui.ResetOnSpawn = false
-	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	screenGui.DisplayOrder = 5
-	screenGui.Parent = PlayerGui
+	local moneyHUD = PlayerGui:WaitForChild("MoneyHUD", 10)
+	if not moneyHUD then
+		warn("CartLocationHUD: Could not find MoneyHUD")
+		return nil
+	end
+	
+	local hudPanel = moneyHUD:WaitForChild("HUDPanel", 10)
+	if not hudPanel then
+		warn("CartLocationHUD: Could not find HUDPanel")
+		return nil
+	end
 
-	-- Main container — bottom-left, compact
+	-- Main container — appended to bottom of MoneyHUD
 	local main = Instance.new("Frame")
 	main.Name = "CartHUD"
-	main.Size = UDim2.new(0, 260, 0, 110)
-	main.Position = UDim2.new(0, 12, 1, -122)
-	main.BackgroundColor3 = C.bg
+	main.Size = UDim2.new(1, 0, 0, 100)
+	main.Position = UDim2.new(0, 0, 1, -110)
+	main.BackgroundTransparency = 1
 	main.BorderSizePixel = 0
-	main.Parent = screenGui
-	addCorner(main, UDim.new(0, 8))
-	addStroke(main, C.border, 1.5)
-
-	-- Subtle gradient
-	local grad = Instance.new("UIGradient")
-	grad.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, C.bg),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(8, 8, 12)),
-	})
-	grad.Rotation = 90
-	grad.Parent = main
-
-	-- Padding
-	local pad = Instance.new("UIPadding")
-	pad.PaddingLeft = UDim.new(0, 10)
-	pad.PaddingRight = UDim.new(0, 10)
-	pad.PaddingTop = UDim.new(0, 8)
-	pad.PaddingBottom = UDim.new(0, 8)
-	pad.Parent = main
+	main.Parent = hudPanel
 
 	-- ═══ TOP: Track area ═══
 
@@ -311,14 +296,14 @@ local function buildHUD()
 
 	-- ═══ BOTTOM: Recall & Send buttons ═══
 
-	local buttonRow = Instance.new("Frame")
-	buttonRow.Name = "ButtonRow"
-	buttonRow.Size = UDim2.new(1, 0, 0, 32)
-	buttonRow.Position = UDim2.new(0, 0, 0, 60)
-	buttonRow.BackgroundTransparency = 1
-	buttonRow.Parent = main
+	local buttonRowTop = Instance.new("Frame")
+	buttonRowTop.Name = "ButtonRowTop"
+	buttonRowTop.Size = UDim2.new(1, 0, 0, 24)
+	buttonRowTop.Position = UDim2.new(0, 0, 0, 60)
+	buttonRowTop.BackgroundTransparency = 1
+	buttonRowTop.Parent = main
 
-	-- Recall button (left)
+	-- Recall button (top-left)
 	recallBtn = Instance.new("TextButton")
 	recallBtn.Name = "RecallBtn"
 	recallBtn.Size = UDim2.new(0.47, 0, 1, 0)
@@ -326,14 +311,14 @@ local function buildHUD()
 	recallBtn.BackgroundColor3 = C.redBg
 	recallBtn.Text = "◀ RECALL"
 	recallBtn.TextColor3 = C.red
-	recallBtn.TextSize = 11
+	recallBtn.TextSize = 10
 	recallBtn.Font = FONT_BOLD
 	recallBtn.AutoButtonColor = false
-	recallBtn.Parent = buttonRow
-	addCorner(recallBtn, UDim.new(0, 5))
+	recallBtn.Parent = buttonRowTop
+	addCorner(recallBtn, UDim.new(0, 4))
 	addStroke(recallBtn, C.redDim, 1)
 
-	-- Send button (right)
+	-- Send button (top-right)
 	sendBtn = Instance.new("TextButton")
 	sendBtn.Name = "SendBtn"
 	sendBtn.Size = UDim2.new(0.47, 0, 1, 0)
@@ -341,12 +326,50 @@ local function buildHUD()
 	sendBtn.BackgroundColor3 = C.greenBg
 	sendBtn.Text = "SEND ▶"
 	sendBtn.TextColor3 = C.green
-	sendBtn.TextSize = 11
+	sendBtn.TextSize = 10
 	sendBtn.Font = FONT_BOLD
 	sendBtn.AutoButtonColor = false
-	sendBtn.Parent = buttonRow
-	addCorner(sendBtn, UDim.new(0, 5))
+	sendBtn.Parent = buttonRowTop
+	addCorner(sendBtn, UDim.new(0, 4))
 	addStroke(sendBtn, C.greenDim, 1)
+
+	-- ═══ BOTTOM: Storage & Market buttons ═══
+	local buttonRowBottom = Instance.new("Frame")
+	buttonRowBottom.Name = "ButtonRowBottom"
+	buttonRowBottom.Size = UDim2.new(1, 0, 0, 24)
+	buttonRowBottom.Position = UDim2.new(0, 0, 0, 88)
+	buttonRowBottom.BackgroundTransparency = 1
+	buttonRowBottom.Parent = main
+
+	-- Market button (bottom-left)
+	marketBtn = Instance.new("TextButton")
+	marketBtn.Name = "MarketBtn"
+	marketBtn.Size = UDim2.new(0.47, 0, 1, 0)
+	marketBtn.Position = UDim2.new(0, 0, 0, 0)
+	marketBtn.BackgroundColor3 = C.dimBg
+	marketBtn.Text = "🏛️ MARKET"
+	marketBtn.TextColor3 = C.marketDot
+	marketBtn.TextSize = 10
+	marketBtn.Font = FONT_BOLD
+	marketBtn.AutoButtonColor = false
+	marketBtn.Parent = buttonRowBottom
+	addCorner(marketBtn, UDim.new(0, 4))
+	addStroke(marketBtn, C.marketDot, 1)
+	
+	-- Storage button (bottom-right)
+	storageBtn = Instance.new("TextButton")
+	storageBtn.Name = "StorageBtn"
+	storageBtn.Size = UDim2.new(0.47, 0, 1, 0)
+	storageBtn.Position = UDim2.new(0.53, 0, 0, 0)
+	storageBtn.BackgroundColor3 = C.dimBg
+	storageBtn.Text = "📦 MANAGE"
+	storageBtn.TextColor3 = C.amber
+	storageBtn.TextSize = 10
+	storageBtn.Font = FONT_BOLD
+	storageBtn.AutoButtonColor = false
+	storageBtn.Parent = buttonRowBottom
+	addCorner(storageBtn, UDim.new(0, 4))
+	addStroke(storageBtn, C.amberDim, 1)
 
 	return main
 end
@@ -395,17 +418,29 @@ local function updateCapacityBar()
 end
 
 local function updateButtons()
-	if not recallBtn or not sendBtn then return end
+	if not recallBtn or not sendBtn or not storageBtn or not marketBtn then return end
 
-	-- Send: only available when cart is idle (at plot) 
-	local canSend = (cartState == "idle")
-	sendBtn.BackgroundColor3 = canSend and C.greenBg or C.dimBg
-	sendBtn.TextColor3 = canSend and C.green or C.muted
+	-- Send and Storage: only available when cart is idle (at plot) 
+	local isAtPlot = (cartState == "idle")
+	
+	sendBtn.BackgroundColor3 = isAtPlot and C.greenBg or C.dimBg
+	sendBtn.TextColor3 = isAtPlot and C.green or C.muted
+	sendBtn.Active = isAtPlot
+	
+	storageBtn.BackgroundColor3 = isAtPlot and Color3.fromRGB(40, 30, 10) or C.dimBg
+	storageBtn.TextColor3 = isAtPlot and C.amber or C.muted
+	storageBtn.Active = isAtPlot
 
-	-- Recall: only available when cart is at_market
-	local canRecall = (cartState == "at_market")
-	recallBtn.BackgroundColor3 = canRecall and C.redBg or C.dimBg
-	recallBtn.TextColor3 = canRecall and C.red or C.muted
+	-- Recall and Market: only available when cart is at_market
+	local isAtMarket = (cartState == "at_market")
+	
+	recallBtn.BackgroundColor3 = isAtMarket and C.redBg or C.dimBg
+	recallBtn.TextColor3 = isAtMarket and C.red or C.muted
+	recallBtn.Active = isAtMarket
+	
+	marketBtn.BackgroundColor3 = isAtMarket and Color3.fromRGB(10, 30, 40) or C.dimBg
+	marketBtn.TextColor3 = isAtMarket and C.marketDot or C.muted
+	marketBtn.Active = isAtMarket
 end
 
 local function updateAll()
@@ -529,7 +564,20 @@ local function initialize()
 		end
 	end)
 
-	-- Button handlers
+	-- ═══ ACTIONS ═══
+	
+	marketBtn.MouseButton1Click:Connect(function()
+		if cartState ~= "at_market" then return end
+		local exchangeEvent = ReplicatedStorage:FindFirstChild("ExchangeToggleEvent")
+		if exchangeEvent then exchangeEvent:Fire() end
+	end)
+
+	storageBtn.MouseButton1Click:Connect(function()
+		if cartState ~= "idle" then return end
+		local storageEvent = ReplicatedStorage:FindFirstChild("StorageToggleEvent")
+		if storageEvent then storageEvent:Fire() end
+	end)
+
 	sendBtn.MouseButton1Click:Connect(function()
 		if cartState ~= "idle" then return end
 		sendBtn.Text = "..."
@@ -547,8 +595,7 @@ local function initialize()
 	end)
 
 	-- Hover effects
-	for _, btn in {sendBtn, recallBtn} do
-		local originalBg = btn.BackgroundColor3
+	for _, btn in {sendBtn, recallBtn, marketBtn, storageBtn} do
 		btn.MouseEnter:Connect(function()
 			if btn.TextColor3 ~= C.muted then -- Only if active
 				TweenService:Create(btn, TweenInfo.new(0.12), {

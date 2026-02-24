@@ -50,7 +50,7 @@ local function createStorageBox(player)
 		storage = template:Clone()
 		storage.Name = "Storage"
 		-- If model, just place it on top. Assuming PrimaryPart is bottom-center or we adjust
-		local sy = fp.Y + (fs.Y / 2)
+		local sy = fp.Y + (fs.Y / 2) + 1
 		storage:PivotTo(CFrame.new(fp.X, sy, fp.Z))
 	else
 		-- Fallback

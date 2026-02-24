@@ -126,7 +126,7 @@ function PlotManager.AssignPlot(player, idx)
 	PlayerToPlot[player] = idx
 	pData.Model:SetAttribute("OwnerId", player.UserId)
 	pData.Model:SetAttribute("TierIndex", 1)
-	if pData.ClaimPart then pData.ClaimPart.BrickColor = BrickColor.new("Really red"); pData.ClaimPart.Transparency = 0.7 end
+	if pData.ClaimPart then pData.ClaimPart.BrickColor = BrickColor.new("Really red"); pData.ClaimPart.Transparency = 1 end
 	
 	Instance.new("Folder", pData.Model).Name = "PlayerBuildings"
 	
@@ -165,7 +165,7 @@ function PlotManager.ClearPlot(player)
 	if pData.Model:FindFirstChild("PlayerBuildings") then pData.Model.PlayerBuildings:Destroy() end
 	if pData.Model:FindFirstChild("Brainrots") then pData.Model.Brainrots:Destroy() end
 	
-	if pData.ClaimPart then pData.ClaimPart.BrickColor = BrickColor.new("Lime green"); pData.ClaimPart.Transparency = 0.3 end
+	if pData.ClaimPart then pData.ClaimPart.BrickColor = BrickColor.new("Lime green"); pData.ClaimPart.Transparency = 1 end
 	pData.Owner = nil
 	PlayerToPlot[player] = nil
 	pData.Model:SetAttribute("OwnerId", nil)

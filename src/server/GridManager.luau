@@ -217,13 +217,29 @@ local function repositionUnitOnTile(player, brainrot, slotIndex)
 		return 
 	end
 	local baseCFrame = getSlotCFrame(player, slotIndex)
+	
+	-- Step 1: Place at slot position (pivot = model center)
 	brainrot:PivotTo(baseCFrame)
+	
+	-- Step 2: Measure actual bounding box to find the bottom offset
+	local _, size = brainrot:GetBoundingBox()
+	local halfHeight = size.Y / 2
+	
+	-- Step 3: Shift up so the bottom of the bounding box sits on the surface
+	brainrot:PivotTo(baseCFrame + Vector3.new(0, halfHeight, 0))
 	
 	-- Immediately refresh unit attributes (Synergies, Production Info, HUD)
 	local ItemProductionManager = rawget(Services, "ItemProductionManager")
 	if ItemProductionManager and ItemProductionManager.RefreshUnitAttributes then
 		ItemProductionManager.RefreshUnitAttributes(player)
 	end
+end
+
+-- Re-ground a single unit at its current slot (called after ScaleTo)
+local function regroundUnit(player, brainrot)
+	local gridSlot = brainrot:GetAttribute("GridSlot")
+	if not gridSlot then return end
+	repositionUnitOnTile(player, brainrot, gridSlot)
 end
 
 local function syncToProfile(player)
@@ -642,6 +658,10 @@ function GridManager.ClearGrid(player)
 	
 	-- Notify client
 	GridUpdatedEvent:FireClient(player, 0, "", "cleared")
+end
+
+function GridManager.RegroundUnit(player, brainrot)
+	regroundUnit(player, brainrot)
 end
 
 return GridManager

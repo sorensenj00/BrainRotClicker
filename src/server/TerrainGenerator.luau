@@ -70,7 +70,7 @@ end
 function TerrainGenerator.CreateClaimPart(model)
 	local p = Instance.new("Part")
 	p.Name = "ClaimPart"; p.Size = Vector3.new(10, 1, 10); p.BrickColor = BrickColor.new("Lime green")
-	p.Transparency = 0.3; p.Anchored = true; p.CanCollide = false
+	p.Transparency = 1; p.Anchored = true; p.CanCollide = false
 	p.Position = model:GetPivot().Position + Vector3.new(0, 3, 0)
 	p.Parent = model
 	return p
@@ -241,10 +241,10 @@ function TerrainGenerator.CreatePlotModel()
 	-- 7. Visual Guide for 80x80 Build Area
 	local plotGuide = Instance.new("Part")
 	plotGuide.Name = "PlotBounds_80x80"
-	plotGuide.Size = Vector3.new(80, 1, 80)
+	plotGuide.Size = Vector3.new(80, 0, 80)
 	plotGuide.CFrame = CFrame.new(0, topY + 1.5, 0) 
 	plotGuide.Color = Color3.fromRGB(255, 0, 0)
-	plotGuide.Transparency = 0.8
+	plotGuide.Transparency = 1
 	plotGuide.Anchored = true
 	plotGuide.CanCollide = false
 	plotGuide.Parent = model

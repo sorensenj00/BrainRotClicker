@@ -414,7 +414,9 @@ local function onPlayerAdded(player: Player)
 			-- Process GlobalUpdates (Grand Exchange offline revenue, etc.)
 			task.spawn(function()
 				-- Process existing active updates
-				profile.GlobalUpdates:ForEachActiveUpdate(function(updateId, updateData)
+				for _, update in ipairs(profile.GlobalUpdates:GetActiveUpdates()) do
+					local updateId = update[1]
+					local updateData = update[2]
 					if updateData.Type == "ArtifactSold" then
 						local revenue = updateData.Revenue or 0
 						if revenue > 0 then
@@ -431,11 +433,12 @@ local function onPlayerAdded(player: Player)
 						end
 						profile.GlobalUpdates:LockActiveUpdate(updateId)
 					end
-				end)
+				end
 				-- Clear locked updates
-				profile.GlobalUpdates:ForEachLockedUpdate(function(updateId, _updateData)
+				for _, update in ipairs(profile.GlobalUpdates:GetLockedUpdates()) do
+					local updateId = update[1]
 					profile.GlobalUpdates:ClearLockedUpdate(updateId)
-				end)
+				end
 				-- Listen for future updates while online
 				profile.GlobalUpdates:ListenToNewActiveUpdate(function(updateId, updateData)
 					if updateData.Type == "ArtifactSold" then

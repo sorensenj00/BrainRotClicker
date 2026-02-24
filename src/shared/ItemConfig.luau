@@ -635,14 +635,13 @@ function ItemConfig.GetItem(itemId: string): ItemDefinition?
     return ItemConfig.Items[itemId]
 end
 
-function ItemConfig.GetProductions(modelName: string, ownedCount: number): {{itemId: string, rate: number}}
+function ItemConfig.GetProductions(modelName: string, ownedCount: number): {{itemId: string, rate: number, consumes: {[string]: number}?}}
     -- Finder rækken baseret på præcis modelnavn
     local mapping = ItemConfig.BrainrotItems[modelName]
     if not mapping then return {} end
     
     local productions = {}
     local thresholds = ItemConfig.MilestoneThresholds
-    local rates = ItemConfig.ProductionRates
     
     if ownedCount >= thresholds.tier1 then table.insert(productions, {itemId = mapping.tier1, rate = ItemConfig.ProductionSettings.tier1.rate, consumes = mapping.consumes1}) end
     if ownedCount >= thresholds.tier2 then table.insert(productions, {itemId = mapping.tier2, rate = ItemConfig.ProductionSettings.tier2.rate, consumes = mapping.consumes2}) end
@@ -656,12 +655,14 @@ end
     V3: Get production info for a single selected mode.
     Returns { itemId, rate } adjusted by level-based speed scaling.
 ]]
-function ItemConfig.GetModeProduction(modelName: string, modeIndex: number, level: number): {itemId: string, rate: number}?
+function ItemConfig.GetModeProduction(modelName: string, modeIndex: number, level: number): {itemId: string, rate: number, consumes: {[string]: number}?}?
     local modes = ItemConfig.BrainrotModes[modelName]
     if not modes then return nil end
     
     local mode = modes[math.clamp(modeIndex, 1, #modes)]
     if not mode then return nil end
+    
+    level = tonumber(level) or 1
     
     -- Speed scales with level: rate / (SpeedExponent ^ (level - 1))
     local speedMult = ItemConfig.SpeedExponent ^ (level - 1)
@@ -685,7 +686,7 @@ end
     V3: Get all modes available to a unit at a given level.
     Returns array of { modeIndex, itemId, unlockLevel, isUnlocked, rate }.
 ]]
-function ItemConfig.GetAvailableModes(modelName: string, level: number): {{modeIndex: number, itemId: string, unlockLevel: number, isUnlocked: boolean, rate: number}}
+function ItemConfig.GetAvailableModes(modelName: string, level: number): {{modeIndex: number, itemId: string, unlockLevel: number, isUnlocked: boolean, rate: number, consumes: {[string]: number}?}}
     local modes = ItemConfig.BrainrotModes[modelName]
     if not modes then return {} end
     

@@ -139,7 +139,7 @@ function BuildGridVisualizer.Render(gridState)
 	
 	-- Create tiles dynamically based on grid size
 	for slotIndex = 1, totalSlots do
-		local cframe = GridTopology.GetSlotCFrame(plotCF, plotSize, slotIndex, 0.1)
+		local cframe = GridTopology.GetSlotCFrame(plotCF, plotSize, slotIndex, 0)
 		
 		-- FIX: Safely check for number key (1) OR string key ("1")
 		local slotData = gridState.slots[slotIndex]

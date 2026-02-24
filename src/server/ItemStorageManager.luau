@@ -1,30 +1,30 @@
 --[[
 	ItemStorageManager Server Module
-	
+
 	═══════════════════════════════════════════════════════════════════════════════
 	              TRANSIENT PRODUCTION RESOURCES (SUPPLY CHAIN)
 	═══════════════════════════════════════════════════════════════════════════════
-	
+
 	PURPOSE:
 	  Manages the temporary "ProductionItems" (resources) that units produce.
 	  These items sit in Storage (silos) until collected into Backpack, then
 	  transported and sold by TransportManager.
-	
+
 	MANAGES:
 	  • ProductionItems  - Resources produced by placed units (e.g., "Skibidi", "Sigma")
 	  • Storage (Silos)  - Tycoon storage capacity for produced items
 	  • Backpack         - Temporary carry capacity before selling
-	
+
 	DATA LIFECYCLE:
 	  • ProductionItems are TRANSIENT - produced, stored, sold, and consumed
 	  • Saved to profile for session continuity, but economically consumed
 	  • Flow: Units → Storage → Backpack → Sell (via TransportManager)
-	
+
 	SUPPLY CHAIN INTEGRATION:
 	  ← ItemProductionManager  - Adds items when units produce
 	  → TransportManager       - Removes items when collected/sold
 	  → MarketManager          - Determines sell prices
-	
+
 	═══════════════════════════════════════════════════════════════════════════════
 	⚠️  DO NOT USE THIS FOR PERMANENT COLLECTION ASSETS:
 	    Player-owned Units (Brainrots) and Artifacts belong in InventoryManager
@@ -56,7 +56,7 @@ local _ItemConfig -- Reserved for future item validation
 
 -- State: Player storage holds FactoryItems (transient production resources)
 -- NOT for BrainrotUnits (permanent assets) - those go in InventoryManager
-local PlayerStorage: {[Player]: {items: ItemMap, capacity: number, baseCapacity: number}} = {} 
+local PlayerStorage: {[Player]: {items: ItemMap, capacity: number, baseCapacity: number}} = {}
 local PlayerBackpack: {[Player]: {items: ItemMap, capacity: number}} = {}
 
 -- Remotes
@@ -126,6 +126,38 @@ local function encodeItems(items)
 	return encoded
 end
 
+local function isNearOwnStorage(player)
+	local character = player.Character
+	if not character then return false end
+
+	local hrp = character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return false end
+
+	local plotsFolder = workspace:FindFirstChild("Plots")
+	if not plotsFolder then return false end
+
+	for _, plot in ipairs(plotsFolder:GetChildren()) do
+		if plot:GetAttribute("OwnerId") == player.UserId then
+			local floor = plot:FindFirstChild("Island")
+				or plot:FindFirstChild("PlotFloor")
+				or plot:FindFirstChild("Floor")
+				or plot:FindFirstChildWhichIsA("BasePart")
+			if not floor or not floor:IsA("BasePart") then
+				return false
+			end
+
+			local playerPos = hrp.Position
+			local floorPos = floor.Position
+			local floorSize = floor.Size
+			local dx = math.abs(playerPos.X - floorPos.X)
+			local dz = math.abs(playerPos.Z - floorPos.Z)
+			return dx <= floorSize.X / 2 + 10 and dz <= floorSize.Z / 2 + 10
+		end
+	end
+
+	return false
+end
+
 --------------------------------------------------------------------------------
 -- PUBLIC API
 --------------------------------------------------------------------------------
@@ -133,30 +165,30 @@ end
 function ItemStorageManager.Init(services)
 	print("   ItemStorageManager (Module) - Initializing")
 	Services = services or {}
-	
+
 	-- Load Configs (reserved for item validation)
 	task.spawn(function()
 		local SharedFolder = ReplicatedStorage:WaitForChild("Shared")
 		_ItemConfig = require(SharedFolder:WaitForChild("ItemConfig"))
 	end)
-	
+
 	-- Register Data Handlers
 	local ds = getDataService()
 	if not ds then
 		warn("ItemStorageManager: DataService not available during Init")
 		return
 	end
-	
+
 	ds.RegisterHandler("ItemStorage", {
 		DefaultData = {},
 		OnLoad = function(player, data)
 			local root = ds.GetData(player)
 			local baseCap = root and tonumber(root.baseStorageCapacity) or root and tonumber(root.storageCapacity) or CONFIG.DEFAULT_STORAGE_CAPACITY
 			local currentCap = root and tonumber(root.storageCapacity) or CONFIG.DEFAULT_STORAGE_CAPACITY
-			
+
 			if not PlayerStorage[player] then
-				PlayerStorage[player] = { 
-					items = data or {}, 
+				PlayerStorage[player] = {
+					items = data or {},
 					capacity = currentCap,
 					baseCapacity = baseCap
 				}
@@ -165,7 +197,7 @@ function ItemStorageManager.Init(services)
 				PlayerStorage[player].capacity = currentCap
 				PlayerStorage[player].baseCapacity = baseCap
 			end
-			
+
 			-- Re-apply any global multipliers immediately on load
 			ItemStorageManager.RefreshCapacity(player)
 		end,
@@ -179,7 +211,7 @@ function ItemStorageManager.Init(services)
 			PlayerStorage[player] = nil
 		end
 	})
-	
+
 	ds.RegisterHandler("Backpack", {
 		DefaultData = {},
 		OnLoad = function(player, data)
@@ -201,7 +233,7 @@ function ItemStorageManager.Init(services)
 			PlayerBackpack[player] = nil
 		end
 	})
-	
+
 	-- Connect Remotes
 	GetStorageFunction.OnServerInvoke = function(player)
 		local s = PlayerStorage[player]
@@ -213,23 +245,24 @@ function ItemStorageManager.Init(services)
 		if not b then return {}, 0, CONFIG.BACKPACK_CAPACITY end
 		return encodeItems(b.items), getTotalItemCount(b.items), b.capacity
 	end
-	
+
 	TakeFromStorageEvent.OnServerEvent:Connect(function(player, itemId, count)
 		if type(itemId) ~= "string" or type(count) ~= "number" then return end
-		ItemStorageManager.TakeFromStorage(player, itemId, count)
+		if not isNearOwnStorage(player) then return end
+		ItemStorageManager.TakeFromStorage(player, itemId, math.max(1, math.floor(count)))
 	end)
-	
+
 	print("✓ ItemStorageManager Initialized")
 end
 
 --[[
 	AddToStorage: Adds FactoryItems (production resources) to the player's storage silo.
-	
+
 	@param player Player - The player whose storage to add to
 	@param itemId string - The FactoryItem ID (e.g. "ToiletPaper", "Plunger")
 	@param count number - How many items to add
 	@return number - The actual number of items added (may be less if storage is full)
-	
+
 	⚠️ WARNING: This is for FactoryItems ONLY (transient production resources).
 	   Do NOT use this for BrainrotUnits (permanent collection assets).
 	   BrainrotUnits should go to InventoryManager.AddUnit() instead.
@@ -242,23 +275,23 @@ function ItemStorageManager.AddToStorage(player: Player, itemId: string, count: 
 		warn("  If you're trying to add a BrainrotUnit, use InventoryManager.AddUnit() instead.")
 		return 0
 	end
-	
+
 	if type(count) ~= "number" or count <= 0 then
 		warn("ItemStorageManager.AddToStorage: Invalid count:", count)
 		return 0
 	end
-	
+
 	local storage = PlayerStorage[player]
 	if not storage then return 0 end
-	
+
 	local current = getTotalItemCount(storage.items)
 	local available = storage.capacity - current
 	local toAdd = math.min(count, available)
-	
+
 	if toAdd <= 0 then return 0 end
-	
+
 	storage.items[itemId] = (storage.items[itemId] or 0) + toAdd
-	
+
 	if not silent then
 		StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), current + toAdd, storage.capacity)
 	end
@@ -275,22 +308,22 @@ function ItemStorageManager.TakeFromStorage(player, itemId, count)
 	local storage = PlayerStorage[player]
 	local backpack = PlayerBackpack[player]
 	if not storage or not backpack then return 0 end
-	
+
 	local inStorage = storage.items[itemId] or 0
 	local backSize = getTotalItemCount(backpack.items)
 	local backSpace = backpack.capacity - backSize
-	
+
 	local amount = math.min(count, inStorage, backSpace)
 	if amount <= 0 then return 0 end
-	
+
 	storage.items[itemId] = inStorage - amount
 	if storage.items[itemId] <= 0 then storage.items[itemId] = nil end
-	
+
 	backpack.items[itemId] = (backpack.items[itemId] or 0) + amount
-	
+
 	StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), getTotalItemCount(storage.items), storage.capacity)
 	BackpackUpdatedEvent:FireClient(player, encodeItems(backpack.items), getTotalItemCount(backpack.items), backpack.capacity)
-	
+
 	return amount
 end
 
@@ -301,14 +334,14 @@ end
 function ItemStorageManager.RemoveFromStorage(player, itemId, count)
 	local storage = PlayerStorage[player]
 	if not storage then return 0 end
-	
+
 	local inStorage = storage.items[itemId] or 0
 	local toRemove = math.min(count, inStorage)
 	if toRemove <= 0 then return 0 end
-	
+
 	storage.items[itemId] = inStorage - toRemove
 	if storage.items[itemId] <= 0 then storage.items[itemId] = nil end
-	
+
 	StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), getTotalItemCount(storage.items), storage.capacity)
 	return toRemove
 end
@@ -336,29 +369,29 @@ end
 function ItemStorageManager.SetStorageCapacity(player, cap)
 	if not PlayerStorage[player] then PlayerStorage[player] = { items={}, capacity=cap, baseCapacity=cap } end
 	PlayerStorage[player].baseCapacity = cap
-	
+
 	ItemStorageManager.RefreshCapacity(player)
 end
 
 function ItemStorageManager.RefreshCapacity(player)
 	local storage = PlayerStorage[player]
 	if not storage then return end
-	
+
 	local BonusManager = rawget(Services, "BonusManager")
 	local multi = 1.0
 	if BonusManager and BonusManager.GetTotalStorageMultiplier then
 		multi = BonusManager.GetTotalStorageMultiplier(player)
 	end
-	
+
 	local newCap = math.floor(storage.baseCapacity * multi)
 	storage.capacity = newCap
-	
+
 	player:SetAttribute("StorageCapacity", newCap)
 	player:SetAttribute("BaseStorageCapacity", storage.baseCapacity)
-	
+
 	local ds = getDataService()
-	if ds then 
-		ds.SetComponentData(player, "storageCapacity", newCap) 
+	if ds then
+		ds.SetComponentData(player, "storageCapacity", newCap)
 		ds.SetComponentData(player, "baseStorageCapacity", storage.baseCapacity)
 	end
 
@@ -388,7 +421,7 @@ end
 --[[
 	AddToBackpack: Directly adds items to the player's backpack (bypassing storage).
 	Used for buy-to-backpack flows where items don't need to go through the silo.
-	
+
 	@param player Player - The player whose backpack to add to
 	@param itemId string - The item ID to add
 	@param count number - How many items to add
@@ -397,17 +430,17 @@ end
 function ItemStorageManager.AddToBackpack(player: Player, itemId: string, count: number): number
 	local backpack = PlayerBackpack[player]
 	if not backpack then return 0 end
-	
+
 	if type(count) ~= "number" or count <= 0 then return 0 end
-	
+
 	local currentSize = getTotalItemCount(backpack.items)
 	local available = backpack.capacity - currentSize
 	local toAdd = math.min(math.floor(count), available)
-	
+
 	if toAdd <= 0 then return 0 end
-	
+
 	backpack.items[itemId] = (backpack.items[itemId] or 0) + toAdd
-	
+
 	BackpackUpdatedEvent:FireClient(player, encodeItems(backpack.items), getTotalItemCount(backpack.items), backpack.capacity)
 	return toAdd
 end
@@ -425,7 +458,7 @@ function ItemStorageManager.ResetPlayerStorage(player)
 		player:SetAttribute("BackpackCapacity", CONFIG.BACKPACK_CAPACITY)
 		BackpackUpdatedEvent:FireClient(player, {}, 0, CONFIG.BACKPACK_CAPACITY)
 	end
-	
+
 	-- Clear DataService components
 	local ds = getDataService()
 	if ds then

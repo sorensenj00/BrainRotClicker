@@ -51,14 +51,12 @@ local function initService(name)
 	local module = Services[name]
 	if module and type(module.Init) == "function" then
 		print(string.format("🚀 Initializing %s...", name))
-		task.spawn(function()
-			local success, err = pcall(module.Init, Services)
-			if not success then
-				warn(string.format("❌ Error initializing %s: %s", name, err))
-			else
-				print(string.format("✓ %s Initialized", name))
-			end
-		end)
+		local success, err = pcall(module.Init, Services)
+		if not success then
+			warn(string.format("❌ Error initializing %s: %s", name, err))
+		else
+			print(string.format("✓ %s Initialized", name))
+		end
 	end
 end
 

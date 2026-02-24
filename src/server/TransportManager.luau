@@ -1,6 +1,6 @@
 --[[
 	TransportManager Server Module
-	
+
 	Handles the transport system for carrying items from storage to market.
 ]]
 
@@ -91,7 +91,7 @@ local function getCartUsage(player)
 	if not CM then return 0 end
 	local cart = CM.GetCartState(player)
 	if not cart then return 0 end
-	
+
 	local total = 0
 	for _, c in pairs(cart.Inventory) do total += c end
 	return total
@@ -99,7 +99,7 @@ end
 
 local function initializePlayer(player)
 	PlayerTransport[player] = { selectedVehicle = CONFIG.DEFAULT_VEHICLE }
-	
+
 	-- Sync attribute for UI
 	player:SetAttribute("CartCapacity", getCartCapacity(player))
 
@@ -117,42 +117,40 @@ end
 function TransportManager.Init(services)
 	print("   TransportManager (Module) - Initializing")
 	Services = services or {}
-	
+
 	Players.PlayerAdded:Connect(function(player)
 		initializePlayer(player)
 	end)
 	Players.PlayerRemoving:Connect(function(player)
 		PlayerTransport[player] = nil
 	end)
-	
+
 	for _, p in Players:GetPlayers() do initializePlayer(p) end
-	
+
 	SelectVehicleRemote.OnServerInvoke = TransportManager.SelectVehicle
 	GetVehicleInfoRemote.OnServerInvoke = TransportManager.GetVehicleInfo
 	LoadFromStorageRemote.OnServerInvoke = TransportManager.LoadFromStorage
 	LoadMaxFromStorageRemote.OnServerInvoke = TransportManager.LoadMaxFromStorage
-	
+
 	print("✓ TransportManager Initialized")
 end
 
 function TransportManager.SelectVehicle(player, vehicleId)
 	local t = PlayerTransport[player]
 	if not t then return false end
-	
+
 	local conf = CONFIG.VEHICLES[vehicleId]
 	if not conf then return false, "Unknown Vehicle" end
-	
+
 	if vehicleId ~= "Sneakers" then
-		-- Check Money
-		local ls = player:FindFirstChild("leaderstats")
-		local m = ls and ls:FindFirstChild("Money")
-		if not m or m.Value < conf.price then return false, "Not enough cash" end
-		m.Value -= conf.price
+		local DataService = rawget(Services, "DataService")
+		if not DataService then return false, "Economy offline" end
+		if not DataService.DeductMoney(player, conf.price) then return false, "Not enough cash" end
 	end
-	
+
 	t.selectedVehicle = vehicleId
 	player:SetAttribute("CartCapacity", conf.capacity)
-	
+
 	-- Update Cart Capacity
 	local CM = getCartManager()
 	if CM then
@@ -169,21 +167,26 @@ function TransportManager.SelectVehicle(player, vehicleId)
 			end
 		end
 	end
-	
+
 	VehicleUpdated:FireClient(player, vehicleId, conf.capacity)
 	return true
 end
 
 function TransportManager.LoadFromStorage(player, itemId, count)
+	if type(itemId) ~= "string" then return 0 end
+	if type(count) ~= "number" then return 0 end
+	count = math.floor(count)
+	if count <= 0 then return 0 end
+
 	local CM = getCartManager()
 	local ISM = getItemStorage()
 	if not CM or not ISM then return 0 end
-	
+
 	local cart = CM.GetCartState(player)
 	if not cart then return 0 end
 	if cart.State ~= "idle" then return 0 end
 	if not cart.Model then return 0 end -- Safety: Cart must exist physically
-	
+
 	-- FIX: Distance Check
 	-- Player must be near their cart to load it
 	local char = player.Character
@@ -195,14 +198,14 @@ function TransportManager.LoadFromStorage(player, itemId, count)
 			return 0
 		end
 	end
-	
+
 	local current = 0
 	for _, c in pairs(cart.Inventory) do current += c end
 	local space = cart.Capacity - current
-	
-	local toMove = math.min(count or 1, space)
+
+	local toMove = math.min(count, space)
 	if toMove <= 0 then return 0 end
-	
+
 	local actuallyRemoved = ISM.RemoveFromStorage(player, itemId, toMove)
 	if actuallyRemoved > 0 then
 		CM.LoadItem(player, itemId, actuallyRemoved)
@@ -214,21 +217,21 @@ function TransportManager.LoadMaxFromStorage(player)
 	local CM = getCartManager()
 	local ISM = getItemStorage()
 	if not CM or not ISM then return {} end
-	
+
 	local cart = CM.GetCartState(player)
 	if not cart then return {} end
 	if cart.State ~= "idle" then return {} end
-	
+
 	local current = 0
 	for _, c in pairs(cart.Inventory) do current += c end
 	local space = cart.Capacity - current
-	
+
 	if space <= 0 then return {} end
-	
+
 	local loaded = {}
 	local storage = ISM.GetStorageContents(player)
 	local list = {}
-	
+
 	for id, c in pairs(storage) do
 		local ic = getItemConfig()
 		local info = ic.Items[id]
@@ -237,7 +240,7 @@ function TransportManager.LoadMaxFromStorage(player)
 		end
 	end
 	table.sort(list, function(a,b) return a.val > b.val end)
-	
+
 	for _, item in ipairs(list) do
 		if space <= 0 then break end
 		local toLoad = math.min(item.count, space)
@@ -248,20 +251,20 @@ function TransportManager.LoadMaxFromStorage(player)
 			space -= didLoad
 		end
 	end
-	
+
 	return loaded
 end
 
 function TransportManager.GetVehicleInfo(player)
 	local sel = PlayerTransport[player] and PlayerTransport[player].selectedVehicle or CONFIG.DEFAULT_VEHICLE
-	
+
 	local inventory = {}
 	local CM = getCartManager()
 	if CM then
 		local cart = CM.GetCartState(player)
 		if cart then inventory = cart.Inventory end
 	end
-	
+
 	return {
 		selectedVehicle = sel,
 		capacity = getCartCapacity(player),
@@ -278,7 +281,7 @@ end
 function TransportManager.SetTransportData(player, data)
 	if not PlayerTransport[player] then PlayerTransport[player] = {} end
 	PlayerTransport[player].selectedVehicle = data.selectedVehicle or CONFIG.DEFAULT_VEHICLE
-	
+
 	local CM = getCartManager()
 	if CM and CM.UpdateCapacity then
 		CM.UpdateCapacity(player, getCartCapacity(player))

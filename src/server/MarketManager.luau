@@ -65,6 +65,15 @@ local CONFIG = {
 
 local MarketManager = {}
 local Services = {}
+local ITEM_SECTOR_MAP = {}
+
+for modelName, mapping in pairs(ItemConfig.BrainrotItems) do
+	local sector = ItemConfig.GetSector(modelName)
+	if mapping.tier1 then ITEM_SECTOR_MAP[mapping.tier1] = sector end
+	if mapping.tier2 then ITEM_SECTOR_MAP[mapping.tier2] = sector end
+	if mapping.tier3 then ITEM_SECTOR_MAP[mapping.tier3] = sector end
+	if mapping.tier4 then ITEM_SECTOR_MAP[mapping.tier4] = sector end
+end
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -72,15 +81,7 @@ local Services = {}
 
 local function getItemSector(itemId)
 	if not itemId then return nil end
-	
-	-- Scan BrainrotItems to find which model produces this item
-	for modelName, mapping in pairs(ItemConfig.BrainrotItems) do
-		if mapping.tier1 == itemId or mapping.tier2 == itemId or 
-		   mapping.tier3 == itemId or mapping.tier4 == itemId then
-			return ItemConfig.GetSector(modelName)
-		end
-	end
-	return "Neutral"
+	return ITEM_SECTOR_MAP[itemId] or "Neutral"
 end
 
 --[[

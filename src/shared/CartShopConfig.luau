@@ -24,21 +24,21 @@ CartShopConfig.Upgrades = {
 		Description = "Increase the amount of items your cart can carry.",
 		BaseValue = 200, -- Tier 0 (Default)
 		Tiers = {
-			{ Price = 500, Value = 400 },   -- Tier 1
-			{ Price = 1500, Value = 800 },  -- Tier 2
-			{ Price = 4000, Value = 1500 }, -- Tier 3
-			{ Price = 10000, Value = 3000 },-- Tier 4
-			{ Price = 25000, Value = 6000 },-- Tier 5
+			{ Price = 10000, Value = 400 },   -- Tier 1
+			{ Price = 50000, Value = 800 },  -- Tier 2
+			{ Price = 250000, Value = 1500 }, -- Tier 3
+			{ Price = 1000000, Value = 3000 },-- Tier 4
+			{ Price = 5000000, Value = 6000 },-- Tier 5
 		}
 	},
 }
 
 CartShopConfig.Carts = {
 		{ Name = "Wooden Cart", Price = 0, Model = "CartTier1" },
-		{ Name = "Iron Cart", Price = 5000, Model = "CartTier2" },
-		{ Name = "Golden Cart", Price = 25000, Model = "CartTier3" },
-		{ Name = "Diamond Cart", Price = 100000, Model = "CartTier4" },
-		{ Name = "Netherite Cart", Price = 500000, Model = "CartTier5" },
+		{ Name = "Iron Cart", Price = 50000, Model = "CartTier2" },
+		{ Name = "Golden Cart", Price = 500000, Model = "CartTier3" },
+		{ Name = "Diamond Cart", Price = 5000000, Model = "CartTier4" },
+		{ Name = "Netherite Cart", Price = 50000000, Model = "CartTier5" },
 	}
 
 

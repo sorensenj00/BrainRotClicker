@@ -23,8 +23,8 @@ GetTierInfoEvent.Name = "GetTierInfo"
 GetTierInfoEvent.Parent = RemoteEvents
 
 local SHOP_CONFIG = {
-	BASE_TIER_PRICE = 5000,
-	PRICE_MULTIPLIER = 2,
+	BASE_TIER_PRICE = 50000,
+	PRICE_MULTIPLIER = 4,
 	VENDOR_SIZE = Vector3.new(6, 8, 6),
 	VENDOR_POSITION_OFFSET = Vector3.new(-30, 10, 30),
 }

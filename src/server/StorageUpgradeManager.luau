@@ -25,7 +25,7 @@ StorageUpgradedEvent.Parent = RemoteEvents
 
 local CONFIG = {
 	BASE_STORAGE = 500,
-	BASE_PRICE = 100,
+	BASE_PRICE = 5000,
 	MULTIPLIER = 2,
 }
 

@@ -25,10 +25,12 @@ local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 
 local StorageUpdatedEvent = RemoteEvents:WaitForChild("StorageUpdated")
+local CartUpdateEvent = RemoteEvents:WaitForChild("CartUpdate")
 local GetStorageFunction = RemoteFunctions:WaitForChild("GetStorage")
 local GetMarketPricesFunction = RemoteFunctions:WaitForChild("GetMarketPrices")
-local SellItemFunction = RemoteFunctions:WaitForChild("SellItem")
-local BuyItemFunction = RemoteFunctions:WaitForChild("BuyItem")
+local GetCartInfoFunction = RemoteFunctions:WaitForChild("GetCartInfo")
+local BuyToCartFunction = RemoteFunctions:WaitForChild("BuyToCart")
+local SellFromCartFunction = RemoteFunctions:WaitForChild("SellFromCart")
 
 local stockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket")
 
@@ -77,9 +79,13 @@ local ARB_THRESHOLD = MarketConfig.CONFIG.ARBITRAGE_ALERT_THRESHOLD or 0.15
 --------------------------------------------------------------------------------
 
 local isOpen = false
-local currentStorage = {}       -- {[itemId] = count}
+local currentStorage = {}       -- {[itemId] = count} (storage silo, for reference)
 local storageUsage = 0
 local storageCapacity = 0
+local cartInventory = {}        -- {[itemId] = count} (what's in the cart)
+local cartState = "idle"        -- idle, rolling_to_market, at_market, rolling_to_plot
+local cartCapacity = 200
+local cartItemCount = 0
 local globalItemRates = {}      -- {[itemId] = globalRate}
 local localItemRates = {}       -- {[itemId] = localRate}
 local sectorRates = {}          -- {[sector] = rate}
@@ -92,6 +98,7 @@ local selectedQty = 1           -- Current quantity multiplier
 local screenGui, mainFrame
 local leftScroll, _rightPanel
 local stoCapFill, stoCapText
+local cartStatusBanner
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -351,7 +358,7 @@ local function createLeftColumn(parent)
 
 	-- Header
 	makeLabel(col, {
-		Name = "Header", Text = "📊 PORTFOLIO",
+		Name = "Header", Text = "🛒 CART INVENTORY",
 		Color = C.amber, Font = FONT_BOLD, Size = 14,
 		UDim2Size = UDim2.new(1, -12, 0, 28),
 		Position = UDim2.new(0, 8, 0, 6),
@@ -377,8 +384,8 @@ local function createLeftColumn(parent)
 	portfolioAssetsLabel = makeLabel(statsBar, { Name = "ValPortfolio", Text = "$0", Color = C.amber, Font = FONT_MONO, Size = 15,
 		UDim2Size = UDim2.new(0.5, -8, 0, 22), Position = UDim2.new(0.5, 0, 0, 20), XAlign = Enum.TextXAlignment.Right })
 
-	-- Capacity bar
-	makeLabel(col, { Name = "CapLabel", Text = "STORAGE CAPACITY", Color = C.muted, Font = FONT_BOLD, Size = 9,
+	-- Capacity bar (now shows CART capacity)
+	makeLabel(col, { Name = "CapLabel", Text = "CART CAPACITY", Color = C.muted, Font = FONT_BOLD, Size = 9,
 		UDim2Size = UDim2.new(1, -16, 0, 12), Position = UDim2.new(0, 8, 0, 88) })
 
 	local capFrame = Instance.new("Frame")
@@ -402,11 +409,29 @@ local function createLeftColumn(parent)
 		UDim2Size = UDim2.new(1, 0, 1, 0), XAlign = Enum.TextXAlignment.Center })
 	stoCapFill = capFill
 
-	-- Scrolling item list
+	-- Cart status banner
+	cartStatusBanner = Instance.new("Frame")
+	cartStatusBanner.Name = "CartStatusBanner"
+	cartStatusBanner.Size = UDim2.new(1, -8, 0, 24)
+	cartStatusBanner.Position = UDim2.new(0, 4, 0, 122)
+	cartStatusBanner.BackgroundColor3 = C.dimBg
+	cartStatusBanner.BorderSizePixel = 0
+	cartStatusBanner.Parent = col
+	addCorner(cartStatusBanner, UDim.new(0, 4))
+
+	local bannerText = makeLabel(cartStatusBanner, {
+		Name = "BannerText", Text = "🔴 CART AT PLOT",
+		Color = C.muted, Font = FONT_MONO, Size = 10,
+		UDim2Size = UDim2.new(1, 0, 1, 0),
+		XAlign = Enum.TextXAlignment.Center,
+	})
+	bannerText.TextXAlignment = Enum.TextXAlignment.Center
+
+	-- Scrolling cart item list
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "AssetList"
-	scroll.Size = UDim2.new(1, -8, 1, -126)
-	scroll.Position = UDim2.new(0, 4, 0, 122)
+	scroll.Size = UDim2.new(1, -8, 1, -154)
+	scroll.Position = UDim2.new(0, 4, 0, 150)
 	scroll.BackgroundTransparency = 1
 	scroll.ScrollBarThickness = 3
 	scroll.ScrollBarImageColor3 = C.amber
@@ -689,16 +714,16 @@ local function createRightColumn(parent)
 	sellBtn.Parent = sellFrame
 	addCorner(sellBtn, UDim.new(0, 4))
 
-	-- Wire BUY button
+	-- Wire BUY button (cart-based)
 	buyBtn.MouseButton1Click:Connect(function()
 		if not inspectedItem then return end
+		if cartState ~= "at_market" then return end
 		local qty = getActualBuyQty()
 		if qty <= 0 then return end
 		buyBtn.Text = "..."
-		local bought, _cost = BuyItemFunction:InvokeServer(inspectedItem, qty)
+		local bought, _cost = BuyToCartFunction:InvokeServer(inspectedItem, qty)
 		buyBtn.Text = "⬆ BUY"
 		if bought and bought > 0 then
-			-- Refresh after trade
 			task.spawn(fetchData)
 			task.wait(0.1)
 			updateInspector()
@@ -706,13 +731,14 @@ local function createRightColumn(parent)
 		end
 	end)
 
-	-- Wire SELL button
+	-- Wire SELL button (cart-based)
 	sellBtn.MouseButton1Click:Connect(function()
 		if not inspectedItem then return end
+		if cartState ~= "at_market" then return end
 		local qty = getActualSellQty()
 		if qty <= 0 then return end
 		sellBtn.Text = "..."
-		local sold, _earned = SellItemFunction:InvokeServer(inspectedItem, qty)
+		local sold, _earned = SellFromCartFunction:InvokeServer(inspectedItem, qty)
 		sellBtn.Text = "⬇ SELL"
 		if sold and sold > 0 then
 			task.spawn(fetchData)
@@ -733,23 +759,25 @@ end
 
 function getActualBuyQty()
 	if not inspectedItem then return 0 end
+	if cartState ~= "at_market" then return 0 end
 	local price = getLocalPrice(inspectedItem)
 	if price <= 0 then return 0 end
 	local money = getPlayerMoney()
+	local cartSpace = cartCapacity - cartItemCount
 
 	if selectedQty == -1 then
-		-- MAX: afford limit capped at MAX_BUY_PER_TRANSACTION
 		local afford = math.floor(money / price)
-		return math.min(afford, MAX_BUY)
+		return math.min(afford, MAX_BUY, cartSpace)
 	else
 		local afford = math.floor(money / price)
-		return math.min(selectedQty, afford, MAX_BUY)
+		return math.min(selectedQty, afford, MAX_BUY, cartSpace)
 	end
 end
 
 function getActualSellQty()
 	if not inspectedItem then return 0 end
-	local owned = currentStorage[inspectedItem] or 0
+	if cartState ~= "at_market" then return 0 end
+	local owned = cartInventory[inspectedItem] or 0
 	if selectedQty == -1 then
 		return owned
 	else
@@ -795,7 +823,7 @@ function updateInspector()
 	local localRate = getLocalRate(inspectedItem)
 	local sector = getItemSector(inspectedItem)
 	local isArb = isArbOpportunity(inspectedItem)
-	local owned = currentStorage[inspectedItem] or 0
+	local owned = cartInventory[inspectedItem] or 0
 
 	-- Item name
 	if itemName then
@@ -874,9 +902,9 @@ function updateLeftColumn()
 		if child:IsA("TextButton") then child:Destroy() end
 	end
 
-	-- Populate sorted by count
+	-- Populate sorted by count (from CART inventory)
 	local sorted = {}
-	for itemId, count in pairs(currentStorage) do
+	for itemId, count in pairs(cartInventory) do
 		if count > 0 then
 			table.insert(sorted, {id = itemId, count = count})
 		end
@@ -889,14 +917,38 @@ function updateLeftColumn()
 		totalAssetValue += getLocalPrice(item.id) * item.count
 	end
 
-	-- Update capacity bar
+	-- Update cart capacity bar
 	if stoCapFill then
-		local ratio = math.clamp(storageUsage / math.max(1, storageCapacity), 0, 1)
+		local ratio = math.clamp(cartItemCount / math.max(1, cartCapacity), 0, 1)
 		TweenService:Create(stoCapFill, TweenInfo.new(0.3), {Size = UDim2.new(ratio, 0, 1, 0)}):Play()
 		stoCapFill.BackgroundColor3 = ratio >= 1 and C.red or C.amber
 	end
 	if stoCapText then
-		stoCapText.Text = string.format("%d/%d", storageUsage, storageCapacity)
+		stoCapText.Text = string.format("%d/%d", cartItemCount, cartCapacity)
+	end
+
+	-- Update cart status banner
+	if cartStatusBanner then
+		local bt = cartStatusBanner:FindFirstChild("BannerText")
+		if bt then
+			if cartState == "at_market" then
+				bt.Text = "🟢 CART AT MARKET — TRADING ENABLED"
+				bt.TextColor3 = C.green
+				cartStatusBanner.BackgroundColor3 = C.greenBg
+			elseif cartState == "rolling_to_market" then
+				bt.Text = "🟡 CART EN ROUTE TO MARKET..."
+				bt.TextColor3 = C.amber
+				cartStatusBanner.BackgroundColor3 = C.dimBg
+			elseif cartState == "rolling_to_plot" then
+				bt.Text = "🟡 CART RETURNING TO PLOT..."
+				bt.TextColor3 = C.amber
+				cartStatusBanner.BackgroundColor3 = C.dimBg
+			else
+				bt.Text = "🔴 CART AT PLOT — SEND TO TRADE"
+				bt.TextColor3 = C.red
+				cartStatusBanner.BackgroundColor3 = C.redBg
+			end
+		end
 	end
 
 	-- Portfolio values
@@ -917,6 +969,16 @@ function fetchData()
 	currentStorage = decodeItems(items) or {}
 	storageUsage = total or 0
 	storageCapacity = Player:GetAttribute("StorageCapacity") or cap or 0
+
+	-- Fetch cart state
+	local cartInfo = GetCartInfoFunction:InvokeServer()
+	if cartInfo then
+		cartState = cartInfo.state or "idle"
+		cartInventory = decodeItems(cartInfo.inventory) or {}
+		cartCapacity = cartInfo.capacity or 200
+		cartItemCount = 0
+		for _, c in pairs(cartInventory) do cartItemCount += c end
+	end
 
 	local _prices = GetMarketPricesFunction:InvokeServer()
 
@@ -976,6 +1038,15 @@ local function initialize()
 		currentStorage = items or {}
 		storageUsage = total or 0
 		storageCapacity = Player:GetAttribute("StorageCapacity") or capacity or 0
+	end)
+
+	-- Cart state updates (real-time)
+	CartUpdateEvent.OnClientEvent:Connect(function(state, inventory, capacity)
+		cartState = state or "idle"
+		cartInventory = decodeItems(inventory) or {}
+		cartCapacity = capacity or cartCapacity
+		cartItemCount = 0
+		for _, c in pairs(cartInventory) do cartItemCount += c end
 		if isOpen then
 			updateLeftColumn()
 			updateInspector()

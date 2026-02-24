@@ -68,6 +68,9 @@ local ProfileStore = ProfileService.GetProfileStore(
 		-- Artifacts (all owned, with equipment links)
 		Artifacts = {},
 		
+		-- Artifact Exchange Escrow (GUIDs of artifacts listed for sale)
+		EscrowedArtifacts = {},
+		
 		-- Cart Upgrades (Persisted)
 		CartUpgrades = {
 			Capacity = 0,
@@ -265,6 +268,15 @@ function DataService.IsLoaded(player: Player): boolean
 end
 
 --[[
+	Gets the raw Profile object for a player (for GlobalUpdates integration).
+	@param player Player
+	@return Profile? - The ProfileService profile, or nil
+]]
+function DataService.GetProfile(player: Player)
+	return Profiles[player]
+end
+
+--[[
 	COMPLETELY WIPES a player's profile from the DataStore.
 	Use this to fix corrupted data. The player will start fresh on next join.
 	@param player Player
@@ -399,6 +411,63 @@ local function onPlayerAdded(player: Player)
 				end)
 			end
 			
+			-- Process GlobalUpdates (Grand Exchange offline revenue, etc.)
+			task.spawn(function()
+				-- Process existing active updates
+				profile.GlobalUpdates:ForEachActiveUpdate(function(updateId, updateData)
+					if updateData.Type == "ArtifactSold" then
+						local revenue = updateData.Revenue or 0
+						if revenue > 0 then
+							profile.Data.money = (profile.Data.money or 0) + revenue
+							profile.Data.lifetimeEarnings = (profile.Data.lifetimeEarnings or 0) + revenue
+							local ls = player:FindFirstChild("leaderstats")
+							local m = ls and ls:FindFirstChild("Money")
+							if m then m.Value = profile.Data.money end
+							print("DataService: Credited $" .. revenue .. " artifact sale revenue to " .. player.Name)
+						end
+						-- Remove from escrow if present
+						if updateData.ListingGUID and profile.Data.EscrowedArtifacts then
+							profile.Data.EscrowedArtifacts[updateData.ListingGUID] = nil
+						end
+						profile.GlobalUpdates:LockActiveUpdate(updateId)
+					end
+				end)
+				-- Clear locked updates
+				profile.GlobalUpdates:ForEachLockedUpdate(function(updateId, _updateData)
+					profile.GlobalUpdates:ClearLockedUpdate(updateId)
+				end)
+				-- Listen for future updates while online
+				profile.GlobalUpdates:ListenToNewActiveUpdate(function(updateId, updateData)
+					if updateData.Type == "ArtifactSold" then
+						local revenue = updateData.Revenue or 0
+						if revenue > 0 then
+							profile.Data.money = (profile.Data.money or 0) + revenue
+							profile.Data.lifetimeEarnings = (profile.Data.lifetimeEarnings or 0) + revenue
+							local ls = player:FindFirstChild("leaderstats")
+							local m = ls and ls:FindFirstChild("Money")
+							if m then m.Value = profile.Data.money end
+						end
+						if updateData.ListingGUID and profile.Data.EscrowedArtifacts then
+							profile.Data.EscrowedArtifacts[updateData.ListingGUID] = nil
+						end
+						-- Notify client about the sale
+						local ReplicatedStorage = game:GetService("ReplicatedStorage")
+						local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
+						local notifyEvent = RemoteEvents and RemoteEvents:FindFirstChild("ArtifactExchangeNotify")
+						if notifyEvent then
+							notifyEvent:FireClient(player, "sold", {
+								ArtifactName = updateData.ArtifactName or "Unknown",
+								Revenue = revenue,
+							})
+						end
+						profile.GlobalUpdates:LockActiveUpdate(updateId)
+					end
+				end)
+				profile.GlobalUpdates:ListenToNewLockedUpdate(function(updateId, _updateData)
+					profile.GlobalUpdates:ClearLockedUpdate(updateId)
+				end)
+			end)
+
 			local plm = getPlayerLifecycleManager()
 			if plm then plm.SetDataLoaded(player) end
 

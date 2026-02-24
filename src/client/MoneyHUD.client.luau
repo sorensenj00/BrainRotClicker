@@ -342,7 +342,7 @@ local function createMoneyHUD(): ScreenGui
 	----------------------------------------------------------------------
 	local btnSize = UI_CONFIG.BOTTOM_BAR_BTN_SIZE
 	local btnPad = UI_CONFIG.BOTTOM_BAR_PADDING
-	local totalBarWidth = 7 * btnSize + 6 * btnPad + 24 -- + side padding for 7 buttons
+	local totalBarWidth = 8 * btnSize + 7 * btnPad + 24 -- + side padding for 8 buttons
 	
 	local bottomBar = Instance.new("Frame")
 	bottomBar.Name = "BottomBar"
@@ -449,6 +449,8 @@ local function createMoneyHUD(): ScreenGui
 	createBarButton("StorageButton", "📦", Color3.fromRGB(255, 100, 50), 5)
 	-- 6. Stock Market
 	createBarButton("StockButton", "📈", Color3.fromRGB(80, 200, 100), 6)
+	-- 7. Grand Exchange
+	createBarButton("ExchangeButton", "🏛️", Color3.fromRGB(250, 190, 60), 7)
 	
 	return screenGui
 end
@@ -799,6 +801,8 @@ local function initialize()
 			Color3.fromRGB(255, 100, 50), Color3.fromRGB(255, 140, 100))
 		setupBtn("StockButton", "StockToggleEvent", nil,
 			Color3.fromRGB(80, 200, 100), Color3.fromRGB(100, 230, 130))
+		setupBtn("ExchangeButton", "ExchangeToggleEvent", nil,
+			Color3.fromRGB(250, 190, 60), Color3.fromRGB(255, 210, 100))
 	end
 	
 	-- Portfolio button

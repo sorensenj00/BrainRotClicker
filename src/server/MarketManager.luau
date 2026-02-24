@@ -45,6 +45,14 @@ local BuyItemFunction = RemoteFunctions:FindFirstChild("BuyItem") or Instance.ne
 BuyItemFunction.Name = "BuyItem"
 BuyItemFunction.Parent = RemoteFunctions
 
+local BuyToCartFunction = RemoteFunctions:FindFirstChild("BuyToCart") or Instance.new("RemoteFunction")
+BuyToCartFunction.Name = "BuyToCart"
+BuyToCartFunction.Parent = RemoteFunctions
+
+local SellFromCartFunction = RemoteFunctions:FindFirstChild("SellFromCart") or Instance.new("RemoteFunction")
+SellFromCartFunction.Name = "SellFromCart"
+SellFromCartFunction.Parent = RemoteFunctions
+
 local GetMarketPricesFunction = RemoteFunctions:FindFirstChild("GetMarketPrices") or Instance.new("RemoteFunction")
 GetMarketPricesFunction.Name = "GetMarketPrices"
 GetMarketPricesFunction.Parent = RemoteFunctions
@@ -223,6 +231,8 @@ function MarketManager.Init(services)
 	SellItemFunction.OnServerInvoke = function(p, id, c) return MarketManager.SellItem(p, id, c) end
 	SellAllFunction.OnServerInvoke = function(p) return MarketManager.SellAll(p) end
 	BuyItemFunction.OnServerInvoke = function(p, id, c) return MarketManager.BuyItem(p, id, c) end
+	BuyToCartFunction.OnServerInvoke = function(p, id, c) return MarketManager.BuyToCart(p, id, c) end
+	SellFromCartFunction.OnServerInvoke = function(p, id, c) return MarketManager.SellFromCart(p, id, c) end
 	GetMarketPricesFunction.OnServerInvoke = function(p) return MarketManager.GetAllPrices(p), getMarketRate() end
 
 	print("✓ MarketManager Initialized (Buy + Sell)")
@@ -473,6 +483,136 @@ function MarketManager.ExecuteShortfallBuy(shortfallPerItem)
 			applyLocalShock(itemId, data.missing, true)
 		end
 	end
+end
+
+--[[
+	BuyToCart: Buys items from the AMM and places them in the player's cart.
+	Cart must be at_market state.
+	
+	@param player Player
+	@param itemId string
+	@param count number
+	@return (boughtCount, totalCost)
+]]
+function MarketManager.BuyToCart(player, itemId, count)
+	if type(itemId) ~= "string" or type(count) ~= "number" then return 0, 0 end
+	if count <= 0 then return 0, 0 end
+	
+	local itemInfo = ItemConfig.Items[itemId]
+	if not itemInfo then
+		warn(player.Name .. " attempted to buy unknown item to cart: " .. tostring(itemId))
+		return 0, 0
+	end
+	
+	-- Cart must be at market
+	local CM = rawget(Services, "CartManager")
+	if not CM then return 0, 0 end
+	
+	local cartData = CM.GetCartState(player)
+	if not cartData or cartData.State ~= "at_market" then
+		warn(player.Name .. " attempted BuyToCart but cart is not at market")
+		return 0, 0
+	end
+	
+	-- Slippage protection
+	local maxBuy = MarketConfig.CONFIG.MAX_BUY_PER_TRANSACTION or 100
+	local cappedCount = math.min(math.floor(count), maxBuy)
+	if cappedCount <= 0 then return 0, 0 end
+	
+	-- Check cart space
+	local spaceRemaining = CM.GetCartSpaceRemaining(player)
+	cappedCount = math.min(cappedCount, spaceRemaining)
+	if cappedCount <= 0 then return 0, 0 end
+	
+	-- Get buy price (raw market rate, no welfare floor)
+	local unitPrice = getBuyPrice(itemId)
+	if unitPrice <= 0 then return 0, 0 end
+	
+	-- Verify and deduct cash
+	local DataService = rawget(Services, "DataService")
+	if not DataService then return 0, 0 end
+	
+	local playerMoney = DataService.GetMoney(player)
+	if playerMoney < unitPrice then return 0, 0 end
+	
+	local affordableCount = math.min(cappedCount, math.floor(playerMoney / unitPrice))
+	if affordableCount <= 0 then return 0, 0 end
+	
+	local totalCost = affordableCount * unitPrice
+	
+	local deducted = DataService.DeductMoney(player, totalCost)
+	if not deducted then return 0, 0 end
+	
+	-- Load items into cart
+	local actualLoaded = CM.LoadItemAtMarket(player, itemId, affordableCount)
+	
+	-- Handle partial: refund excess
+	if actualLoaded < affordableCount then
+		local refund = (affordableCount - actualLoaded) * unitPrice
+		DataService.AddMoney(player, refund)
+		totalCost = actualLoaded * unitPrice
+	end
+	
+	if actualLoaded <= 0 then return 0, 0 end
+	
+	-- Adjust AMM pool: items leave pool, cash enters pool
+	adjustAMMPool(itemId, -actualLoaded, totalCost)
+	applyLocalShock(itemId, actualLoaded, true)
+	
+	-- Notify client
+	ItemBoughtEvent:FireClient(player, itemId, actualLoaded, totalCost)
+	
+	return actualLoaded, totalCost
+end
+
+--[[
+	SellFromCart: Sells items from the player's cart inventory.
+	Cart must be at_market state. Uses welfare-aware sell price.
+	
+	@param player Player
+	@param itemId string
+	@param count number
+	@return (soldCount, totalEarned)
+]]
+function MarketManager.SellFromCart(player, itemId, count)
+	if type(itemId) ~= "string" or type(count) ~= "number" then return 0, 0 end
+	if count <= 0 then return 0, 0 end
+	
+	local CM = rawget(Services, "CartManager")
+	if not CM then return 0, 0 end
+	
+	local cartData = CM.GetCartState(player)
+	if not cartData or cartData.State ~= "at_market" then
+		warn(player.Name .. " attempted SellFromCart but cart is not at market")
+		return 0, 0
+	end
+	
+	-- Check how many are in cart
+	local inCart = cartData.Inventory[itemId] or 0
+	if inCart <= 0 then return 0, 0 end
+	
+	local toSell = math.min(count, inCart)
+	local price = getPlayerSellPrice(player, itemId)
+	local total = toSell * price
+	
+	-- Remove from cart
+	local removed = CM.RemoveFromCartInventory(player, itemId, toSell)
+	if removed <= 0 then return 0, 0 end
+	
+	-- Award money
+	local DataService = rawget(Services, "DataService")
+	if DataService then
+		DataService.AddMoney(player, total)
+	end
+	
+	-- Adjust AMM pool: items enter pool, cash leaves pool
+	adjustAMMPool(itemId, removed, -total)
+	applyLocalShock(itemId, removed, false)
+	
+	-- Notify client
+	ItemSoldEvent:FireClient(player, itemId, removed, total)
+	
+	return removed, total
 end
 
 return MarketManager

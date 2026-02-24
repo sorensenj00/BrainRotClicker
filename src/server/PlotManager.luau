@@ -191,7 +191,7 @@ function PlotManager.TeleportPlayer(player)
 end
 
 -- Tier Logic
-local function getAvailableSide(tierData)
+local function getAvailableSide(tierData, isFirstExpansion)
 	local avail = {}
 	for side = 0, 3 do
 		local blocked = (side == tierData.BlockedSide)
@@ -200,6 +200,15 @@ local function getAvailableSide(tierData)
 		if not blocked and not used then table.insert(avail, side) end
 	end
 	if #avail == 0 then return nil end
+
+	-- First expansion: always pick the side opposite the bridge (away from main island)
+	if isFirstExpansion then
+		local oppositeSide = (tierData.BlockedSide + 2) % 4
+		for _, s in avail do
+			if s == oppositeSide then return oppositeSide end
+		end
+	end
+
 	return avail[math.random(1, #avail)]
 end
 
@@ -207,10 +216,12 @@ function PlotManager.SpawnTierPlot(player, parentTier)
 	local TerrainGenerator = rawget(Services, "TerrainGenerator")
 	if not TerrainGenerator then return nil end
 
-	local side = getAvailableSide(parentTier)
+	local sys = PlayerTierSystems[player]
+	local isFirstExpansion = sys and #sys.Tiers == 1
+
+	local side = getAvailableSide(parentTier, isFirstExpansion)
 	if not side then warn("No sides for tier " .. player.Name); return nil end
 	
-	local sys = PlayerTierSystems[player]
 	if not sys then return nil end
 	local nextIdx = #sys.Tiers + 1
 	if nextIdx > TIER_CONFIG.MAX_TIERS then return nil end

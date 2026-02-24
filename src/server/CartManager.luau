@@ -14,9 +14,11 @@ local ServerStorage = game:GetService("ServerStorage")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
+local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions") or Instance.new("Folder")
+RemoteFunctions.Name = "RemoteFunctions"
+RemoteFunctions.Parent = ReplicatedStorage
 
 -- Create specific remotes for Cart system
--- (Using existing Transport hooks where possible, but adding specific events for cart state)
 local CartUpdateEvent = RemoteEvents:FindFirstChild("CartUpdate") or Instance.new("RemoteEvent")
 CartUpdateEvent.Name = "CartUpdate"
 CartUpdateEvent.Parent = RemoteEvents
@@ -28,6 +30,14 @@ PushCartRemote.Parent = RemoteEvents
 local ReturnCartRemote = RemoteEvents:FindFirstChild("ReturnCart") or Instance.new("RemoteEvent")
 ReturnCartRemote.Name = "ReturnCart"
 ReturnCartRemote.Parent = RemoteEvents
+
+local GetCartInfoFunction = RemoteFunctions:FindFirstChild("GetCartInfo") or Instance.new("RemoteFunction")
+GetCartInfoFunction.Name = "GetCartInfo"
+GetCartInfoFunction.Parent = RemoteFunctions
+
+local UnloadCartRemote = RemoteFunctions:FindFirstChild("UnloadCart") or Instance.new("RemoteFunction")
+UnloadCartRemote.Name = "UnloadCart"
+UnloadCartRemote.Parent = RemoteFunctions
 
 local CartManager = {}
 local Services = {}
@@ -48,11 +58,6 @@ local CONFIG = {
 local function getMapSystem()
 	return rawget(Services, "MapSystem")
 end
-
-local function getMarketManager()
-	return rawget(Services, "MarketManager")
-end
-
 local function getCartTemplate(tier)
 	local tierName = "CartTier" .. (tier or 1)
 	local models = ReplicatedStorage:FindFirstChild("Models")
@@ -135,14 +140,29 @@ local function spawnCart(player)
 	local model = template:Clone()
 	model.Name = "Cart_" .. player.Name
 	
-	-- Initial Position (Start of bridge)
+	-- Waypoints computation:
+	-- WP1: Plot edge (Start of bridge)
+	-- WP2: Hub edge (End of bridge, meeting Main Island)
+	-- WP3: Market/Hole position (Center of Main Island)
 	local plotPos = plot:GetPivot().Position
-	local mainPos = Vector3.new(0, MS.CONFIG.MAIN_ISLAND_HEIGHT + 6, 0)
-	local dir = (mainPos - plotPos).Unit
-	local spawnPos = plotPos + (dir * 35) -- Edge of plot
-	spawnPos = Vector3.new(spawnPos.X, plotPos.Y + 10, spawnPos.Z) -- Higher up to avoid clipping ramp/bridge
+	local dir2D = Vector3.new(plotPos.X, 0, plotPos.Z).Unit
 	
-	model:PivotTo(CFrame.new(spawnPos, spawnPos + dir))
+	-- From PlotManager: hubEdge = Vector3.new(dir2D.X * 100, 30, dir2D.Z * 100)
+	local hubEdgePos = Vector3.new(dir2D.X * 100, MS.CONFIG.MAIN_ISLAND_HEIGHT or 30, dir2D.Z * 100)
+	
+	-- From PlotManager: plotEdge = Vector3.new(plotPos.X - dir2D.X * 60, plotPos.Y, plotPos.Z - dir2D.Z * 60)
+	local plotEdgePos = Vector3.new(plotPos.X - dir2D.X * 60, plotPos.Y, plotPos.Z - dir2D.Z * 60)
+	
+	-- Add slightly to Y so the cart doesn't clip into the bridge/ground
+	local yOffset = Vector3.new(0, 3, 0)
+	
+	local wp1 = plotEdgePos + yOffset
+	local wp2 = hubEdgePos + yOffset
+	local wp3 = Vector3.new(0, hubEdgePos.Y + 3, 0) -- Hole is at center, so X=0, Z=0
+	
+	local dir = (wp3 - wp1).Unit -- General direction for facing at spawn
+	
+	model:PivotTo(CFrame.new(wp1, wp1 + dir))
 	model.Parent = workspace
 	
 	local Config = require(ReplicatedStorage.Shared.CartShopConfig)
@@ -155,16 +175,16 @@ local function spawnCart(player)
 		Capacity = capOverride > 0 and capOverride or CONFIG.DEFAULT_CAPACITY,
 		Speed = CONFIG.ROLL_SPEED,
 		ModelTier = upgrades.Model or 1,
-		StartPos = spawnPos,
-		EndPos = mainPos + (dir * -12), -- Roll all the way down to the hole
+		Waypoints = { wp1, wp2, wp3 },
 		BridgeDir = dir
 	}
 	
 	-- Tag for client-side HUD and visuals
 	model:SetAttribute("OwnerId", player.UserId)
 	model:SetAttribute("CartState", "idle")
-	model:SetAttribute("CartStartPos", spawnPos)
-	model:SetAttribute("CartEndPos", data.EndPos)
+	model:SetAttribute("CartWP1", data.Waypoints[1])
+	model:SetAttribute("CartWP2", data.Waypoints[2])
+	model:SetAttribute("CartWP3", data.Waypoints[3])
 	model:SetAttribute("CartDuration", 0)
 	model:SetAttribute("CartStartTime", 0)
 	
@@ -184,21 +204,16 @@ local function moveCart(player, targetState)
 		return 
 	end
 	
-	local startP, endP
-	if targetState == "rolling_to_market" then
-		startP = data.StartPos
-		endP = data.EndPos
-	else
-		startP = data.EndPos
-		endP = data.StartPos
+	local dist = 0
+	if data.Waypoints then
+		dist = (data.Waypoints[1] - data.Waypoints[2]).Magnitude + (data.Waypoints[2] - data.Waypoints[3]).Magnitude
 	end
 	
 	data.State = targetState
 	updateCartVisuals(data)
 	CartUpdateEvent:FireClient(player, data.State, data.Inventory, data.Capacity)
 	
-	-- Calculate time
-	local dist = (startP - endP).Magnitude
+	-- Calculate time (distance already computed above or defaults)
 	local speed = data.Speed or CONFIG.ROLL_SPEED
 	local travelTime = dist / speed
 	print("CartManager: Starting transport, time:", travelTime, "dist:", dist)
@@ -212,24 +227,12 @@ local function moveCart(player, targetState)
 	task.delay(travelTime, function()
 		print("CartManager: Transport completed")
 		if targetState == "rolling_to_market" then
-			data.State = "selling" -- Disable prompt during animation
+			-- Cart arrived at market — stay here for manual trading
+			data.State = "at_market"
 			data.Model:SetAttribute("CartState", "at_market")
-			
-			-- Wait for funnel animation (approx 2s) before selling
-			task.delay(2.5, function()
-				local MM = getMarketManager()
-				if MM and MM.SellCartContents then
-					MM.SellCartContents(player, data.Inventory)
-					data.Inventory = {} -- Clear after sell
-				end
-				updateCartVisuals(data)
-				CartUpdateEvent:FireClient(player, "at_market", data.Inventory, data.Capacity)
-                
-                -- Auto-return!
-                task.delay(0.5, function()
-                    moveCart(player, "rolling_to_plot")
-                end)
-			end)
+			updateCartVisuals(data)
+			CartUpdateEvent:FireClient(player, "at_market", data.Inventory, data.Capacity)
+			print("CartManager: Cart at market — awaiting player trades")
 		else
 			data.State = "idle"
 			data.Model:SetAttribute("CartState", "idle")
@@ -312,9 +315,8 @@ function CartManager.Init(services)
 			spawnCart(player)
 		end)
 	else
-		-- Fallback if PLM is missing (should not happen)
 		Players.PlayerAdded:Connect(function(player)
-			task.wait(2) -- Wait for plot
+			task.wait(2)
 			spawnCart(player)
 		end)
 	end
@@ -338,13 +340,26 @@ function CartManager.Init(services)
 		CartManager.HandlePrompt(player)
 	end)
 	
-	-- Initial players handled by PLM when they become ready
-	-- for _, p in Players:GetPlayers() do
-	-- 	task.spawn(function()
-	-- 		task.wait(2)
-	-- 		spawnCart(p)
-	-- 	end)
-	-- end
+	-- GetCartInfo remote — lets client query cart state/inventory
+	GetCartInfoFunction.OnServerInvoke = function(player)
+		local data = PlayerCarts[player]
+		if not data then
+			return { state = "none", inventory = {}, capacity = 0, spaceRemaining = 0 }
+		end
+		local current = 0
+		for _, c in pairs(data.Inventory) do current += c end
+		return {
+			state = data.State,
+			inventory = data.Inventory,
+			capacity = data.Capacity,
+			spaceRemaining = data.Capacity - current,
+		}
+	end
+	
+	-- UnloadCart remote — unloads items from cart to storage when idle at plot
+	UnloadCartRemote.OnServerInvoke = function(player)
+		return CartManager.UnloadAll(player)
+	end
 	
 	print("✓ CartManager Initialized")
 end
@@ -396,6 +411,89 @@ function CartManager.UpdateCapacity(player, capacity)
 	data.Capacity = capacity
 	updateCartVisuals(data)
 	CartUpdateEvent:FireClient(player, data.State, data.Inventory, data.Capacity)
+end
+
+--[[
+	RemoveFromCartInventory: Removes items from cart inventory (for selling).
+	Only works when cart is at_market.
+	@return number of items actually removed
+]]
+function CartManager.RemoveFromCartInventory(player, itemId, count)
+	local data = PlayerCarts[player]
+	if not data then return 0 end
+	if data.State ~= "at_market" then return 0 end
+	
+	local inCart = data.Inventory[itemId] or 0
+	local toRemove = math.min(count, inCart)
+	if toRemove <= 0 then return 0 end
+	
+	data.Inventory[itemId] = inCart - toRemove
+	if data.Inventory[itemId] <= 0 then data.Inventory[itemId] = nil end
+	
+	updateCartVisuals(data)
+	CartUpdateEvent:FireClient(player, data.State, data.Inventory, data.Capacity)
+	return toRemove
+end
+
+--[[
+	LoadItemAtMarket: Adds items to cart inventory (for buying at market).
+	Only works when cart is at_market.
+	@return number of items actually loaded
+]]
+function CartManager.LoadItemAtMarket(player, itemId, count)
+	local data = PlayerCarts[player]
+	if not data then return 0 end
+	if data.State ~= "at_market" then return 0 end
+	
+	local current = 0
+	for _, c in pairs(data.Inventory) do current += c end
+	local space = data.Capacity - current
+	local toLoad = math.min(count, space)
+	if toLoad <= 0 then return 0 end
+	
+	data.Inventory[itemId] = (data.Inventory[itemId] or 0) + toLoad
+	updateCartVisuals(data)
+	CartUpdateEvent:FireClient(player, data.State, data.Inventory, data.Capacity)
+	return toLoad
+end
+
+--[[
+	UnloadAll: Moves all items from cart to storage.
+	Only works when cart is idle (at plot).
+	@return {[itemId] = count} of items unloaded
+]]
+function CartManager.UnloadAll(player)
+	local data = PlayerCarts[player]
+	if not data then return {} end
+	if data.State ~= "idle" then return {} end
+	
+	local ISM = rawget(Services, "ItemStorageManager")
+	if not ISM then return {} end
+	
+	local unloaded = {}
+	for itemId, count in pairs(data.Inventory) do
+		if count > 0 then
+			local added = ISM.AddToStorage(player, itemId, count)
+			if added > 0 then
+				unloaded[itemId] = added
+				data.Inventory[itemId] = (data.Inventory[itemId] or 0) - added
+				if data.Inventory[itemId] <= 0 then data.Inventory[itemId] = nil end
+			end
+		end
+	end
+	
+	updateCartVisuals(data)
+	CartUpdateEvent:FireClient(player, data.State, data.Inventory, data.Capacity)
+	print("CartManager: Unloaded items for", player.Name)
+	return unloaded
+end
+
+function CartManager.GetCartSpaceRemaining(player)
+	local data = PlayerCarts[player]
+	if not data then return 0 end
+	local current = 0
+	for _, c in pairs(data.Inventory) do current += c end
+	return data.Capacity - current
 end
 
 return CartManager

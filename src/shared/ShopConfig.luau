@@ -102,6 +102,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Bandito_Bobritto",
 		Description = "The sneaky beaver bandit.",
 		ProjectileColor = Color3.fromRGB(255, 255, 150),
+		ItemCost = { Guac1 = 30, Toast1 = 20 },
 	},
 	["Blueberrinni_Octopusini"] = {
 		BasePrice = 3750,
@@ -110,6 +111,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Blueberrinni_Octopusini",
 		Description = "Berry tentacle power!",
 		ProjectileColor = Color3.fromRGB(255, 255, 150),
+		ItemCost = { Cap1 = 35, Dance1 = 25 },
 	},
 	["Bombardiro_Crocodilo"] = {
 		BasePrice = 5500,
@@ -118,6 +120,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Bombardiro_Crocodilo",
 		Description = "Explosive croc energy!",
 		ProjectileColor = Color3.fromRGB(255, 255, 150),
+		ItemCost = { Toast1 = 40, BanDolph1 = 30 },
 	},
 	["Bombombini_Gusini"] = {
 		BasePrice = 7500,
@@ -126,6 +129,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Bombombini_Gusini",
 		Description = "Boom boom goose!",
 		ProjectileColor = Color3.fromRGB(255, 255, 150),
+		ItemCost = { Dance1 = 50, Guac1 = 35 },
 	},
 	["Boneca_Ambalabu"] = {
 		BasePrice = 10000,
@@ -134,6 +138,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Boneca_Ambalabu",
 		Description = "Mysterious doll vibes.",
 		ProjectileColor = Color3.fromRGB(255, 255, 150),
+		ItemCost = { BanDolph1 = 55, Cap1 = 40 },
 	},
 	["Brr_Brr_Patapim"] = {
 		BasePrice = 13500,
@@ -142,6 +147,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Brr_Brr_Patapim",
 		Description = "Cold cash generator.",
 		ProjectileColor = Color3.fromRGB(255, 255, 150),
+		ItemCost = { Guac1 = 60, Dance1 = 45 },
 	},
 	["Brri_Brri_Bicus_Dicus_Bombicus"] = {
 		BasePrice = 17500,
@@ -150,6 +156,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Brri_Brri_Bicus_Dicus_Bombicus",
 		Description = "The ultimate combo name!",
 		ProjectileColor = Color3.fromRGB(255, 255, 150),
+		ItemCost = { Toast1 = 70, BanDolph1 = 50 },
 	},
 	["Burbaloni_Loliloli"] = {
 		BasePrice = 22500,
@@ -158,6 +165,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Burbaloni_Loliloli",
 		Description = "Bubbly personality.",
 		ProjectileColor = Color3.fromRGB(255, 255, 150),
+		ItemCost = { Cap1 = 80, Guac1 = 60 },
 	},
 	
 	-- Tier 3: Mid Game ($150k - $3.2M)
@@ -168,6 +176,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Cacto Hipopotamo",
 		Description = "Prickly hippo power!",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { Taco1 = 80, Goose1 = 60 },
 	},
 	["Cappuccino_Assassino"] = {
 		BasePrice = 225000,
@@ -176,6 +185,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Cappuccino_Assassino",
 		Description = "Deadly coffee vibes.",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { CrocBomb1 = 100, Doll1 = 70 },
 	},
 	["Cavallo_Virtuoso"] = {
 		BasePrice = 325000,
@@ -184,6 +194,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Cavallo_Virtuoso",
 		Description = "Virtuoso horse!",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { BerryOcto1 = 120, Brr1 = 80 },
 	},
 	["Chef_Crabracadabra"] = {
 		BasePrice = 450000,
@@ -192,6 +203,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Chef_Crabracadabra",
 		Description = "Magic crab chef!",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { Bicus1 = 140, Bubble1 = 100 },
 	},
 	["Chicleteira Bicicleteira"] = {
 		BasePrice = 600000,
@@ -200,6 +212,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Chicleteira Bicicleteira",
 		Description = "Gum on wheels!",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { Taco1 = 160, CrocBomb1 = 120 },
 	},
 	["Chimpanzini Spiderini"] = {
 		BasePrice = 800000,
@@ -208,6 +221,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Chimpanzini Spiderini",
 		Description = "Spider monkey fusion!",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { Goose1 = 180, Doll1 = 140 },
 	},
 	["Chimpanzini_Bananini"] = {
 		BasePrice = 1000000,
@@ -216,6 +230,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Chimpanzini_Bananini",
 		Description = "Monke banana business!",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { BerryOcto1 = 200, Brr1 = 160 },
 	},
 	["Cocofanto_Elefanto"] = {
 		BasePrice = 1300000,
@@ -224,6 +239,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Cocofanto_Elefanto",
 		Description = "Coconut elephant!",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { Bicus1 = 220, Bubble1 = 180 },
 	},
 	["Espresso Signora"] = {
 		BasePrice = 1600000,
@@ -232,6 +248,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Espresso Signora",
 		Description = "The espresso lady!",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { Taco1 = 240, Goose1 = 200 },
 	},
 	["Fluri_flura"] = {
 		BasePrice = 2000000,
@@ -240,6 +257,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Fluri_flura",
 		Description = "Flowery friend.",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { CrocBomb1 = 260, Doll1 = 220 },
 	},
 	["Frigo_Camelo"] = {
 		BasePrice = 2500000,
@@ -248,6 +266,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Frigo_Camelo",
 		Description = "Cool camel cash!",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { BerryOcto1 = 280, Brr1 = 240 },
 	},
 	["Gangster_Footera"] = {
 		BasePrice = 3200000,
@@ -256,6 +275,7 @@ local Units: {[string]: UnitConfig} = {
 		ModelName = "Gangster_Footera",
 		Description = "Gangster football!",
 		ProjectileColor = Color3.fromRGB(255, 215, 0),
+		ItemCost = { Bicus1 = 300, Bubble1 = 260 },
 	},
 	
 	-- Tier 4: Mid-Late Game ($15M - $2.3B) - CostMultiplier: 1.20
@@ -267,7 +287,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Dynamic duo!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
-		ItemCost = { Guac1 = 100, Toast1 = 80 },
+		ItemCost = { Guac2 = 50, Toast2 = 40 },
 	},
 	["Gattatino Neonino"] = {
 		BasePrice = 25000000,
@@ -277,6 +297,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Neon kitty glow!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { Cap2 = 60, Dance2 = 50 },
 	},
 	["Gattatino_Nyanino"] = {
 		BasePrice = 40000000,
@@ -286,6 +307,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Nyan cat vibes!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { BanDolph2 = 70, Taco2 = 60 },
 	},
 	["Girafa_Celestre"] = {
 		BasePrice = 65000000,
@@ -295,7 +317,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Heavenly giraffe!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
-		ItemCost = { Cap1 = 150, Dance1 = 100 },
+		ItemCost = { BerryOcto2 = 80, CrocBomb2 = 70 },
 	},
 	["Glorbo_Fruttodrillo"] = {
 		BasePrice = 100000000,
@@ -305,6 +327,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "The legendary Glorbo!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { Goose2 = 90, Doll2 = 80 },
 	},
 	["Gorillo Watermelondrillo"] = {
 		BasePrice = 150000000,
@@ -314,7 +337,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Watermelon gorilla!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
-		ItemCost = { Taco1 = 200, BerryOcto1 = 120 },
+		ItemCost = { Brr2 = 100, Bicus2 = 90 },
 	},
 	["Graipuss_Medussi"] = {
 		BasePrice = 225000000,
@@ -324,6 +347,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Grape medusa power!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { Bubble2 = 110, Guac2 = 100 },
 	},
 	["La_Grande_Combinasion"] = {
 		BasePrice = 350000000,
@@ -333,7 +357,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "The grand combination!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
-		ItemCost = { CrocBomb1 = 250, Goose1 = 200, Doll1 = 150 },
+		ItemCost = { Toast2 = 120, Cap2 = 110, Dance2 = 100 },
 	},
 	["La_Vacca_Saturno_Saturnita"] = {
 		BasePrice = 500000000,
@@ -343,6 +367,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Cosmic cow powers!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { Taco2 = 130, BerryOcto2 = 120 },
 	},
 	["Las Tralaleritas"] = {
 		BasePrice = 750000000,
@@ -352,7 +377,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "The little tralala girls!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
-		ItemCost = { Brr1 = 300, Bicus1 = 200 },
+		ItemCost = { CrocBomb2 = 140, Goose2 = 130 },
 	},
 	["Las Vaquitas Saturnitas"] = {
 		BasePrice = 1100000000,
@@ -362,6 +387,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Little Saturn cows!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
+		ItemCost = { Doll2 = 150, Brr2 = 140 },
 	},
 	["Lionel_Cactuseli"] = {
 		BasePrice = 1600000000,
@@ -371,7 +397,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Cactus lion legend!",
 		CostMultiplier = 1.20,
 		ProjectileColor = Color3.fromRGB(255, 165, 0),
-		ItemCost = { Cact1 = 400, KillerCoffee1 = 250, Horse1 = 200 },
+		ItemCost = { Bicus2 = 160, Bubble2 = 150, BanDolph2 = 140 },
 	},
 	
 	-- Tier 5: Late Game ($2.5B - $175B) - CostMultiplier: 1.22
@@ -383,6 +409,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Musical magic!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { Cact2 = 80, KillerCoffee2 = 60 },
 	},
 	["Los Crocodillitos"] = {
 		BasePrice = 4000000000,
@@ -392,6 +419,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Little croc gang!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { Horse2 = 90, Crab2 = 70 },
 	},
 	["Los_Tralaleritos"] = {
 		BasePrice = 6500000000,
@@ -401,6 +429,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "The tralala boys!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { Bike2 = 100, ChimpSpy2 = 80 },
 	},
 	["Mat_teo"] = {
 		BasePrice = 10000000000,
@@ -410,6 +439,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "It's Mat Teo!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { ChimpBan2 = 110, Elephant2 = 90 },
 	},
 	["Noobini_Pizzanini"] = {
 		BasePrice = 15000000000,
@@ -419,6 +449,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Noob pizza power!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { Signora2 = 120, Fluri2 = 100 },
 	},
 	["Nuclearo Dinossauro"] = {
 		BasePrice = 22500000000,
@@ -428,6 +459,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Nuclear dino!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { Camel2 = 130, Gang2 = 110 },
 	},
 	["Odin_Din_Din_Dun"] = {
 		BasePrice = 32500000000,
@@ -437,6 +469,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Norse god energy!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { Cact2 = 140, Horse2 = 120 },
 	},
 	["Orangutini_Ananassini"] = {
 		BasePrice = 45000000000,
@@ -446,6 +479,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Pineapple orangutan!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { KillerCoffee2 = 150, Crab2 = 130 },
 	},
 	["Orcalero Orcala"] = {
 		BasePrice = 60000000000,
@@ -455,6 +489,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Orca power!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { Bike2 = 160, ChimpSpy2 = 140 },
 	},
 	["Pandaccini Bananini"] = {
 		BasePrice = 80000000000,
@@ -464,6 +499,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Panda banana combo!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { ChimpBan2 = 170, Elephant2 = 150 },
 	},
 	["Perochello_Lemonchello"] = {
 		BasePrice = 105000000000,
@@ -473,6 +509,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Lemon parrot drinks!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { Signora2 = 180, Fluri2 = 160 },
 	},
 	["Piccione Macchina"] = {
 		BasePrice = 135000000000,
@@ -482,6 +519,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Pigeon machine!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { Camel2 = 190, Gang2 = 170 },
 	},
 	["Pipi_Kiwi"] = {
 		BasePrice = 175000000000,
@@ -491,6 +529,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Kiwi bird vibes!",
 		CostMultiplier = 1.22,
 		ProjectileColor = Color3.fromRGB(255, 105, 180),
+		ItemCost = { Cact2 = 200, KillerCoffee2 = 180 },
 	},
 	
 	-- Tier 6: End Game ($500B - $650T) - CostMultiplier: 1.25
@@ -502,7 +541,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Hot pot spot!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
-		ItemCost = { Guac2 = 100, Crab2 = 80, Elephant2 = 60 },
+		ItemCost = { Guac3 = 50, Toast3 = 40, CrocBomb3 = 30 },
 	},
 	["Rhino_Toasterino"] = {
 		BasePrice = 850000000000,
@@ -512,6 +551,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Toaster rhino!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Cap3 = 55, BerryOcto3 = 45 },
 	},
 	["Salamino Penguino"] = {
 		BasePrice = 1500000000000,
@@ -521,6 +561,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Salami penguin!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Dance3 = 60, Goose3 = 50 },
 	},
 	["Sammyni_Spyderini"] = {
 		BasePrice = 2500000000000,
@@ -530,7 +571,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Sammy the spider!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
-		ItemCost = { ChimpSpy2 = 100, Spy2 = 80, Gang2 = 60 },
+		ItemCost = { BanDolph3 = 65, Doll3 = 55, Taco3 = 45 },
 	},
 	["Spioniro Golubiro"] = {
 		BasePrice = 4000000000000,
@@ -540,6 +581,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Spy pigeon!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Brr3 = 70, Bicus3 = 60 },
 	},
 	["Statutino Libertino"] = {
 		BasePrice = 6500000000000,
@@ -549,6 +591,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Liberty statue!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Bubble3 = 75, Guac3 = 65 },
 	},
 	["Strawberrelli Flamingelli"] = {
 		BasePrice = 10000000000000,
@@ -558,6 +601,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Strawberry flamingo!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Toast3 = 80, Cap3 = 70 },
 	},
 	["Svinina_Bombardino"] = {
 		BasePrice = 15000000000000,
@@ -567,7 +611,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Bomber pig!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
-		ItemCost = { CrocBomb2 = 120, PigBomb2 = 100, Boom2 = 80 },
+		ItemCost = { CrocBomb3 = 85, BerryOcto3 = 75, Dance3 = 65 },
 	},
 	["Ta_Ta_Ta_Ta_Sahur"] = {
 		BasePrice = 22500000000000,
@@ -577,6 +621,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Sahur rhythm!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Goose3 = 90, Doll3 = 80 },
 	},
 	["Talpa_Di_Fero"] = {
 		BasePrice = 35000000000000,
@@ -586,6 +631,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Iron mole!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Taco3 = 95, Brr3 = 85 },
 	},
 	["Tigrilini Watermelini"] = {
 		BasePrice = 50000000000000,
@@ -595,6 +641,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Watermelon tiger!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { BanDolph3 = 100, Bicus3 = 90 },
 	},
 	["Tigroligre Frutonni"] = {
 		BasePrice = 75000000000000,
@@ -604,6 +651,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Fruit tiger-lion!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Bubble3 = 105, Guac3 = 95 },
 	},
 	["Tim_Cheese"] = {
 		BasePrice = 110000000000000,
@@ -613,6 +661,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "It's Tim Cheese!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Toast3 = 110, Cap3 = 100 },
 	},
 	["Torrtuginni Dragonfrutini"] = {
 		BasePrice = 160000000000000,
@@ -632,6 +681,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "The OG tralala!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Goose3 = 120, Doll3 = 110 },
 	},
 	["Trenostruzzo_Turbo_3000"] = {
 		BasePrice = 325000000000000,
@@ -641,6 +691,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Turbo train ostrich!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { Taco3 = 130, Brr3 = 120 },
 	},
 	["Tric_Trac_Baraboom"] = {
 		BasePrice = 450000000000000,
@@ -650,6 +701,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Boom tric trac!",
 		CostMultiplier = 1.25,
 		ProjectileColor = Color3.fromRGB(255, 50, 50),
+		ItemCost = { BanDolph3 = 140, Bicus3 = 130 },
 	},
 	["Trippi_Troppi"] = {
 		BasePrice = 650000000000000,
@@ -681,6 +733,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Wake up to riches!",
 		CostMultiplier = 1.30,
 		ProjectileColor = Color3.fromRGB(148, 0, 211),
+		ItemCost = { Taco3 = 150, Brr3 = 140 },
 	},
 	["Unclito_Samito"] = {
 		BasePrice = 5000000000000000,
@@ -700,6 +753,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Triple zebra!",
 		CostMultiplier = 1.30,
 		ProjectileColor = Color3.fromRGB(148, 0, 211),
+		ItemCost = { BanDolph3 = 160, Bicus3 = 150 },
 	},
 	
 	-- Tier 8: Lucky Blocks (Special Units) - CostMultiplier: 1.45
@@ -721,6 +775,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "Mythic luck!",
 		CostMultiplier = 1.45,
 		ProjectileColor = Color3.fromRGB(0, 255, 255),
+		ItemCost = { Cap4 = 30, Dance4 = 25, BerryOcto4 = 20 },
 	},
 	["Brainrot God Lucky Block"] = {
 		BasePrice = 1000000000000000000,
@@ -730,7 +785,7 @@ local Units: {[string]: UnitConfig} = {
 		Description = "The ultimate brainrot deity!",
 		CostMultiplier = 1.45,
 		ProjectileColor = Color3.fromRGB(0, 255, 255),
-		ItemCost = { GodLuck3 = 50, NukeDino4 = 20, Odin4 = 10 },
+		ItemCost = { BanDolph4 = 40, Taco4 = 35, Goose4 = 30 },
 	},
 }
 
@@ -972,3 +1027,4 @@ return {
 	INITIAL_UNLOCKED = INITIAL_UNLOCKED,
 	MILESTONES = MILESTONES,
 }
+ 

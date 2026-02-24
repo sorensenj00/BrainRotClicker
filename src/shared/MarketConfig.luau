@@ -45,6 +45,21 @@ MarketConfig.CONFIG = {
 
 	-- History
 	MAX_HISTORY = 60,
+
+	-- AMM Liquidity Pool
+	VIRTUAL_ITEMS = 100000,       -- Seed supply per sector (virtual liquidity baseline)
+	VIRTUAL_CASH = 100000,        -- Seed cash per sector ($) prevents division-by-zero
+	CALIBRATION_CONSTANT = 1.0,   -- Normalizes GlobalCash/GlobalItems to match game price scale
+	POOL_SYNC_INTERVAL = 10,      -- Seconds between pool delta flushes to MemoryStore
+	POOL_READ_INTERVAL = 5,       -- Seconds between pool state reads from MemoryStore
+
+	-- Buy Transaction Limits (Slippage Protection)
+	MAX_BUY_PER_TRANSACTION = 100,-- Max items per buy call (forces repricing between clicks)
+
+	-- Local Arbitrage (per-server price shocks)
+	LOCAL_SHOCK_FACTOR = 0.002,   -- Price impact per unit traded locally (e.g. 100 items = ±20% shock)
+	LOCAL_REBOUND_SPEED = 0.08,   -- Lerp speed per second towards global rate (higher = faster rebound)
+	ARBITRAGE_ALERT_THRESHOLD = 0.15, -- 15% deviation triggers "ARBITRAGE OPPORTUNITY" on client
 }
 
 MarketConfig.SECTOR_VOLATILITY = {

@@ -2,22 +2,25 @@
 	StockMarketManager Server Module
 	
 	═══════════════════════════════════════════════════════════════════════════════
-	              GLOBAL SHARDED MARKET WITH WELFARE
+	              GLOBAL SHARDED AMM WITH WELFARE
 	═══════════════════════════════════════════════════════════════════════════════
 	
 	PURPOSE:
-	  Replaces the old random-local sector pricing with a player-driven global
-	  market. Prices are derived from REAL cross-server sales volume stored in
-	  MemoryStoreService. All servers read a sharded volume dataset and compute
-	  synchronized rates.
+	  Implements a true Automated Market Maker (AMM) backed by global liquidity
+	  pools. Prices are derived from the ratio of GlobalCash to GlobalItems per
+	  sector, stored in MemoryStoreService via sharded delta writes.
 	
 	ARCHITECTURE:
-	  • READ LOOP  (every 5s)  — Read 5 MemoryStore shards, sum volumes, compute
-	    MarketRate + BailoutRate per sector, replicate via attributes.
-	  • WRITE LOOP (every 10s) — Flush this server's buffered sales volume into
+	  • POOL STATE  — Each sector has { globalItems, globalCash } starting at
+	    virtual liquidity (100k/100k). This is the "truth" for pricing.
+	  • READ LOOP   (every 5s)  — Read all shards, sum deltas, apply to pool
+	    state, recompute rates, replicate via attributes.
+	  • WRITE LOOP  (every 10s) — Flush this server's buffered pool deltas into
 	    one random shard to avoid key-lock contention.
-	  • FALLBACK — If MemoryStore fails (Studio / offline), gracefully degrade to
-	    the old random local pricing so gameplay isn't blocked.
+	  • PRICING     — BaseRate = (GlobalCash / GlobalItems) * CalibrationConstant
+	    Perlin noise (MarketVolatilityService) is applied as visual jitter only.
+	  • FALLBACK    — If MemoryStore fails (Studio / offline), gracefully degrade
+	    to the old random local pricing so gameplay isn't blocked.
 	
 	═══════════════════════════════════════════════════════════════════════════════
 ]]
@@ -42,19 +45,27 @@ local StockMarketManager = {}
 local _Services: any = {}
 
 local sectorRates = {}        -- { [sector] = currentMarketRate (DISPLAY RATE) }
-local baseSectorRates = {}    -- { [sector] = underlyingBaseRate (REAL VALUE) }
-local itemRates = {}          -- { [itemId] = currentItemRate }
+local baseSectorRates = {}    -- { [sector] = underlyingBaseRate (REAL VALUE from AMM) }
+local itemRates = {}          -- { [itemId] = currentItemRate (GLOBAL) }
+local localItemRates = {}     -- { [itemId] = localRate (SERVER-SPECIFIC, subject to shocks) }
 local bailoutRates = {}       -- { [sector] = bailoutRate }
 local sectorHistories = {}
 local stockMarketFolder = nil
 
+-- AMM Liquidity Pool State (local cache, authoritative = MemoryStore)
+local poolState = {}          -- { [sector] = { globalItems: number, globalCash: number } }
+
 -- MemoryStore state
-local GlobalMarketMap = nil       -- MemoryStoreService sorted map
-local ServerSalesBuffer = {}      -- { [sector] = volumeToFlush }
+local GlobalPoolMap = nil         -- MemoryStoreService sorted map for pool deltas
+local PoolDeltaBuffer = {}        -- { [sector] = { deltaItems: number, deltaCash: number } }
 local useGlobalPricing = false    -- true once MemoryStore is confirmed working
 local nextReadTime = 0
 local nextWriteTime = 0
 local nextLocalUpdate = 0
+local lastReboundTick = os.clock() -- For elastic rebound delta-time
+
+-- Legacy compatibility
+local ServerSalesBuffer = {}      -- Kept for AddSalesVolume backward compat
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -75,6 +86,12 @@ end
 local function serializeItemRates()
 	local t = {}
 	for id, r in pairs(itemRates) do t[id] = math.floor(r * 1000) / 1000 end
+	return HttpService:JSONEncode(t)
+end
+
+local function serializeLocalItemRates()
+	local t = {}
+	for id, r in pairs(localItemRates) do t[id] = math.floor(r * 1000) / 1000 end
 	return HttpService:JSONEncode(t)
 end
 
@@ -104,167 +121,201 @@ local function calculateLocalRate(sector)
 end
 
 --------------------------------------------------------------------------------
--- ITEM JITTER (Missing Global Fix)
+-- ITEM JITTER
 --------------------------------------------------------------------------------
 
 local function getItemJitter(itemId, volatility)
-	-- Generate deterministic seed from ItemId
 	local seed = 0
 	for i = 1, #itemId do
 		seed = seed + string.byte(itemId, i)
 	end
-	
-	-- Use a slightly different time & scale so items don't sync perfectly with sectors
 	local timeOffset = os.clock() * (CONFIG.JITTER_SPEED or 1) * 1.5
-	
-	-- Perlin noise returns -0.5 to 0.5
 	local noise = math.noise(timeOffset, seed * 0.13, 0)
-	
-	-- Volatility is the amplitude (e.g. 0.1 means ±5%)
 	return 1 + (noise * (volatility or 0.1))
 end
 
 --------------------------------------------------------------------------------
--- MEMORYSTORE: SHARDED READER
+-- AMM PRICING: Compute rates from pool state
 --------------------------------------------------------------------------------
 
-local function readGlobalVolumes(): {[string]: number}
-	local totalVolumes: {[string]: number} = {}
-	for _, sector in ipairs(SECTORS) do totalVolumes[sector] = 0 end
-	
-	for shardId = 1, CONFIG.NUM_SHARDS do
-		local key = "GlobalVol_Shard_" .. shardId
-		-- Read AND CLEAR the shard atomically
-		pcall(function()
-			GlobalMarketMap:UpdateAsync(key, function(oldData)
-				if oldData and type(oldData) == "table" then
-					for sector, vol in pairs(oldData) do
-						if totalVolumes[sector] then
-							totalVolumes[sector] += (tonumber(vol) or 0)
-						end
-					end
-				end
-				return nil -- Returning nil DELETES the key, clearing the volume
-			end, CONFIG.SHARD_EXPIRATION)
-		end)
-	end
-	
-	return totalVolumes
-end
-
-local function computeGlobalRates(totalVolumes: {[string]: number})
+--[[
+	Computes sector rates from AMM pool state.
+	BaseRate = (GlobalCash / GlobalItems) * CalibrationConstant
+	Then applies Perlin jitter as display-only overlay.
+]]
+local function computeAMMRates()
 	local dt = CONFIG.READ_INTERVAL
 
 	for _, sector in ipairs(SECTORS) do
-		local vol = totalVolumes[sector] or 0
-		
-		-- FIX: Get the LAST rate, not the STARTING rate. Use a separate base rate to avoid feedback loops from jitter.
-		-- Note: We need to ensure baseSectorRates is initialized in Init. For now, fall back to current sectorRates or Start.
-		local currentBaseRate = baseSectorRates[sector] or sectorRates[sector] or CONFIG.STARTING_RATE
-		
-		-- Subtract impact and add recovery
-		-- Note: Impact depends on Volume * ImpactFactor. Since volume is now value-weighted, this works.
-		local rawRate = currentBaseRate - (vol * CONFIG.IMPACT_FACTOR) + (CONFIG.RECOVERY_RATE * dt)
-		
-		-- Get volatility from service
-		-- rawRate is the "real" economic value. targetTrend is the "market maker" target.
+		local pool = poolState[sector]
+		if not pool then continue end
+
+		-- AMM Core Formula
+		local items = math.max(pool.globalItems, 1)  -- Prevent division by zero
+		local cash = math.max(pool.globalCash, 0)
+		local ammBaseRate = (cash / items) * CONFIG.CALIBRATION_CONSTANT
+
+		-- Get volatility from service (for visual jitter only)
 		local targetTrend, jitter = MarketVolatilityService.CalculateVolatility(sector, dt)
-		
-		-- Smoothly drift the real economy towards the artificial trend (Market Maker) when volume is low
-		if vol < CONFIG.DEAD_MARKET_THRESHOLD then
-			rawRate = rawRate + (targetTrend - rawRate) * (CONFIG.TREND_DAMPING * dt)
+
+		-- In low-volume conditions, drift AMM rate gently towards synthetic trend
+		-- This keeps the market "alive" visually even when nobody trades
+		local totalVolume = math.abs(pool.globalItems - CONFIG.VIRTUAL_ITEMS) + math.abs(pool.globalCash - CONFIG.VIRTUAL_CASH)
+		if totalVolume < CONFIG.DEAD_MARKET_THRESHOLD then
+			ammBaseRate = ammBaseRate + (targetTrend - ammBaseRate) * (CONFIG.TREND_DAMPING * dt)
 		end
-		
-		-- Final clamp on the BASE rate
-		rawRate = math.clamp(rawRate, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
-		
-		-- Save the REAL underlying value for next time
-		baseSectorRates[sector] = rawRate
-		
-		-- Apply JITTER: Always-on Perlin noise micro-fluctuation
-		-- This is the "Display Rate" / "Actual Sale Price"
-		local displayRate = math.clamp(rawRate * jitter, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
-		
+
+		-- Clamp the real base rate
+		ammBaseRate = math.clamp(ammBaseRate, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
+
+		-- Save the REAL underlying value
+		baseSectorRates[sector] = ammBaseRate
+
+		-- Apply JITTER: Always-on Perlin noise micro-fluctuation (display only)
+		local displayRate = math.clamp(ammBaseRate * jitter, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
+
 		sectorRates[sector] = displayRate
 		bailoutRates[sector] = math.max(displayRate, CONFIG.BAILOUT_FLOOR)
-		
+
 		-- Record history
 		table.insert(sectorHistories[sector], displayRate)
 		if #sectorHistories[sector] > CONFIG.MAX_HISTORY then
 			table.remove(sectorHistories[sector], 1)
 		end
 	end
-	
+
 	-- Update Item Rates based on new Sector Rates
 	local ItemConfig = require(ReplicatedStorage.Shared.ItemConfig)
 	for itemId, itemDef in pairs(ItemConfig.Items) do
-		local sector = ItemConfig.GetSector(itemDef.displayName) -- Optimization: Cache this if slow
+		local sector = ItemConfig.GetSector(itemDef.displayName)
 		local baseRate = sectorRates[sector] or 1.0
-		
-		-- Apply individual item volatility
-		-- Items with high volatility (Tier 4) deviate more from the sector average
 		local divergence = getItemJitter(itemId, itemDef.volatility or 0.1)
-		
 		local finalRate = baseRate * divergence
-		finalRate = math.clamp(finalRate, CONFIG.MIN_RATE, 5.0) -- Items can go slightly higher than sector cap
-		
+		finalRate = math.clamp(finalRate, CONFIG.MIN_RATE, 5.0)
 		itemRates[itemId] = finalRate
 	end
 end
 
+--------------------------------------------------------------------------------
+-- MEMORYSTORE: SHARDED POOL READER
+--------------------------------------------------------------------------------
+
+--[[
+	Reads all shards, sums up {deltaItems, deltaCash} per sector,
+	and applies them to the virtual liquidity baseline.
+	Clears shards atomically after reading.
+]]
+local function readGlobalPools(): boolean
+	local totalDeltas: {[string]: {deltaItems: number, deltaCash: number}} = {}
+	for _, sector in ipairs(SECTORS) do
+		totalDeltas[sector] = { deltaItems = 0, deltaCash = 0 }
+	end
+
+	for shardId = 1, CONFIG.NUM_SHARDS do
+		local key = "AMMPool_Shard_" .. shardId
+		pcall(function()
+			GlobalPoolMap:UpdateAsync(key, function(oldData)
+				if oldData and type(oldData) == "table" then
+					for sector, deltas in pairs(oldData) do
+						if totalDeltas[sector] and type(deltas) == "table" then
+							totalDeltas[sector].deltaItems += (tonumber(deltas.deltaItems) or 0)
+							totalDeltas[sector].deltaCash += (tonumber(deltas.deltaCash) or 0)
+						end
+					end
+				end
+				return nil -- Clear the shard after reading
+			end, CONFIG.SHARD_EXPIRATION)
+		end)
+	end
+
+	-- Apply accumulated deltas to pool state (on top of virtual liquidity)
+	for _, sector in ipairs(SECTORS) do
+		local pool = poolState[sector]
+		local deltas = totalDeltas[sector]
+		if pool and deltas then
+			pool.globalItems = pool.globalItems + deltas.deltaItems
+			pool.globalCash = pool.globalCash + deltas.deltaCash
+
+			-- Safety: Ensure pool never goes below a minimum (virtual liquidity floor)
+			pool.globalItems = math.max(pool.globalItems, CONFIG.VIRTUAL_ITEMS * 0.01)  -- Min 1% of seed
+			pool.globalCash = math.max(pool.globalCash, CONFIG.VIRTUAL_CASH * 0.01)     -- Min 1% of seed
+		end
+	end
+
+	return true
+end
+
 local function performGlobalRead()
-	local ok, vol = pcall(readGlobalVolumes)
-	if ok and vol then
-		computeGlobalRates(vol)
+	local ok, err = pcall(readGlobalPools)
+	if ok then
+		computeAMMRates()
 		return true
 	else
-		warn("StockMarketManager: MemoryStore read failed:", vol)
+		warn("StockMarketManager: MemoryStore pool read failed:", err)
 		return false
 	end
 end
 
 --------------------------------------------------------------------------------
--- MEMORYSTORE: SHARDED WRITER
+-- MEMORYSTORE: SHARDED POOL WRITER
 --------------------------------------------------------------------------------
 
-local function flushSalesBuffer()
+--[[
+	Flushes this server's buffered pool deltas to a random shard.
+	Keeps the sharding pattern to avoid key contention across servers.
+]]
+local function flushPoolDeltas()
 	-- Snapshot and clear buffer atomically
-	local snapshot = ServerSalesBuffer
-	ServerSalesBuffer = {}
-	
+	local snapshot = PoolDeltaBuffer
+	PoolDeltaBuffer = {}
+	for _, sector in ipairs(SECTORS) do
+		PoolDeltaBuffer[sector] = { deltaItems = 0, deltaCash = 0 }
+	end
+
 	-- Check if there's anything to write
 	local hasData = false
-	for _, v in pairs(snapshot) do
-		if v > 0 then hasData = true; break end
+	for _, deltas in pairs(snapshot) do
+		if deltas.deltaItems ~= 0 or deltas.deltaCash ~= 0 then
+			hasData = true
+			break
+		end
 	end
 	if not hasData then return end
-	
+
 	-- Pick a random shard to minimize key contention
 	local shardId = math.random(1, CONFIG.NUM_SHARDS)
-	local key = "GlobalVol_Shard_" .. shardId
-	
+	local key = "AMMPool_Shard_" .. shardId
+
 	local ok, err = pcall(function()
-		GlobalMarketMap:UpdateAsync(key, function(old)
+		GlobalPoolMap:UpdateAsync(key, function(old)
 			old = old or {}
-			for sector, amount in pairs(snapshot) do
-				old[sector] = (old[sector] or 0) + amount
+			for sector, deltas in pairs(snapshot) do
+				if deltas.deltaItems ~= 0 or deltas.deltaCash ~= 0 then
+					if not old[sector] then
+						old[sector] = { deltaItems = 0, deltaCash = 0 }
+					end
+					old[sector].deltaItems = (old[sector].deltaItems or 0) + deltas.deltaItems
+					old[sector].deltaCash = (old[sector].deltaCash or 0) + deltas.deltaCash
+				end
 			end
 			return old
 		end, CONFIG.SHARD_EXPIRATION)
 	end)
-	
+
 	if ok then
-		local totalFlushed = 0
-		for _, v in pairs(snapshot) do totalFlushed += v end
-		if totalFlushed > 0 then
-			print("StockMarketManager: Flushed " .. totalFlushed .. " volume to shard " .. shardId)
+		local totalItems, totalCash = 0, 0
+		for _, d in pairs(snapshot) do totalItems += d.deltaItems; totalCash += d.deltaCash end
+		if totalItems ~= 0 or totalCash ~= 0 then
+			print(string.format("StockMarketManager: Flushed pool deltas to shard %d (ΔItems=%.0f, ΔCash=%.0f)", 
+				shardId, totalItems, totalCash))
 		end
 	else
 		-- Restore buffer on failure (don't lose data)
-		for sector, amount in pairs(snapshot) do
-			ServerSalesBuffer[sector] = (ServerSalesBuffer[sector] or 0) + amount
+		for sector, deltas in pairs(snapshot) do
+			PoolDeltaBuffer[sector].deltaItems += deltas.deltaItems
+			PoolDeltaBuffer[sector].deltaCash += deltas.deltaCash
 		end
-		warn("StockMarketManager: MemoryStore write failed (shard " .. shardId .. "):", err)
+		warn("StockMarketManager: MemoryStore pool write failed (shard " .. shardId .. "):", err)
 	end
 end
 
@@ -275,13 +326,14 @@ end
 local function replicateToClients()
 	local sum = 0; for _, r in pairs(sectorRates) do sum += r end
 	local avgRate = sum / #SECTORS
-	
+
 	stockMarketFolder:SetAttribute("SectorRates", serializeSectorRates())
 	stockMarketFolder:SetAttribute("ItemRates", serializeItemRates())
+	stockMarketFolder:SetAttribute("LocalItemRates", serializeLocalItemRates())
 	stockMarketFolder:SetAttribute("SectorHistories", serializeSectorHistories())
 	stockMarketFolder:SetAttribute("Sectors", HttpService:JSONEncode(SECTORS))
 	stockMarketFolder:SetAttribute("SectorColors", HttpService:JSONEncode(MarketConfig.SECTOR_COLORS))
-	
+
 	-- Legacy compat
 	stockMarketFolder:SetAttribute("CurrentRate", avgRate)
 	stockMarketFolder:SetAttribute("RateName", getGlobalRateName())
@@ -289,14 +341,14 @@ local function replicateToClients()
 	stockMarketFolder:SetAttribute("LastUpdate", os.time())
 	stockMarketFolder:SetAttribute("UpdateInterval", 
 		useGlobalPricing and CONFIG.READ_INTERVAL or CONFIG.LOCAL_UPDATE_INTERVAL)
-	
-	-- NEW: Per-sector bailout rates for welfare check
+
+	-- Per-sector bailout rates for welfare check
 	local bailoutJson = {}
 	for sector, rate in pairs(bailoutRates) do
 		bailoutJson[sector] = math.floor(rate * 1000) / 1000
 	end
 	stockMarketFolder:SetAttribute("BailoutRates", HttpService:JSONEncode(bailoutJson))
-	
+
 	-- Flag for clients to know which pricing model is active
 	stockMarketFolder:SetAttribute("GlobalPricingActive", useGlobalPricing)
 end
@@ -307,13 +359,8 @@ local function updateMarketLocal()
 
 	for _, cat in ipairs(SECTORS) do
 		local nr = calculateLocalRate(cat)
-		
-		-- Get volatility from service
 		local smoothedTrend, jitter = MarketVolatilityService.CalculateVolatility(cat, dt)
-		
 		nr *= smoothedTrend
-		
-		-- Apply jitter even in fallback mode for smooth wiggling
 		nr *= jitter
 		nr = math.clamp(nr, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
 		sectorRates[cat] = nr
@@ -323,7 +370,21 @@ local function updateMarketLocal()
 			table.remove(sectorHistories[cat], 1)
 		end
 	end
-	
+
+	-- Also apply local pool adjustments to pool state for fallback pricing
+	for _, sector in ipairs(SECTORS) do
+		local pool = poolState[sector]
+		local deltas = PoolDeltaBuffer[sector]
+		if pool and deltas then
+			pool.globalItems += deltas.deltaItems
+			pool.globalCash += deltas.deltaCash
+			pool.globalItems = math.max(pool.globalItems, CONFIG.VIRTUAL_ITEMS * 0.01)
+			pool.globalCash = math.max(pool.globalCash, CONFIG.VIRTUAL_CASH * 0.01)
+			deltas.deltaItems = 0
+			deltas.deltaCash = 0
+		end
+	end
+
 	-- Update Item Rates (Local Fallback)
 	local ItemConfig = require(ReplicatedStorage.Shared.ItemConfig)
 	for itemId, itemDef in pairs(ItemConfig.Items) do
@@ -331,10 +392,9 @@ local function updateMarketLocal()
 		local baseRate = sectorRates[sector] or 1.0
 		local divergence = getItemJitter(itemId, itemDef.volatility or 0.1)
 		local finalRate = baseRate * divergence
-		
 		itemRates[itemId] = math.clamp(finalRate, CONFIG.MIN_RATE, 5.0)
 	end
-	
+
 	replicateToClients()
 end
 
@@ -345,15 +405,15 @@ end
 function StockMarketManager.Init(services)
 	print("   StockMarketManager (Module) - Initializing")
 	_Services = services or {}
-	
+
 	MarketVolatilityService.Init()
 
 	-- Create or find the ReplicatedStorage folder for client access
 	stockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket") or Instance.new("Folder")
 	stockMarketFolder.Name = "StockMarket"
 	stockMarketFolder.Parent = ReplicatedStorage
-	
-	-- Initialize all sector rates
+
+	-- Initialize all sector rates AND pool state
 	for _, cat in ipairs(SECTORS) do
 		sectorRates[cat] = CONFIG.STARTING_RATE
 		baseSectorRates[cat] = CONFIG.STARTING_RATE
@@ -362,49 +422,56 @@ function StockMarketManager.Init(services)
 		for i = 1, CONFIG.MAX_HISTORY do
 			table.insert(sectorHistories[cat], CONFIG.STARTING_RATE)
 		end
-		ServerSalesBuffer[cat] = 0
+		ServerSalesBuffer[cat] = 0 -- Legacy compat
+
+		-- Seed AMM liquidity pools with virtual liquidity
+		poolState[cat] = {
+			globalItems = CONFIG.VIRTUAL_ITEMS,
+			globalCash = CONFIG.VIRTUAL_CASH,
+		}
+		PoolDeltaBuffer[cat] = { deltaItems = 0, deltaCash = 0 }
 	end
-	
+
 	-- Static attributes
 	stockMarketFolder:SetAttribute("MinRate", CONFIG.MIN_RATE)
 	stockMarketFolder:SetAttribute("MaxRate", CONFIG.MAX_RATE)
 	stockMarketFolder:SetAttribute("BailoutFloor", CONFIG.BAILOUT_FLOOR)
-	
+
 	-- Try to connect to MemoryStoreService
 	local initOk, initErr = pcall(function()
-		GlobalMarketMap = MemoryStoreService:GetSortedMap("GlobalMarket_v1")
+		GlobalPoolMap = MemoryStoreService:GetSortedMap("AMMPool_v1")
 	end)
-	
-	if initOk and GlobalMarketMap then
+
+	if initOk and GlobalPoolMap then
 		-- Test read to verify MemoryStore is working
 		local testOk = pcall(function()
-			GlobalMarketMap:GetAsync("GlobalVol_Shard_1")
+			GlobalPoolMap:GetAsync("AMMPool_Shard_1")
 		end)
 		if testOk then
 			useGlobalPricing = true
-			print("   StockMarketManager: ✓ MemoryStore connected — global pricing ACTIVE")
+			print("   StockMarketManager: ✓ MemoryStore connected — AMM global pricing ACTIVE")
 		else
 			print("   StockMarketManager: MemoryStore read test failed — using local fallback")
 		end
 	else
 		warn("   StockMarketManager: MemoryStore init failed:", initErr, "— using local fallback")
 	end
-	
+
 	-- Initial replication
 	replicateToClients()
-	
+
 	local now = os.time()
 	nextReadTime = now + CONFIG.READ_INTERVAL
 	nextWriteTime = now + CONFIG.WRITE_INTERVAL
 	nextLocalUpdate = now + CONFIG.LOCAL_UPDATE_INTERVAL
 	stockMarketFolder:SetAttribute("NextUpdate", nextReadTime)
-	
+
 	-- Main heartbeat loop
 	RunService.Heartbeat:Connect(function()
 		local now2 = os.time()
-		
+
 		if useGlobalPricing then
-			-- GLOBAL MODE: Read from MemoryStore shards
+			-- GLOBAL MODE: Read pool state from MemoryStore shards
 			if now2 >= nextReadTime then
 				nextReadTime = now2 + CONFIG.READ_INTERVAL
 				task.spawn(function()
@@ -413,11 +480,11 @@ function StockMarketManager.Init(services)
 					stockMarketFolder:SetAttribute("NextUpdate", nextReadTime)
 				end)
 			end
-			
-			-- Flush sales buffer to a random shard
+
+			-- Flush pool delta buffer to a random shard
 			if now2 >= nextWriteTime then
-				nextWriteTime = now2 + CONFIG.WRITE_INTERVAL
-				task.spawn(flushSalesBuffer)
+				nextWriteTime = now2 + CONFIG.POOL_SYNC_INTERVAL
+				task.spawn(flushPoolDeltas)
 			end
 		else
 			-- FALLBACK MODE: Old random local pricing
@@ -427,31 +494,142 @@ function StockMarketManager.Init(services)
 				stockMarketFolder:SetAttribute("NextUpdate", nextLocalUpdate)
 			end
 		end
+
+		-- ELASTIC REBOUND: Smoothly lerp localItemRates back towards global itemRates
+		local clockNow = os.clock()
+		local dt = clockNow - lastReboundTick
+		lastReboundTick = clockNow
+		local alpha = math.clamp(CONFIG.LOCAL_REBOUND_SPEED * dt, 0, 1)
+		local changed = false
+		for itemId, localRate in pairs(localItemRates) do
+			local globalRate = itemRates[itemId] or 1.0
+			if math.abs(localRate - globalRate) > 0.001 then
+				localItemRates[itemId] = localRate + (globalRate - localRate) * alpha
+				changed = true
+			else
+				localItemRates[itemId] = globalRate
+			end
+		end
+		-- Replicate local rates if they changed (throttled to ~4 updates/sec max)
+		if changed then
+			stockMarketFolder:SetAttribute("LocalItemRates", serializeLocalItemRates())
+		end
 	end)
-	
+
 	print("✓ StockMarketManager Initialized (" 
-		.. (useGlobalPricing and "GLOBAL" or "LOCAL FALLBACK") .. " mode)")
+		.. (useGlobalPricing and "AMM GLOBAL" or "LOCAL FALLBACK") .. " mode)")
 end
 
 --[[
-	AddSalesVolume: Called by MarketManager after a player sells items.
-	Buffers the volume to be flushed to MemoryStore on the next write cycle.
+	AdjustPool: Called by MarketManager after a player buys or sells items.
+	Buffers the delta to be flushed to MemoryStore on the next write cycle.
+	
+	For SELLING: deltaItems > 0, deltaCash < 0 (items enter pool, cash leaves)
+	For BUYING:  deltaItems < 0, deltaCash > 0 (items leave pool, cash enters)
 	
 	@param sector string - The market sector (e.g., "Food", "Animals")
-	@param count number - Number of items sold
+	@param deltaItems number - Change in items (positive = items added to pool)
+	@param deltaCash number - Change in cash (positive = cash added to pool)
 ]]
-function StockMarketManager.AddSalesVolume(sector: string, count: number)
-	if not sector or not count or count <= 0 then return end
-	ServerSalesBuffer[sector] = (ServerSalesBuffer[sector] or 0) + count
+function StockMarketManager.AdjustPool(sector: string, deltaItems: number, deltaCash: number)
+	if not sector then return end
+	if not deltaItems or not deltaCash then return end
+
+	-- Buffer for next flush
+	local buf = PoolDeltaBuffer[sector]
+	if buf then
+		buf.deltaItems += deltaItems
+		buf.deltaCash += deltaCash
+	end
+
+	-- Also apply immediately to local pool state for instant price feedback
+	local pool = poolState[sector]
+	if pool then
+		pool.globalItems = math.max(pool.globalItems + deltaItems, CONFIG.VIRTUAL_ITEMS * 0.01)
+		pool.globalCash = math.max(pool.globalCash + deltaCash, CONFIG.VIRTUAL_CASH * 0.01)
+	end
+end
+
+--[[
+	AddSalesVolume: LEGACY backward compatibility.
+	Redirects to AdjustPool with sell semantics:
+	items enter pool (+), cash leaves pool (-) proportional to volume weight.
+	
+	@param sector string - The market sector
+	@param economicWeight number - Value-weighted volume (count * basePrice)
+]]
+function StockMarketManager.AddSalesVolume(sector: string, economicWeight: number)
+	if not sector or not economicWeight or economicWeight <= 0 then return end
+	-- Legacy: treat economic weight as items entering, cash leaving
+	StockMarketManager.AdjustPool(sector, economicWeight * CONFIG.IMPACT_FACTOR * 1000000, -economicWeight * CONFIG.IMPACT_FACTOR * 1000000)
 end
 
 -- Getters (backward compatible)
 StockMarketManager.GetSectorRate = function(c) return sectorRates[c] or 1.0 end
 StockMarketManager.GetItemRate = function(id) return itemRates[id] or 1.0 end
+StockMarketManager.GetLocalItemRate = function(id) return localItemRates[id] or itemRates[id] or 1.0 end
 StockMarketManager.GetBailoutRate = function(c) return bailoutRates[c] or CONFIG.BAILOUT_FLOOR end
 StockMarketManager.GetAllSectorRates = function() return table.clone(sectorRates) end
 StockMarketManager.GetAllBailoutRates = function() return table.clone(bailoutRates) end
 StockMarketManager.GetSectors = function() return SECTORS end
 StockMarketManager.IsGlobalPricingActive = function() return useGlobalPricing end
+
+StockMarketManager.GetPoolState = function(sector)
+	local pool = poolState[sector]
+	if pool then
+		return { globalItems = pool.globalItems, globalCash = pool.globalCash }
+	end
+	return { globalItems = CONFIG.VIRTUAL_ITEMS, globalCash = CONFIG.VIRTUAL_CASH }
+end
+
+--[[
+	ApplyLocalShock: Instantly spikes or crashes the local item rate on THIS server.
+	Called by MarketManager after a buy/sell. The elastic rebound in Heartbeat
+	will smoothly pull it back toward the global rate over time.
+
+	Buying  → fewer items available locally → price spikes UP
+	Selling → more items available locally  → price crashes DOWN
+
+	@param itemId string - The item being traded
+	@param volume number - How many items were traded
+	@param isBuy boolean - true if player bought, false if player sold
+]]
+function StockMarketManager.ApplyLocalShock(itemId: string, volume: number, isBuy: boolean)
+	if not itemId or not volume or volume <= 0 then return end
+
+	local currentLocal = localItemRates[itemId] or itemRates[itemId] or 1.0
+	local shockMagnitude = volume * CONFIG.LOCAL_SHOCK_FACTOR
+
+	local newRate
+	if isBuy then
+		-- Buying drives LOCAL price UP (scarcity)
+		newRate = currentLocal * (1 + shockMagnitude)
+	else
+		-- Selling drives LOCAL price DOWN (surplus)
+		newRate = currentLocal * (1 - math.min(shockMagnitude, 0.8)) -- Cap at 80% crash
+	end
+
+	localItemRates[itemId] = math.clamp(newRate, CONFIG.MIN_RATE * 0.5, CONFIG.MAX_RATE * 2)
+
+	-- Immediately replicate the shock to clients
+	stockMarketFolder:SetAttribute("LocalItemRates", serializeLocalItemRates())
+end
+
+--[[
+	ForceLocalShock: Admin testing function. Simulates a massive local trade.
+	@param isMoon boolean - true for moon (price spike), false for crash
+]]
+function StockMarketManager.ForceLocalShock(isMoon: boolean)
+	local ItemConfig = require(ReplicatedStorage.Shared.ItemConfig)
+	for itemId, _ in pairs(ItemConfig.Items) do
+		local currentLocal = localItemRates[itemId] or itemRates[itemId] or 1.0
+		if isMoon then
+			localItemRates[itemId] = math.clamp(currentLocal * 2.5, CONFIG.MIN_RATE, CONFIG.MAX_RATE * 2)
+		else
+			localItemRates[itemId] = math.clamp(currentLocal * 0.3, CONFIG.MIN_RATE * 0.5, CONFIG.MAX_RATE)
+		end
+	end
+	stockMarketFolder:SetAttribute("LocalItemRates", serializeLocalItemRates())
+end
 
 return StockMarketManager

@@ -142,6 +142,8 @@ end
 --------------------------------------------------------------------------------
 
 local StorageItems: {[string]: number} = {} -- Current storage item map
+local IsBuildOpen = false
+local IsShopOpen = false
 
 --------------------------------------------------------------------------------
 -- UI CREATION
@@ -767,8 +769,30 @@ local function initialize()
 		setupBtn("BuildButton", "BuildModeToggleEvent", nil,
 			Color3.fromRGB(255, 140, 0), Color3.fromRGB(255, 180, 50))
 		
+		local buildBtn = bottomBar:FindFirstChild("BuildButton")
+		if buildBtn then
+			local buildToggle = ReplicatedStorage:FindFirstChild("BuildModeToggleEvent")
+			buildToggle.Event:Connect(function()
+				IsBuildOpen = not IsBuildOpen
+				TweenService:Create(buildBtn, TweenInfo.new(0.2), {
+					BackgroundColor3 = IsBuildOpen and Color3.fromRGB(255, 180, 50) or Color3.fromRGB(255, 140, 0)
+				}):Play()
+			end)
+		end
+
 		setupBtn("ShopButton", "ShopToggleEvent", nil,
 			UI_CONFIG.THEME_ACCENT_PURPLE, Color3.fromRGB(100, 80, 170))
+		
+		local shopBtn = bottomBar:FindFirstChild("ShopButton")
+		if shopBtn then
+			local shopToggle = ReplicatedStorage:FindFirstChild("ShopToggleEvent")
+			shopToggle.Event:Connect(function()
+				IsShopOpen = not IsShopOpen
+				TweenService:Create(shopBtn, TweenInfo.new(0.2), {
+					BackgroundColor3 = IsShopOpen and Color3.fromRGB(150, 100, 255) or UI_CONFIG.THEME_ACCENT_PURPLE
+				}):Play()
+			end)
+		end
 		setupBtn("BrainrotsButton", "BackpackToggleEvent", "Unit",
 			UI_CONFIG.THEME_ACCENT_PINK, Color3.fromRGB(170, 100, 190))
 		setupBtn("StorageButton", "StorageToggleEvent", nil,

@@ -1,12 +1,15 @@
 --[[
 	MarketManager Server Module
 	
-	Handles selling items from backpack for money at market prices.
+	Handles selling AND buying items at market prices.
+	Uses StockMarketManager's AMM liquidity pools for price discovery.
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+local MarketConfig = require(Shared:WaitForChild("MarketConfig"))
 
 local stockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket", 10) or ReplicatedStorage
 
@@ -26,6 +29,10 @@ local CartSoldEvent = RemoteEvents:FindFirstChild("CartSold") or Instance.new("R
 CartSoldEvent.Name = "CartSold"
 CartSoldEvent.Parent = RemoteEvents
 
+local ItemBoughtEvent = RemoteEvents:FindFirstChild("ItemBought") or Instance.new("RemoteEvent")
+ItemBoughtEvent.Name = "ItemBought"
+ItemBoughtEvent.Parent = RemoteEvents
+
 local SellItemFunction = RemoteFunctions:FindFirstChild("SellItem") or Instance.new("RemoteFunction")
 SellItemFunction.Name = "SellItem"
 SellItemFunction.Parent = RemoteFunctions
@@ -33,6 +40,10 @@ SellItemFunction.Parent = RemoteFunctions
 local SellAllFunction = RemoteFunctions:FindFirstChild("SellAll") or Instance.new("RemoteFunction")
 SellAllFunction.Name = "SellAll"
 SellAllFunction.Parent = RemoteFunctions
+
+local BuyItemFunction = RemoteFunctions:FindFirstChild("BuyItem") or Instance.new("RemoteFunction")
+BuyItemFunction.Name = "BuyItem"
+BuyItemFunction.Parent = RemoteFunctions
 
 local GetMarketPricesFunction = RemoteFunctions:FindFirstChild("GetMarketPrices") or Instance.new("RemoteFunction")
 GetMarketPricesFunction.Name = "GetMarketPrices"
@@ -67,7 +78,6 @@ end
 --[[
 	Determines if a player is "endgame" (no welfare protection).
 	Endgame = total money exceeds threshold.
-	Simple check — can be replaced with a more nuanced metric later.
 ]]
 local function isEndgame(player)
 	local ls = player:FindFirstChild("leaderstats")
@@ -79,11 +89,11 @@ local function isEndgame(player)
 end
 
 --[[
-	Gets the appropriate market rate for a player+item combo.
+	Gets the SELL rate for a player+item combo (welfare-aware).
 	- Endgame players get the true MarketRate (can be very low)
 	- New players get the BailoutRate (welfare-protected floor)
 ]]
-local function getPlayerRate(player, itemId)
+local function getPlayerSellRate(player, itemId)
 	local SM = rawget(Services, "StockMarketManager")
 	if not SM then
 		return stockMarketFolder:GetAttribute("CurrentRate") or 1.0
@@ -94,11 +104,28 @@ local function getPlayerRate(player, itemId)
 		return SM.GetSectorRate("Food") or 1.0
 	end
 	
+	-- Use LOCAL rate for trading (enables arbitrage)
+	local localRate = SM.GetLocalItemRate(itemId) or 1.0
+	
 	if isEndgame(player) then
-		return SM.GetItemRate(itemId) or 1.0
+		return localRate
 	else
-		return SM.GetBailoutRate(sector) or 1.0
+		-- Welfare floor: ensure noobs never sell below bailout rate
+		local bailout = SM.GetBailoutRate(sector) or 1.0
+		return math.max(localRate, bailout)
 	end
+end
+
+--[[
+	Gets the BUY rate for an item. ALWAYS uses raw LOCAL market rate.
+	NO welfare floor — noobs should be able to buy cheap during crashes.
+]]
+local function getBuyRate(itemId)
+	local SM = rawget(Services, "StockMarketManager")
+	if not SM then
+		return stockMarketFolder:GetAttribute("CurrentRate") or 1.0
+	end
+	return SM.GetLocalItemRate(itemId) or 1.0
 end
 
 -- Legacy compat: returns MarketRate (endgame/true rate)
@@ -116,13 +143,13 @@ local function getItemPrice(itemId)
 	return math.floor((info.basePrice or 1) * getMarketRate(itemId))
 end
 
--- Player-specific price (uses welfare check + global bonuses)
-local function getPlayerItemPrice(player, itemId)
+-- Player-specific SELL price (uses welfare check + global bonuses)
+local function getPlayerSellPrice(player, itemId)
 	local info = ItemConfig.Items[itemId]
 	if not info then return 0 end
 	
 	local basePrice = info.basePrice or 1
-	local marketRate = getPlayerRate(player, itemId)
+	local marketRate = getPlayerSellRate(player, itemId)
 	
 	local multi = 1.0
 	local BonusManager = rawget(Services, "BonusManager")
@@ -133,31 +160,55 @@ local function getPlayerItemPrice(player, itemId)
 	return math.floor(basePrice * marketRate * multi)
 end
 
--- Report sold volume to StockMarketManager for global price influence
-local function reportSalesVolume(itemId, count)
+-- BUY price: raw market rate, no welfare, no bonus multipliers
+local function getBuyPrice(itemId)
+	local info = ItemConfig.Items[itemId]
+	if not info then return 0 end
+	
+	local basePrice = info.basePrice or 1
+	local marketRate = getBuyRate(itemId)
+	
+	-- Buy price uses raw market rate — no welfare floor, no income bonuses
+	return math.max(1, math.floor(basePrice * marketRate))
+end
+
+-- Adjust AMM pool and apply local shock after a trade
+local function adjustAMMPool(itemId, deltaItems, deltaCash)
 	local SM = rawget(Services, "StockMarketManager")
-	if SM and SM.AddSalesVolume then
+	if SM and SM.AdjustPool then
 		local sector = getItemSector(itemId)
 		if sector and sector ~= "Neutral" then
-			-- FIX: Weight the impact by the base price of the item!
-			local itemInfo = ItemConfig.Items[itemId]
-			local basePrice = itemInfo and itemInfo.basePrice or 1
-			
-			-- 10 items worth $5 = 50 volume weight. 1 item worth $50 = 50 volume weight.
-			local economicWeight = count * basePrice 
-			SM.AddSalesVolume(sector, economicWeight)
+			SM.AdjustPool(sector, deltaItems, deltaCash)
 		end
 	end
 end
 
+local function applyLocalShock(itemId, volume, isBuy)
+	local SM = rawget(Services, "StockMarketManager")
+	if SM and SM.ApplyLocalShock then
+		SM.ApplyLocalShock(itemId, volume, isBuy)
+	end
+end
+
+-- Admin bypass (mirrors AdminService)
+local ADMIN_USER_IDS = { [1340966465] = true }
+local IS_STUDIO = RunService:IsStudio()
+local function isAdmin(player)
+	if IS_STUDIO then return true end
+	if ADMIN_USER_IDS[player.UserId] then return true end
+	if player.UserId == game.CreatorId then return true end
+	return false
+end
 
 local function isNearMarket(player)
+	if isAdmin(player) then return true end
+	
 	local char = player.Character
 	local hrp = char and char:FindFirstChild("HumanoidRootPart")
 	if not hrp then return false end
 	
 	local distance = (hrp.Position - CONFIG.MARKET_POSITION).Magnitude
-	return distance <= 30 -- Verified 30 stud radius
+	return distance <= 30
 end
 
 --------------------------------------------------------------------------------
@@ -171,11 +222,16 @@ function MarketManager.Init(services)
 	
 	SellItemFunction.OnServerInvoke = function(p, id, c) return MarketManager.SellItem(p, id, c) end
 	SellAllFunction.OnServerInvoke = function(p) return MarketManager.SellAll(p) end
+	BuyItemFunction.OnServerInvoke = function(p, id, c) return MarketManager.BuyItem(p, id, c) end
 	GetMarketPricesFunction.OnServerInvoke = function(p) return MarketManager.GetAllPrices(p), getMarketRate() end
 
-	print("✓ MarketManager Initialized")
+	print("✓ MarketManager Initialized (Buy + Sell)")
 end
 
+--[[
+	SellItem: Sells items from player's backpack for money.
+	Adjusts AMM pool: items enter pool (+), cash leaves pool (-).
+]]
 function MarketManager.SellItem(player, itemId, count)
 	if not isNearMarket(player) then
 		warn(player.Name .. " attempted to sell while far away from the market!")
@@ -190,7 +246,7 @@ function MarketManager.SellItem(player, itemId, count)
 	if avail <= 0 then return 0,0 end
 	
 	local toSell = math.min(count or 1, avail)
-	local price = getPlayerItemPrice(player, itemId) -- Welfare-aware price
+	local price = getPlayerSellPrice(player, itemId) -- Welfare-aware sell price
 	local total = toSell * price
 	
 	local removed = ISM.RemoveFromBackpack(player, itemId, toSell)
@@ -201,8 +257,11 @@ function MarketManager.SellItem(player, itemId, count)
 		DataService.AddMoney(player, total)
 	end
 	
-	-- Report to global market (influences prices across all servers)
-	reportSalesVolume(itemId, removed)
+	-- Adjust AMM pool: items enter pool, cash leaves pool
+	adjustAMMPool(itemId, removed, -total)
+	
+	-- Apply local shock: selling crashes local price
+	applyLocalShock(itemId, removed, false)
 	
 	ItemSoldEvent:FireClient(player, itemId, removed, total)
 	return removed, total
@@ -229,20 +288,116 @@ function MarketManager.SellAll(player)
 	return sold, earned
 end
 
+--[[
+	BuyItem: Buys items from the AMM and places them in the player's storage silo.
+	
+	- Uses RAW market rate (no welfare floor — lets noobs buy cheap during crashes)
+	- Capped at MAX_BUY_PER_TRANSACTION for slippage protection
+	- Storage-capacity-aware: only deducts cash for items actually stored
+	- Adjusts AMM pool: items leave pool (-), cash enters pool (+)
+	
+	@param player Player
+	@param itemId string - The item to buy
+	@param count number - How many to buy (will be clamped)
+	@return (boughtCount: number, totalCost: number)
+]]
+function MarketManager.BuyItem(player, itemId, count)
+	-- Input validation
+	if type(itemId) ~= "string" or type(count) ~= "number" then return 0, 0 end
+	if count <= 0 then return 0, 0 end
+	
+	-- Verify item exists
+	local itemInfo = ItemConfig.Items[itemId]
+	if not itemInfo then
+		warn(player.Name .. " attempted to buy unknown item: " .. tostring(itemId))
+		return 0, 0
+	end
+	
+	-- Proximity check
+	if not isNearMarket(player) then
+		warn(player.Name .. " attempted to buy while far away from the market!")
+		return 0, 0
+	end
+	
+	-- Slippage protection: cap per-transaction volume
+	local maxBuy = MarketConfig.CONFIG.MAX_BUY_PER_TRANSACTION or 100
+	local cappedCount = math.min(math.floor(count), maxBuy)
+	if cappedCount <= 0 then return 0, 0 end
+	
+	-- Get buy price (raw market rate, no welfare floor)
+	local unitPrice = getBuyPrice(itemId)
+	if unitPrice <= 0 then return 0, 0 end
+	
+	-- Verify and deduct cash
+	local DataService = rawget(Services, "DataService")
+	if not DataService then return 0, 0 end
+	
+	-- Check if player can afford at least 1 item
+	local playerMoney = DataService.GetMoney(player)
+	if playerMoney < unitPrice then return 0, 0 end
+	
+	-- Adjust count based on what player can actually afford
+	local affordableCount = math.min(cappedCount, math.floor(playerMoney / unitPrice))
+	if affordableCount <= 0 then return 0, 0 end
+	
+	local totalCost = affordableCount * unitPrice
+	
+	-- Deduct the full amount first
+	local deducted = DataService.DeductMoney(player, totalCost)
+	if not deducted then return 0, 0 end
+	
+	-- Add items to storage silo (may be less than requested if storage is full)
+	local ISM = rawget(Services, "ItemStorageManager")
+	if not ISM then
+		-- Refund if ISM not available
+		DataService.AddMoney(player, totalCost)
+		return 0, 0
+	end
+	
+	local actualAdded = ISM.AddToStorage(player, itemId, affordableCount)
+	
+	-- Handle partial storage: refund excess cash
+	if actualAdded < affordableCount then
+		local refund = (affordableCount - actualAdded) * unitPrice
+		DataService.AddMoney(player, refund)
+		totalCost = actualAdded * unitPrice
+	end
+	
+	if actualAdded <= 0 then
+		-- Nothing was stored — full refund already happened above
+		return 0, 0
+	end
+	
+	-- Adjust AMM pool: items leave pool, cash enters pool
+	adjustAMMPool(itemId, -actualAdded, totalCost)
+	
+	-- Apply local shock: buying spikes local price
+	applyLocalShock(itemId, actualAdded, true)
+	
+	-- Notify client
+	ItemBoughtEvent:FireClient(player, itemId, actualAdded, totalCost)
+	
+	return actualAdded, totalCost
+end
+
+--[[
+	SellCartContents: Sells a cart's inventory for the player.
+	Adjusts AMM pool: items enter pool, cash leaves pool.
+]]
 function MarketManager.SellCartContents(player, cartInventory)
 	if not cartInventory then return 0, 0 end
 	local sold, earned = 0, 0
 	
 	for itemId, count in pairs(cartInventory) do
 		if count > 0 then
-			local price = getPlayerItemPrice(player, itemId) -- Welfare-aware price
+			local price = getPlayerSellPrice(player, itemId) -- Welfare-aware sell price
 			local total = count * price
 			
 			sold += count
 			earned += total
 			
-			-- Report to global market
-			reportSalesVolume(itemId, count)
+			-- Adjust AMM pool: items enter pool, cash leaves pool
+			adjustAMMPool(itemId, count, -total)
 		end
 	end
 	
@@ -268,16 +423,19 @@ function MarketManager.GetAllPrices(player)
 		local sector = getItemSector(id)
 		local marketRate = 1.0
 		local bailoutRate = 1.0
+		local buyRate = 1.0
 		if sector and SM then 
 			marketRate = SM.GetSectorRate(sector) or 1.0 
 			bailoutRate = SM.GetBailoutRate(sector) or 1.0
+			buyRate = SM.GetItemRate(id) or 1.0
 		end
 		local effectiveRate = (endgame == true) and marketRate or bailoutRate
 		p[id] = {
 			basePrice = bp,
-			currentPrice = math.floor(bp * effectiveRate),
+			currentPrice = math.floor(bp * effectiveRate),  -- Sell price (welfare-aware)
 			marketPrice = math.floor(bp * marketRate),
 			bailoutPrice = math.floor(bp * bailoutRate),
+			buyPrice = math.max(1, math.floor(bp * buyRate)), -- Buy price (raw, no welfare)
 			tier = info.tier or 1,
 			sector = sector,
 			sectorRate = effectiveRate,
@@ -289,8 +447,32 @@ end
 
 -- Public helpers
 MarketManager.GetItemPrice = getItemPrice
-MarketManager.GetPlayerItemPrice = getPlayerItemPrice
+MarketManager.GetPlayerItemPrice = getPlayerSellPrice
+MarketManager.GetBuyPrice = getBuyPrice
 MarketManager.GetMarketRate = getMarketRate
 MarketManager.IsEndgame = isEndgame
+
+--[[
+	ExecuteShortfallBuy: Registers virtual item imports into the AMM.
+	Called by ShopManager when auto-buying missing items for a unit purchase.
+	
+	IMPORTANT: Only the RAW cost enters the AMM pool. The 10% convenience tax
+	is burned (deleted from economy) by the caller and must NOT be passed here.
+	
+	@param shortfallPerItem {[itemId]: {missing: number, rawCost: number}}
+]]
+function MarketManager.ExecuteShortfallBuy(shortfallPerItem)
+	if not shortfallPerItem then return end
+	
+	for itemId, data in pairs(shortfallPerItem) do
+		if data.missing and data.missing > 0 and data.rawCost and data.rawCost > 0 then
+			-- Items leave pool (bought), raw cash enters pool
+			adjustAMMPool(itemId, -data.missing, data.rawCost)
+			
+			-- Spike local prices as if a massive buy order happened
+			applyLocalShock(itemId, data.missing, true)
+		end
+	end
+end
 
 return MarketManager

@@ -385,6 +385,33 @@ function ItemStorageManager.RemoveFromBackpack(player, itemId, count)
 	return toRemove
 end
 
+--[[
+	AddToBackpack: Directly adds items to the player's backpack (bypassing storage).
+	Used for buy-to-backpack flows where items don't need to go through the silo.
+	
+	@param player Player - The player whose backpack to add to
+	@param itemId string - The item ID to add
+	@param count number - How many items to add
+	@return number - The actual number of items added (may be less if backpack is full)
+]]
+function ItemStorageManager.AddToBackpack(player: Player, itemId: string, count: number): number
+	local backpack = PlayerBackpack[player]
+	if not backpack then return 0 end
+	
+	if type(count) ~= "number" or count <= 0 then return 0 end
+	
+	local currentSize = getTotalItemCount(backpack.items)
+	local available = backpack.capacity - currentSize
+	local toAdd = math.min(math.floor(count), available)
+	
+	if toAdd <= 0 then return 0 end
+	
+	backpack.items[itemId] = (backpack.items[itemId] or 0) + toAdd
+	
+	BackpackUpdatedEvent:FireClient(player, encodeItems(backpack.items), getTotalItemCount(backpack.items), backpack.capacity)
+	return toAdd
+end
+
 function ItemStorageManager.ResetPlayerStorage(player)
 	if PlayerStorage[player] then
 		PlayerStorage[player].items = {}

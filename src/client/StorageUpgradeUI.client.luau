@@ -520,7 +520,7 @@ local function initialize()
 	if adminEvent then
 		adminEvent.Event:Connect(function(shopName)
 			if shopName == "StorageUpgrades" then
-				showPanel()
+				if PanelVisible then hidePanel() else showPanel() end
 			end
 		end)
 	end

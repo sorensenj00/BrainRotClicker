@@ -9,11 +9,8 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
-local CollectionService = game:GetService("CollectionService")
 
 local BuildGridVisualizer = require(script.Parent.BuildGridVisualizer)
-local Signal = require(ReplicatedStorage.Shared.Signal)
 
 local BuildInteractionService = {}
 export type BuildInteractionService = {
@@ -25,18 +22,18 @@ export type BuildInteractionService = {
 	IsDragging: () -> boolean,
 	GetHoveredSlot: () -> number?,
 	GetDraggedFromSlot: () -> number?,
-	StatusChanged: Signal.Signal,
-	UnitDropped: Signal.Signal,
-	UnitMoved: Signal.Signal,
+	StatusChanged: RBXScriptSignal,
+	UnitDropped: RBXScriptSignal,
+	UnitMoved: RBXScriptSignal,
 }
 
 
 -- Events
-local StatusChanged = Signal.new()
-BuildInteractionService.StatusChanged = StatusChanged
+local StatusChanged = Instance.new("BindableEvent")
+BuildInteractionService.StatusChanged = StatusChanged.Event
 
-local UnitDropped = Signal.new()
-BuildInteractionService.UnitDropped = UnitDropped
+local UnitDropped = Instance.new("BindableEvent")
+BuildInteractionService.UnitDropped = UnitDropped.Event
 
 -- Config
 local CONFIG = {
@@ -255,8 +252,8 @@ local draggedFromSlot = nil
 local originalUnitModel = nil
 
 -- New Event
-local UnitMoved = Signal.new()
-BuildInteractionService.UnitMoved = UnitMoved
+local UnitMoved = Instance.new("BindableEvent")
+BuildInteractionService.UnitMoved = UnitMoved.Event
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -398,6 +395,12 @@ function BuildInteractionService.StartDragFromSlot(slotIndex, unitName, rarity)
 	end
 	
 	BuildInteractionService.StartDrag(unitName, rarity)
+	
+	-- Polish: Make drag ghost match original model scale
+	if originalUnitModel and placementGhost then
+		placementGhost:ScaleTo(originalUnitModel:GetScale())
+	end
+	
 	draggedFromSlot = slotIndex
 	StatusChanged:Fire("🎯 Moving " .. unitName)
 end

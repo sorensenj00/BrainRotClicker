@@ -27,9 +27,8 @@ end
 local CONFIG = {
 	TIER_MILESTONES = {
 		[10] = 2,
-		[25] = 3,
-		[50] = 4,
-		[100] = 5,
+		[50] = 3,
+		[100] = 4,
 	}
 }
 
@@ -72,7 +71,7 @@ end
 
 local function _calculateItemTier(level: number): number
 	local currentTier = 1
-	local milestones = {10, 25, 50, 100} 
+	local milestones = {10, 50, 100} 
 	for _, reqLevel in ipairs(milestones) do
 		if level >= reqLevel then
 			currentTier = CONFIG.TIER_MILESTONES[reqLevel]
@@ -126,9 +125,22 @@ local function recalculateStats(unit: Instance)
 	local finalIncome = effectiveIncome
 	local finalInterval = effectiveCycleTime
 
+	local itemTier = _calculateItemTier(level)
+
 	unit:SetAttribute("IncomeAmount", finalIncome)
 	unit:SetAttribute("IncomeInterval", finalInterval)
-	unit:SetAttribute("ItemTier", _calculateItemTier(level))
+	unit:SetAttribute("ItemTier", itemTier)
+
+	-- Apply Tier-based Unit Scaling
+	local scaleMultiplier = 1.0
+	if itemTier == 2 then scaleMultiplier = 1.25
+	elseif itemTier == 3 then scaleMultiplier = 1.5
+	elseif itemTier >= 4 then scaleMultiplier = 2.0
+	end
+	
+	if unit:IsA("Model") then
+		unit:ScaleTo(scaleMultiplier)
+	end
 
 	updateVisuals(unit :: Model)
 end

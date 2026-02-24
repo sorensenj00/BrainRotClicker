@@ -327,7 +327,7 @@ local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
 if adminEvent then
 	adminEvent.Event:Connect(function(shopName)
 		if shopName == "CartShop" then
-			openShop()
+			if shopOpen then closeShop() else openShop() end
 		end
 	end)
 end

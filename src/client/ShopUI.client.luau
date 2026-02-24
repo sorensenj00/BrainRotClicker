@@ -1,15 +1,15 @@
 --[[
-	ShopUI LocalScript
+	ShopUI LocalScript (Grid Refactor)
 	
-	Creates a Cookie Clicker style shop interface on the right side of the screen.
-	Features progressive unlocking system.
+	Creates a Cookie Clicker style shop interface as a responsive grid of cards.
+	Shows ALL 74 units — locked ones appear as black silhouettes to tease progression.
 	
 	Features:
-	- Scrolling shop panel
-	- Live price updates
-	- Ownership count display
-	- Locked unit preview (blacked out)
-	- Purchase sound effects
+	- Responsive grid panel (60% screen width, max 900px)
+	- Static 3D previews (no spin — performance safe for 74 viewports)
+	- Locked silhouette effect (black BaseParts, stripped textures)
+	- Tier 1 item always visible on locked cards; higher tiers show "???"
+	- Purchase animations, sound effects, affordability checks
 ]]
 
 -- Services
@@ -27,7 +27,8 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
-local ViewportPreview = require(Shared:WaitForChild("ViewportPreview"))
+local ShortfallCalc = require(Shared:WaitForChild("ShortfallCalc"))
+local MarketConfig = require(Shared:WaitForChild("MarketConfig"))
 local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local BuyUnitRemote = RemoteEvents:WaitForChild("BuyUnit")
@@ -40,40 +41,53 @@ local UnlockProgressChangedEvent = RemoteEvents:WaitForChild("UnlockProgressChan
 --------------------------------------------------------------------------------
 
 local UI_CONFIG = {
-	-- Shop Panel
-	SHOP_WIDTH = 300,
+	-- Shop Panel (responsive)
+	SHOP_WIDTH_SCALE = 0.6,    -- 60% of screen width
+	SHOP_MAX_WIDTH = 900,      -- Cap for large screens
 	SHOP_PADDING = 12,
 	
-	-- Button styling
-	BUTTON_HEIGHT = 140,
-	BUTTON_SPACING = 10,
+	-- Card sizing (grid cells)
+	CARD_WIDTH = 160,
+	CARD_HEIGHT = 260,
+	GRID_PADDING = 8,
+	
+	-- Corner radius
 	CORNER_RADIUS = 16,
+	CARD_CORNER_RADIUS = 10,
 	
 	-- Colors
 	BACKGROUND_COLOR = Color3.fromRGB(15, 15, 22),
 	PANEL_COLOR = Color3.fromRGB(20, 20, 30),
-	BUTTON_COLOR = Color3.fromRGB(30, 30, 45),
-	BUTTON_HOVER_COLOR = Color3.fromRGB(40, 40, 60),
-	BUTTON_DISABLED_COLOR = Color3.fromRGB(20, 20, 25),
+	CARD_COLOR = Color3.fromRGB(30, 30, 45),
+	CARD_HOVER_COLOR = Color3.fromRGB(40, 40, 60),
+	CARD_DISABLED_COLOR = Color3.fromRGB(20, 20, 25),
 	LOCKED_COLOR = Color3.fromRGB(15, 15, 20),
 	LOCKED_OVERLAY_COLOR = Color3.fromRGB(0, 0, 0),
 	ACCENT_COLOR = Color3.fromRGB(80, 230, 120),
+	GOLD_COLOR = Color3.fromRGB(255, 195, 40),
+	GOLD_HOVER_COLOR = Color3.fromRGB(255, 215, 80),
 	TEXT_COLOR = Color3.fromRGB(250, 250, 255),
 	SECONDARY_TEXT_COLOR = Color3.fromRGB(160, 160, 180),
 	LOCKED_TEXT_COLOR = Color3.fromRGB(100, 100, 120),
 	PRICE_COLOR = Color3.fromRGB(250, 190, 60),
 	ITEM_COST_COLOR = Color3.fromRGB(255, 140, 50),
+	ITEM_HAVE_COLOR = Color3.fromRGB(80, 230, 120),
+	ITEM_NEED_COLOR = Color3.fromRGB(255, 70, 70),
 	STROKE_COLOR = Color3.fromRGB(70, 70, 90),
+	VIEWPORT_BG = Color3.fromRGB(25, 22, 35),
 	
 	-- Animation
 	TWEEN_TIME = 0.2,
+	
+	-- Grid positions
+	SHOP_OPEN_POSITION = UDim2.new(1, -10, 0, 10),
+	SHOP_CLOSED_POSITION = UDim2.new(1, 50, 0, 10),
 }
 
 --------------------------------------------------------------------------------
 -- SOUNDS
 --------------------------------------------------------------------------------
 
--- Create sounds
 local function createSound(id: string, volume: number): Sound
 	local sound = Instance.new("Sound")
 	sound.SoundId = id
@@ -82,21 +96,87 @@ local function createSound(id: string, volume: number): Sound
 	return sound
 end
 
-local ChachingSound = createSound("rbxassetid://138081500", 0.5) -- Cash register sound
-local ErrorSound = createSound("rbxassetid://138090596", 0.3) -- Error/deny sound
+local ChachingSound = createSound("rbxassetid://138081500", 0.5)
+local ErrorSound = createSound("rbxassetid://138090596", 0.3)
 
 --------------------------------------------------------------------------------
 -- LOCAL STATE
 --------------------------------------------------------------------------------
 
--- Track ownership locally for UI updates
 local OwnedCounts: {[string]: number} = {}
 local ShopButtons: {[string]: Frame} = {}
-local ViewportPreviews: {any} = {} -- Track ViewportPreview instances for cleanup
 local UnlockProgress: number = ShopConfig.INITIAL_UNLOCKED
 local ShopGui: ScreenGui? = nil
 local ScrollFrame: ScrollingFrame? = nil
 local IsOnMainIsland: boolean = false
+
+-- Inventory cache for shortfall calculation (both storage + backpack/cart)
+local cachedStorageItems: {[string]: number} = {}
+local cachedBackpackItems: {[string]: number} = {}
+local shortfallDebounce = false
+
+-- Client-side AMM rate reading (same as HFT Terminal)
+local stockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket", 10) or ReplicatedStorage
+local MAX_BUY = MarketConfig.CONFIG.MAX_BUY_PER_TRANSACTION or 100
+
+local function decodeItems(encoded)
+	if not ItemConfig or not ItemConfig.SHORT_TO_ID then return encoded end
+	if type(encoded) ~= "table" then return {} end
+	local decoded = {}
+	for k, count in pairs(encoded) do
+		local shortId = tonumber(k)
+		if shortId and ItemConfig.SHORT_TO_ID[shortId] then
+			decoded[ItemConfig.SHORT_TO_ID[shortId]] = count
+		else
+			decoded[k] = count
+		end
+	end
+	return decoded
+end
+
+-- Client-local buy price (mirrors server MarketManager.getBuyPrice)
+local function getClientBuyPrice(itemId)
+	local info = ItemConfig.Items[itemId]
+	if not info then return 0 end
+	local basePrice = info.basePrice or 1
+	-- Read local rate from StockMarket attributes
+	local localRatesJson = stockMarketFolder:GetAttribute("LocalItemRates")
+	local localRate = 1.0
+	if localRatesJson and type(localRatesJson) == "string" then
+		local ok, rates = pcall(game:GetService("HttpService").JSONDecode, game:GetService("HttpService"), localRatesJson)
+		if ok and rates[itemId] then
+			localRate = rates[itemId]
+		end
+	elseif type(localRatesJson) == "number" then
+		localRate = localRatesJson
+	end
+	-- Fallback to global rate
+	if localRate == 1.0 then
+		local globalRate = stockMarketFolder:GetAttribute("CurrentRate")
+		if globalRate then localRate = globalRate end
+	end
+	return math.max(1, math.floor(basePrice * localRate))
+end
+
+-- Merge storage + backpack into combined inventory
+local function getCombinedPlayerItems()
+	local combined = {}
+	for id, count in pairs(cachedStorageItems) do
+		combined[id] = (combined[id] or 0) + count
+	end
+	for id, count in pairs(cachedBackpackItems) do
+		combined[id] = (combined[id] or 0) + count
+	end
+	return combined
+end
+
+-- Get shortfall info for a unit (computed locally, no network)
+local function getUnitShortfall(unitName)
+	local itemCost = ShopConfig.GetItemCost(unitName)
+	if not itemCost then return nil end
+	local playerItems = getCombinedPlayerItems()
+	return ShortfallCalc.Calculate(itemCost, playerItems, getClientBuyPrice, MAX_BUY)
+end
 
 --------------------------------------------------------------------------------
 -- UI CREATION HELPERS
@@ -124,22 +204,92 @@ local function formatMoney(amount: number): string
 		return "$" .. tostring(math.floor(amount))
 	end
 	
-	-- Calculate the magnitude (power of 1000)
 	local magnitude = math.floor(math.log(amount, 1000))
-	
-	-- Cap at the largest suffix
 	if magnitude > #suffixes then
 		magnitude = #suffixes
 	end
 	
 	local value = amount / (1000 ^ magnitude)
 	
-	-- Format with 1 decimal place if < 100, otherwise no decimals
 	if value < 100 and value % 1 ~= 0 then
 		return string.format("$%.1f%s", value, suffixes[magnitude])
 	else
 		return string.format("$%.0f%s", value, suffixes[magnitude])
 	end
+end
+
+--------------------------------------------------------------------------------
+-- STATIC VIEWPORT PREVIEW (no spin — performance safe for 74 units)
+--------------------------------------------------------------------------------
+
+--[[
+	Creates a static 3D viewport of a model. No RunService connection.
+]]
+local function createStaticViewport(model: Model, parent: GuiObject): ViewportFrame
+	local viewport = Instance.new("ViewportFrame")
+	viewport.Name = "ModelPreview"
+	viewport.Size = UDim2.new(1, 0, 1, 0)
+	viewport.BackgroundColor3 = UI_CONFIG.VIEWPORT_BG
+	viewport.BackgroundTransparency = 0.3
+	viewport.BorderSizePixel = 0
+	viewport.Parent = parent
+	
+	addCorner(viewport, 6)
+	
+	-- Clone model into WorldModel
+	local previewModel = model:Clone()
+	local worldModel = Instance.new("WorldModel")
+	worldModel.Parent = viewport
+	previewModel.Parent = worldModel
+	
+	-- Camera
+	local camera = Instance.new("Camera")
+	camera.Parent = viewport
+	viewport.CurrentCamera = camera
+	
+	-- Position camera to frame the model
+	local cf, size = previewModel:GetBoundingBox()
+	local maxDimension = math.max(size.X, size.Y, size.Z)
+	local fovRad = math.rad(50 / 2)
+	local distance = (maxDimension / 2) / math.tan(fovRad) * 1.5
+	
+	local cameraOffset = Vector3.new(distance * 0.6, distance * 0.6, distance * 0.6)
+	local targetPos = cf.Position + Vector3.new(0, size.Y * 0.1, 0)
+	
+	camera.CFrame = CFrame.new(cf.Position + cameraOffset, targetPos)
+	camera.FieldOfView = 50
+	
+	return viewport
+end
+
+--[[
+	Creates a silhouette version of a model: all parts black, no textures.
+]]
+local function createSilhouetteModel(model: Model): Model
+	local clone = model:Clone()
+	
+	for _, desc in clone:GetDescendants() do
+		if desc:IsA("BasePart") then
+			desc.Color = Color3.new(0, 0, 0)
+			desc.Material = Enum.Material.SmoothPlastic
+			desc.Transparency = 0
+			-- Clear MeshPart TextureID
+			if desc:IsA("MeshPart") then
+				desc.TextureID = ""
+			end
+		elseif desc:IsA("SurfaceAppearance") then
+			-- PBR textures override Color entirely — must remove
+			desc:Destroy()
+		elseif desc:IsA("Decal") or desc:IsA("Texture") then
+			desc:Destroy()
+		elseif desc:IsA("SpecialMesh") then
+			desc.TextureId = ""
+		elseif desc:IsA("ParticleEmitter") or desc:IsA("Fire") or desc:IsA("Smoke") or desc:IsA("Sparkles") then
+			desc:Destroy()
+		end
+	end
+	
+	return clone
 end
 
 --------------------------------------------------------------------------------
@@ -150,13 +300,15 @@ local function createShopGui(): ScreenGui
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "ShopUI"
 	screenGui.ResetOnSpawn = false
+	screenGui.Enabled = false
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	
-	-- Main shop panel (right side) - starts HIDDEN (off-screen)
+	-- Main shop panel — responsive width, starts off-screen to the right
 	local shopPanel = Instance.new("Frame")
 	shopPanel.Name = "ShopPanel"
-	shopPanel.Size = UDim2.new(0, UI_CONFIG.SHOP_WIDTH, 1, -20)
-	shopPanel.Position = UDim2.new(1, 10, 0, 10) -- Start off-screen
+	shopPanel.Size = UDim2.new(UI_CONFIG.SHOP_WIDTH_SCALE, 0, 1, -20)
+	shopPanel.AnchorPoint = Vector2.new(1, 0)
+	shopPanel.Position = UI_CONFIG.SHOP_CLOSED_POSITION -- Start off-screen (right)
 	shopPanel.BackgroundColor3 = Color3.new(1, 1, 1)
 	shopPanel.BackgroundTransparency = 0.25
 	shopPanel.BorderSizePixel = 0
@@ -164,6 +316,12 @@ local function createShopGui(): ScreenGui
 	addCorner(shopPanel, UI_CONFIG.CORNER_RADIUS)
 	addStroke(shopPanel, UI_CONFIG.STROKE_COLOR, 1.5)
 	
+	-- Size constraint: cap max width on large screens
+	local sizeConstraint = Instance.new("UISizeConstraint")
+	sizeConstraint.MaxSize = Vector2.new(UI_CONFIG.SHOP_MAX_WIDTH, math.huge)
+	sizeConstraint.Parent = shopPanel
+	
+	-- Panel gradient
 	local gradient = Instance.new("UIGradient")
 	gradient.Color = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, UI_CONFIG.PANEL_COLOR),
@@ -172,17 +330,13 @@ local function createShopGui(): ScreenGui
 	gradient.Rotation = 90
 	gradient.Parent = shopPanel
 	
-	-- Shop title
+	-- Title bar
 	local titleBar = Instance.new("Frame")
 	titleBar.Name = "TitleBar"
 	titleBar.Size = UDim2.new(1, 0, 0, 50)
 	titleBar.BackgroundTransparency = 1
 	titleBar.BorderSizePixel = 0
 	titleBar.Parent = shopPanel
-	
-	local titleCorner = Instance.new("UICorner")
-	titleCorner.CornerRadius = UDim.new(0, UI_CONFIG.CORNER_RADIUS)
-	titleCorner.Parent = titleBar
 	
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Name = "Title"
@@ -195,7 +349,7 @@ local function createShopGui(): ScreenGui
 	titleLabel.Font = Enum.Font.GothamBold
 	titleLabel.Parent = titleBar
 	
-	-- Close button (X)
+	-- Close button
 	local closeButton = Instance.new("TextButton")
 	closeButton.Name = "CloseButton"
 	closeButton.Size = UDim2.new(0, 36, 0, 36)
@@ -208,7 +362,7 @@ local function createShopGui(): ScreenGui
 	closeButton.Parent = titleBar
 	addCorner(closeButton, 8)
 	
-	-- Warning banner for off-island (initially hidden)
+	-- Warning banner (off-island)
 	local warningBanner = Instance.new("Frame")
 	warningBanner.Name = "WarningBanner"
 	warningBanner.Size = UDim2.new(1, 0, 0, 24)
@@ -228,7 +382,7 @@ local function createShopGui(): ScreenGui
 	warningLabel.Font = Enum.Font.GothamBold
 	warningLabel.Parent = warningBanner
 	
-	-- Scrolling frame for items
+	-- Scrolling frame for grid
 	local scrollFrame = Instance.new("ScrollingFrame")
 	scrollFrame.Name = "ItemList"
 	scrollFrame.Size = UDim2.new(1, -UI_CONFIG.SHOP_PADDING * 2, 1, -60)
@@ -237,185 +391,191 @@ local function createShopGui(): ScreenGui
 	scrollFrame.BorderSizePixel = 0
 	scrollFrame.ScrollBarThickness = 6
 	scrollFrame.ScrollBarImageColor3 = UI_CONFIG.ACCENT_COLOR
-	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0) -- Will be set dynamically
+	scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
+	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0) -- AutomaticCanvasSize handles this
 	scrollFrame.Parent = shopPanel
 	
-	-- Layout for items
-	local listLayout = Instance.new("UIListLayout")
-	listLayout.Name = "Layout"
-	listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	listLayout.Padding = UDim.new(0, UI_CONFIG.BUTTON_SPACING)
-	listLayout.Parent = scrollFrame
-	
-	-- Auto-resize canvas
-	listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
-		scrollFrame.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
-	end)
+	-- Grid layout
+	local gridLayout = Instance.new("UIGridLayout")
+	gridLayout.Name = "Layout"
+	gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	gridLayout.CellSize = UDim2.new(0, UI_CONFIG.CARD_WIDTH, 0, UI_CONFIG.CARD_HEIGHT)
+	gridLayout.CellPadding = UDim2.new(0, UI_CONFIG.GRID_PADDING, 0, UI_CONFIG.GRID_PADDING)
+	gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	gridLayout.Parent = scrollFrame
 	
 	return screenGui
 end
 
-local function createShopButton(unitName: string, config: any, layoutOrder: number, isLocked: boolean): Frame
-	local button = Instance.new("Frame")
-	button.Name = unitName
-	button.Size = UDim2.new(1, 0, 0, UI_CONFIG.BUTTON_HEIGHT)
-	button.BackgroundColor3 = isLocked and UI_CONFIG.LOCKED_COLOR or UI_CONFIG.BUTTON_COLOR
-	button.BorderSizePixel = 0
-	button.LayoutOrder = layoutOrder
-	addCorner(button, 8)
+--------------------------------------------------------------------------------
+-- CARD CREATION
+--------------------------------------------------------------------------------
+
+local function createShopCard(unitName: string, config: any, layoutOrder: number, isLocked: boolean): Frame
+	local card = Instance.new("Frame")
+	card.Name = unitName
+	card.Size = UDim2.new(0, UI_CONFIG.CARD_WIDTH, 0, UI_CONFIG.CARD_HEIGHT)
+	card.BackgroundColor3 = isLocked and UI_CONFIG.LOCKED_COLOR or UI_CONFIG.CARD_COLOR
+	card.BorderSizePixel = 0
+	card.LayoutOrder = layoutOrder
+	addCorner(card, UI_CONFIG.CARD_CORNER_RADIUS)
+	addStroke(card, UI_CONFIG.STROKE_COLOR, 1)
 	
-	-- Clickable button overlay (only if not locked)
+	-- Clickable area (only interactive if unlocked)
 	local clickButton = Instance.new("TextButton")
 	clickButton.Name = "ClickArea"
 	clickButton.Size = UDim2.new(1, 0, 1, 0)
 	clickButton.BackgroundTransparency = 1
 	clickButton.Text = ""
+	clickButton.ZIndex = 3
 	clickButton.Active = not isLocked
-	clickButton.Parent = button
+	clickButton.Parent = card
 	
-	-- Left side: 3D model preview or locked icon
-	local iconContainer = Instance.new("Frame")
-	iconContainer.Name = "IconContainer"
-	iconContainer.Size = UDim2.new(0, 50, 0, 50)
-	iconContainer.Position = UDim2.new(0, 10, 0.5, -25)
-	iconContainer.BackgroundColor3 = isLocked and UI_CONFIG.LOCKED_COLOR or UI_CONFIG.BACKGROUND_COLOR
-	iconContainer.BorderSizePixel = 0
-	iconContainer.Parent = button
-	addCorner(iconContainer, 6)
+	-- ═══════════════════════════════════════════════════════════
+	-- TOP: 3D Model Viewport (100px)
+	-- ═══════════════════════════════════════════════════════════
+	local viewportContainer = Instance.new("Frame")
+	viewportContainer.Name = "IconContainer"
+	viewportContainer.Size = UDim2.new(1, -12, 0, 100)
+	viewportContainer.Position = UDim2.new(0, 6, 0, 6)
+	viewportContainer.BackgroundColor3 = UI_CONFIG.VIEWPORT_BG
+	viewportContainer.BackgroundTransparency = 0.5
+	viewportContainer.BorderSizePixel = 0
+	viewportContainer.Parent = card
+	addCorner(viewportContainer, 6)
 	
-	if isLocked then
-		-- Locked: show lock emoji
-		local lockLabel = Instance.new("TextLabel")
-		lockLabel.Name = "LockIcon"
-		lockLabel.Size = UDim2.new(1, 0, 1, 0)
-		lockLabel.BackgroundTransparency = 1
-		lockLabel.Text = "🔒"
-		lockLabel.TextSize = 28
-		lockLabel.Font = Enum.Font.GothamBold
-		lockLabel.Parent = iconContainer
-	else
-		-- Unlocked: show spinning 3D model
-		local modelName = config.ModelName or unitName
-		local modelTemplate = BrainrotsFolder:FindFirstChild(modelName)
-		if modelTemplate then
-			local preview = ViewportPreview.Create(modelTemplate, iconContainer)
-			table.insert(ViewportPreviews, preview)
+	local modelName = config.ModelName or unitName
+	local modelTemplate = BrainrotsFolder:FindFirstChild(modelName)
+	
+	if modelTemplate then
+		if isLocked then
+			-- Silhouette: black model, no textures
+			local silhouette = createSilhouetteModel(modelTemplate)
+			createStaticViewport(silhouette, viewportContainer)
 		else
-			-- Fallback: brain emoji if model not found
-			local fallbackLabel = Instance.new("TextLabel")
-			fallbackLabel.Name = "FallbackIcon"
-			fallbackLabel.Size = UDim2.new(1, 0, 1, 0)
-			fallbackLabel.BackgroundTransparency = 1
-			fallbackLabel.Text = "🧠"
-			fallbackLabel.TextSize = 28
-			fallbackLabel.Font = Enum.Font.GothamBold
-			fallbackLabel.Parent = iconContainer
+			-- Normal colored model
+			createStaticViewport(modelTemplate, viewportContainer)
 		end
+	else
+		-- Fallback emoji
+		local fallbackLabel = Instance.new("TextLabel")
+		fallbackLabel.Name = "FallbackIcon"
+		fallbackLabel.Size = UDim2.new(1, 0, 1, 0)
+		fallbackLabel.BackgroundTransparency = 1
+		fallbackLabel.Text = isLocked and "🔒" or "🧠"
+		fallbackLabel.TextSize = 36
+		fallbackLabel.Font = Enum.Font.GothamBold
+		fallbackLabel.Parent = viewportContainer
 	end
 	
-	-- Unit name
+	-- ═══════════════════════════════════════════════════════════
+	-- UNIT NAME (20px)
+	-- ═══════════════════════════════════════════════════════════
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "UnitName"
-	nameLabel.Size = UDim2.new(1, -130, 0, 24)
-	nameLabel.Position = UDim2.new(0, 70, 0, 8)
+	nameLabel.Size = UDim2.new(1, -8, 0, 20)
+	nameLabel.Position = UDim2.new(0, 4, 0, 110)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Text = isLocked and "???" or unitName
 	nameLabel.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or UI_CONFIG.TEXT_COLOR
-	nameLabel.TextSize = 16
+	nameLabel.TextSize = 12
 	nameLabel.Font = Enum.Font.GothamBold
-	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Center
 	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-	nameLabel.Parent = button
+	nameLabel.Parent = card
 	
-	-- Owned count badge (only for unlocked)
-	local ownedBadge = Instance.new("TextLabel")
-	ownedBadge.Name = "OwnedBadge"
-	ownedBadge.Size = UDim2.new(0, 40, 0, 22)
-	ownedBadge.Position = UDim2.new(1, -50, 0, 8)
-	ownedBadge.BackgroundColor3 = isLocked and UI_CONFIG.LOCKED_COLOR or UI_CONFIG.ACCENT_COLOR
-	ownedBadge.Text = isLocked and "🔒" or "0"
-	ownedBadge.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or Color3.fromRGB(0, 0, 0)
-	ownedBadge.TextSize = 14
-	ownedBadge.Font = Enum.Font.GothamBold
-	ownedBadge.Parent = button
-	addCorner(ownedBadge, 6)
+	-- ═══════════════════════════════════════════════════════════
+	-- PRODUCTION ITEMS (4 rows, ~80px total)
+	-- ═══════════════════════════════════════════════════════════
+	local itemsContainer = Instance.new("Frame")
+	itemsContainer.Name = "ItemsContainer"
+	itemsContainer.Size = UDim2.new(1, -8, 0, 72)
+	itemsContainer.Position = UDim2.new(0, 4, 0, 132)
+	itemsContainer.BackgroundTransparency = 1
+	itemsContainer.Parent = card
 	
-	-- Income info: show producible items instead of money
-	local incomeLabel = Instance.new("TextLabel")
-	incomeLabel.Name = "Income"
-	incomeLabel.Size = UDim2.new(1, -80, 0, 18)
-	incomeLabel.Position = UDim2.new(0, 70, 0, 32)
-	incomeLabel.BackgroundTransparency = 1
-	if isLocked then
-		incomeLabel.Text = "Purchase units to unlock!"
-	else
-		-- Build items display from BrainrotItems mapping
-		local brainrotItems = ItemConfig.BrainrotItems[unitName]
-		if brainrotItems then
-			local parts = {}
-			for _, tierKey in ipairs({"tier1", "tier2", "tier3", "tier4"}) do
-				local itemId = brainrotItems[tierKey]
-				if itemId then
-					local itemDef = ItemConfig.Items[itemId]
-					if itemDef then
-						table.insert(parts, itemDef.icon .. " " .. itemDef.displayName)
-					end
+	local brainrotItems = ItemConfig.BrainrotItems[unitName]
+	local tierKeys = {"tier1", "tier2", "tier3", "tier4"}
+	
+	for tierIdx, tierKey in ipairs(tierKeys) do
+		local tierLabel = Instance.new("TextLabel")
+		tierLabel.Name = "Tier" .. tierIdx
+		tierLabel.Size = UDim2.new(1, 0, 0, 16)
+		tierLabel.Position = UDim2.new(0, 0, 0, (tierIdx - 1) * 18)
+		tierLabel.BackgroundTransparency = 1
+		tierLabel.TextSize = 10
+		tierLabel.Font = Enum.Font.Gotham
+		tierLabel.TextXAlignment = Enum.TextXAlignment.Left
+		tierLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		tierLabel.Parent = itemsContainer
+		
+		if brainrotItems and brainrotItems[tierKey] then
+			local itemId = brainrotItems[tierKey]
+			local itemDef = ItemConfig.Items[itemId]
+			
+			if isLocked then
+				-- Locked: show Tier 1 fully, tiers 2-4 as "???"
+				if tierIdx == 1 and itemDef then
+					tierLabel.Text = itemDef.icon .. " " .. itemDef.displayName
+					tierLabel.TextColor3 = UI_CONFIG.SECONDARY_TEXT_COLOR
+				else
+					tierLabel.Text = "Tier " .. tierIdx .. ": ???"
+					tierLabel.TextColor3 = UI_CONFIG.LOCKED_TEXT_COLOR
+				end
+			else
+				-- Unlocked: show full item info
+				if itemDef then
+					tierLabel.Text = itemDef.icon .. " " .. itemDef.displayName
+					tierLabel.TextColor3 = UI_CONFIG.SECONDARY_TEXT_COLOR
+				else
+					tierLabel.Text = "Tier " .. tierIdx .. ": ???"
+					tierLabel.TextColor3 = UI_CONFIG.LOCKED_TEXT_COLOR
 				end
 			end
-			incomeLabel.Text = table.concat(parts, "  ")
 		else
-			incomeLabel.Text = "No items"
+			tierLabel.Text = "—"
+			tierLabel.TextColor3 = UI_CONFIG.LOCKED_TEXT_COLOR
 		end
 	end
-	incomeLabel.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or UI_CONFIG.SECONDARY_TEXT_COLOR
-	incomeLabel.TextSize = 10
-	incomeLabel.Font = Enum.Font.Gotham
-	incomeLabel.TextXAlignment = Enum.TextXAlignment.Left
-	incomeLabel.TextTruncate = Enum.TextTruncate.AtEnd
-	incomeLabel.Parent = button
 	
-	-- Milestone progress label (only for unlocked)
-	local milestoneLabel = Instance.new("TextLabel")
-	milestoneLabel.Name = "MilestoneProgress"
-	milestoneLabel.Size = UDim2.new(1, -80, 0, 16)
-	milestoneLabel.Position = UDim2.new(0, 70, 0, 50)
-	milestoneLabel.BackgroundTransparency = 1
-	milestoneLabel.Text = isLocked and "" or "0/10 to x2 Speed"
-	milestoneLabel.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or Color3.fromRGB(150, 200, 255)
-	milestoneLabel.TextSize = 11
-	milestoneLabel.Font = Enum.Font.GothamBold
-	milestoneLabel.TextXAlignment = Enum.TextXAlignment.Left
-	milestoneLabel.Parent = button
+	-- ═══════════════════════════════════════════════════════════
+	-- BOTTOM BAR: Price + Owned Badge + Buy (48px)
+	-- ═══════════════════════════════════════════════════════════
+	local bottomBar = Instance.new("Frame")
+	bottomBar.Name = "BottomBar"
+	bottomBar.Size = UDim2.new(1, -8, 0, 48)
+	bottomBar.Position = UDim2.new(0, 4, 1, -52)
+	bottomBar.BackgroundTransparency = 1
+	bottomBar.Parent = card
 	
-	-- Price display
+	-- Price label
 	local priceLabel = Instance.new("TextLabel")
 	priceLabel.Name = "Price"
-	priceLabel.Size = UDim2.new(1, -80, 0, 24)
-	priceLabel.Position = UDim2.new(0, 70, 1, -48)
+	priceLabel.Size = UDim2.new(1, 0, 0, 18)
+	priceLabel.Position = UDim2.new(0, 0, 0, 0)
 	priceLabel.BackgroundTransparency = 1
 	priceLabel.Text = isLocked and "LOCKED" or formatMoney(config.BasePrice)
 	priceLabel.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or UI_CONFIG.PRICE_COLOR
-	priceLabel.TextSize = 18
+	priceLabel.TextSize = 14
 	priceLabel.Font = Enum.Font.GothamBold
-	priceLabel.TextXAlignment = Enum.TextXAlignment.Left
-	priceLabel.Parent = button
+	priceLabel.TextXAlignment = Enum.TextXAlignment.Center
+	priceLabel.Parent = bottomBar
 	
-	-- Item cost display (shows required items for high-tier units)
+	-- Item cost label (for units that require items)
 	local itemCostLabel = Instance.new("TextLabel")
 	itemCostLabel.Name = "ItemCost"
-	itemCostLabel.Size = UDim2.new(1, -80, 0, 16)
-	itemCostLabel.Position = UDim2.new(0, 70, 1, -22)
+	itemCostLabel.Size = UDim2.new(1, 0, 0, 12)
+	itemCostLabel.Position = UDim2.new(0, 0, 0, 17)
 	itemCostLabel.BackgroundTransparency = 1
 	itemCostLabel.Text = ""
 	itemCostLabel.TextColor3 = UI_CONFIG.ITEM_COST_COLOR
-	itemCostLabel.TextSize = 11
+	itemCostLabel.TextSize = 9
 	itemCostLabel.Font = Enum.Font.Gotham
-	itemCostLabel.TextXAlignment = Enum.TextXAlignment.Left
+	itemCostLabel.TextXAlignment = Enum.TextXAlignment.Center
 	itemCostLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	itemCostLabel.Visible = false
-	itemCostLabel.Parent = button
+	itemCostLabel.Parent = bottomBar
 	
-	-- Populate item cost text if unit has item requirements
 	if not isLocked then
 		local itemCost = ShopConfig.GetItemCost(unitName)
 		if itemCost then
@@ -428,37 +588,46 @@ local function createShopButton(unitName: string, config: any, layoutOrder: numb
 		end
 	end
 	
-	-- Buy indicator (only for unlocked)
+	-- Bottom row: Owned badge + Buy indicator
+	local ownedBadge = Instance.new("TextLabel")
+	ownedBadge.Name = "OwnedBadge"
+	ownedBadge.Size = UDim2.new(0, 36, 0, 18)
+	ownedBadge.Position = UDim2.new(0, 0, 1, -20)
+	ownedBadge.BackgroundColor3 = isLocked and UI_CONFIG.LOCKED_COLOR or UI_CONFIG.ACCENT_COLOR
+	ownedBadge.Text = isLocked and "🔒" or "0"
+	ownedBadge.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or Color3.fromRGB(0, 0, 0)
+	ownedBadge.TextSize = 11
+	ownedBadge.Font = Enum.Font.GothamBold
+	ownedBadge.Parent = bottomBar
+	addCorner(ownedBadge, 4)
+	
 	local buyIndicator = Instance.new("TextLabel")
 	buyIndicator.Name = "BuyIndicator"
-	buyIndicator.Size = UDim2.new(0, 80, 0, 30) -- Wider for text
-	buyIndicator.Position = UDim2.new(1, -90, 1, -38)
+	buyIndicator.Size = UDim2.new(0, 70, 0, 18)
+	buyIndicator.Position = UDim2.new(1, -70, 1, -20)
 	buyIndicator.BackgroundTransparency = 1
-	local ownedCount = config.count or 0
-	local buttonText = "BUY"
-	if ownedCount > 0 then
-		buttonText = "UPGRADE"
-	end
-	
-	buyIndicator.Text = isLocked and "" or buttonText
+	buyIndicator.Text = isLocked and "" or "BUY"
 	buyIndicator.TextColor3 = UI_CONFIG.ACCENT_COLOR
-	buyIndicator.TextSize = 14
+	buyIndicator.TextSize = 12
 	buyIndicator.Font = Enum.Font.GothamBold
-	buyIndicator.Parent = button
+	buyIndicator.TextXAlignment = Enum.TextXAlignment.Right
+	buyIndicator.Parent = bottomBar
 	
-	-- Locked overlay effect
+	-- ═══════════════════════════════════════════════════════════
+	-- LOCKED OVERLAY
+	-- ═══════════════════════════════════════════════════════════
 	if isLocked then
 		local overlay = Instance.new("Frame")
 		overlay.Name = "LockedOverlay"
 		overlay.Size = UDim2.new(1, 0, 1, 0)
 		overlay.BackgroundColor3 = UI_CONFIG.LOCKED_OVERLAY_COLOR
-		overlay.BackgroundTransparency = 0.5
+		overlay.BackgroundTransparency = 0.6
 		overlay.ZIndex = 2
-		overlay.Parent = button
-		addCorner(overlay, 8)
+		overlay.Parent = card
+		addCorner(overlay, UI_CONFIG.CARD_CORNER_RADIUS)
 	end
 	
-	return button
+	return card
 end
 
 --------------------------------------------------------------------------------
@@ -466,74 +635,77 @@ end
 --------------------------------------------------------------------------------
 
 local function updateButtonPrice(unitName: string, newCount: number)
-	local button = ShopButtons[unitName]
-	if not button then return end
+	local card = ShopButtons[unitName]
+	if not card then return end
 	
 	local config = ShopConfig.GetConfig(unitName)
 	if not config then return end
 	
+	-- Skip locked cards (no price updates needed)
+	local overlay = card:FindFirstChild("LockedOverlay")
+	if overlay then return end
+	
 	local newPrice = ShopConfig.CalculatePrice(unitName, newCount)
 	
-	-- Update price label
-	local priceLabel = button:FindFirstChild("Price")
-	if priceLabel then
-		priceLabel.Text = formatMoney(newPrice)
+	-- Update price
+	local bottomBar = card:FindFirstChild("BottomBar")
+	if bottomBar then
+		local priceLabel = bottomBar:FindFirstChild("Price")
+		if priceLabel then
+			priceLabel.Text = formatMoney(newPrice)
+		end
+		
+		local ownedBadge = bottomBar:FindFirstChild("OwnedBadge")
+		if ownedBadge then
+			ownedBadge.Text = tostring(newCount)
+		end
+		
+		-- Update buy indicator text
+		local buyIndicator = bottomBar:FindFirstChild("BuyIndicator")
+		if buyIndicator then
+			buyIndicator.Text = newCount > 0 and "UPGRADE" or "BUY"
+		end
+		
+		-- Update item cost with have/need display
+		local itemCostLabel = bottomBar:FindFirstChild("ItemCost")
+		if itemCostLabel then
+			local itemCost = ShopConfig.GetItemCost(unitName)
+			if itemCost then
+				local playerItems = getCombinedPlayerItems()
+				local parts = {}
+				for itemId, qty in pairs(itemCost) do
+					local have = playerItems[itemId] or 0
+					local itemInfo = ItemConfig.Items[itemId]
+					local icon = itemInfo and itemInfo.icon or "📦"
+					table.insert(parts, string.format("%s %d/%d", icon, have, qty))
+				end
+				itemCostLabel.Text = table.concat(parts, "  ")
+				itemCostLabel.Visible = true
+			else
+				itemCostLabel.Visible = false
+			end
+		end
 	end
 	
-	-- Update owned badge
-	local ownedBadge = button:FindFirstChild("OwnedBadge")
-	if ownedBadge then
-		ownedBadge.Text = tostring(newCount)
-	end
-	
-	-- Update income display: show producible items
-	local incomeLabel = button:FindFirstChild("Income")
-	if incomeLabel then
+	-- Update production items display
+	local itemsContainer = card:FindFirstChild("ItemsContainer")
+	if itemsContainer then
 		local brainrotItems = ItemConfig.BrainrotItems[unitName]
 		if brainrotItems then
-			local parts = {}
-			for _, tierKey in ipairs({"tier1", "tier2", "tier3", "tier4"}) do
-				local itemId = brainrotItems[tierKey]
-				if itemId then
-					local itemDef = ItemConfig.Items[itemId]
-					if itemDef then
-						table.insert(parts, itemDef.icon .. " " .. itemDef.displayName)
+			for tierIdx = 1, 4 do
+				local tierLabel = itemsContainer:FindFirstChild("Tier" .. tierIdx)
+				if tierLabel then
+					local tierKey = "tier" .. tierIdx
+					local itemId = brainrotItems[tierKey]
+					if itemId then
+						local itemDef = ItemConfig.Items[itemId]
+						if itemDef then
+							tierLabel.Text = itemDef.icon .. " " .. itemDef.displayName
+							tierLabel.TextColor3 = UI_CONFIG.SECONDARY_TEXT_COLOR
+						end
 					end
 				end
 			end
-			incomeLabel.Text = table.concat(parts, "  ")
-		else
-			incomeLabel.Text = "No items"
-		end
-	end
-	
-	-- Update milestone progress
-	local milestoneLabel = button:FindFirstChild("MilestoneProgress")
-	if milestoneLabel then
-		local nextMilestone, currentProgress = ShopConfig.GetNextMilestone(newCount)
-		if nextMilestone then
-			local bonusType = nextMilestone.milestoneType == "speed" and "x2 Speed ⚡" or string.format("x%d Profit 💰", nextMilestone.multiplier)
-			milestoneLabel.Text = string.format("%d/%d to %s", currentProgress, nextMilestone.quantity, bonusType)
-			milestoneLabel.TextColor3 = Color3.fromRGB(150, 200, 255)
-		else
-			milestoneLabel.Text = "✅ All milestones reached!"
-			milestoneLabel.TextColor3 = Color3.fromRGB(100, 255, 150)
-		end
-	end
-	
-	-- Update item cost display
-	local itemCostLabel = button:FindFirstChild("ItemCost")
-	if itemCostLabel then
-		local itemCost = ShopConfig.GetItemCost(unitName)
-		if itemCost then
-			local parts = {}
-			for itemId, qty in pairs(itemCost) do
-				table.insert(parts, qty .. "x " .. itemId)
-			end
-			itemCostLabel.Text = "📦 " .. table.concat(parts, " + ")
-			itemCostLabel.Visible = true
-		else
-			itemCostLabel.Visible = false
 		end
 	end
 	
@@ -548,37 +720,121 @@ local function canAfford(unitName: string): boolean
 	if not money then return false end
 	
 	local count = OwnedCounts[unitName] or 0
-	local price = ShopConfig.CalculatePrice(unitName, count)
+	local unitPrice = ShopConfig.CalculatePrice(unitName, count)
 	
-	return money.Value >= price
+	-- Account for shortfall auto-buy cost
+	local shortfall = getUnitShortfall(unitName)
+	local totalCost = unitPrice
+	if shortfall and shortfall.hasShortfall then
+		totalCost = unitPrice + shortfall.totalTaxed
+	end
+	
+	return money.Value >= totalCost
 end
 
-local function updateButtonAffordability()
-	for unitName, button in ShopButtons do
-		-- Skip locked buttons (they don't have proper styling)
-		local overlay = button:FindFirstChild("LockedOverlay")
-		if overlay then continue end
-		
-		local affordable = canAfford(unitName)
-		button.BackgroundColor3 = affordable and UI_CONFIG.BUTTON_COLOR or UI_CONFIG.BUTTON_DISABLED_COLOR
-		
-		local buyIndicator = button:FindFirstChild("BuyIndicator")
-		if buyIndicator then
-			buyIndicator.TextTransparency = affordable and 0 or 0.7
+-- Returns: "normal" | "import" | "cant_afford"
+local function getAffordabilityState(unitName: string)
+	local leaderstats = Player:FindFirstChild("leaderstats")
+	if not leaderstats then return "cant_afford", 0 end
+	local money = leaderstats:FindFirstChild("Money")
+	if not money then return "cant_afford", 0 end
+	
+	local count = OwnedCounts[unitName] or 0
+	local unitPrice = ShopConfig.CalculatePrice(unitName, count)
+	local shortfall = getUnitShortfall(unitName)
+	
+	if not shortfall or not shortfall.hasShortfall then
+		-- No items needed or player has all items
+		if money.Value >= unitPrice then
+			return "normal", unitPrice
+		else
+			return "cant_afford", unitPrice
+		end
+	else
+		-- Has shortfall — check if player can afford total
+		local totalCost = unitPrice + shortfall.totalTaxed
+		if money.Value >= totalCost then
+			return "import", totalCost
+		else
+			return "cant_afford", totalCost
 		end
 	end
 end
 
-local function animatePurchase(button: Frame, success: boolean)
-	if success then
-		-- Success animation - quick scale pop
-		local originalSize = button.Size
+local function updateButtonAffordability()
+	for unitName, card in ShopButtons do
+		-- Skip locked cards
+		local overlay = card:FindFirstChild("LockedOverlay")
+		if overlay then continue end
 		
-		local popTween = TweenService:Create(button, TweenInfo.new(0.1), {
+		local state, totalCost = getAffordabilityState(unitName)
+		
+		local bottomBar = card:FindFirstChild("BottomBar")
+		if not bottomBar then continue end
+		
+		local buyIndicator = bottomBar:FindFirstChild("BuyIndicator")
+		local priceLabel = bottomBar:FindFirstChild("Price")
+		local itemCostLabel = bottomBar:FindFirstChild("ItemCost")
+		
+		-- Update item cost colors (have/need)
+		if itemCostLabel and itemCostLabel.Visible then
+			local shortfall = getUnitShortfall(unitName)
+			if shortfall and shortfall.hasShortfall then
+				itemCostLabel.TextColor3 = UI_CONFIG.ITEM_NEED_COLOR
+			else
+				itemCostLabel.TextColor3 = UI_CONFIG.ITEM_HAVE_COLOR
+			end
+		end
+		
+		if state == "normal" then
+			-- Has all items, can afford
+			card.BackgroundColor3 = UI_CONFIG.CARD_COLOR
+			if buyIndicator then
+				local count = OwnedCounts[unitName] or 0
+				buyIndicator.Text = count > 0 and "UPGRADE" or "BUY"
+				buyIndicator.TextColor3 = UI_CONFIG.ACCENT_COLOR
+				buyIndicator.TextTransparency = 0
+			end
+			if priceLabel then
+				priceLabel.TextColor3 = UI_CONFIG.PRICE_COLOR
+			end
+		elseif state == "import" then
+			-- Missing items but can auto-buy — gold button
+			card.BackgroundColor3 = UI_CONFIG.CARD_COLOR
+			if buyIndicator then
+				buyIndicator.Text = "BUY & IMPORT"
+				buyIndicator.TextColor3 = UI_CONFIG.GOLD_COLOR
+				buyIndicator.TextTransparency = 0
+			end
+			if priceLabel then
+				priceLabel.Text = formatMoney(totalCost)
+				priceLabel.TextColor3 = UI_CONFIG.GOLD_COLOR
+			end
+		else
+			-- Can't afford
+			card.BackgroundColor3 = UI_CONFIG.CARD_DISABLED_COLOR
+			if buyIndicator then
+				buyIndicator.Text = "Need " .. formatMoney(totalCost)
+				buyIndicator.TextColor3 = UI_CONFIG.SECONDARY_TEXT_COLOR
+				buyIndicator.TextTransparency = 0.5
+			end
+			if priceLabel then
+				priceLabel.TextColor3 = UI_CONFIG.SECONDARY_TEXT_COLOR
+			end
+		end
+	end
+end
+
+local function animatePurchase(card: Frame, success: boolean)
+	if success then
+		-- Success: quick scale pop
+		local originalSize = card.Size
+		
+		local popTween = TweenService:Create(card, TweenInfo.new(0.1), {
 			Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset + 6, originalSize.Y.Scale, originalSize.Y.Offset + 4)
 		})
 		
-		local returnTween = TweenService:Create(button, TweenInfo.new(0.15, Enum.EasingStyle.Elastic), {
+		local returnTween = TweenService:Create(card, TweenInfo.new(0.15, Enum.EasingStyle.Elastic), {
 			Size = originalSize
 		})
 		
@@ -588,32 +844,32 @@ local function animatePurchase(button: Frame, success: boolean)
 		end)
 		
 		-- Flash green
-		local originalColor = button.BackgroundColor3
-		button.BackgroundColor3 = UI_CONFIG.ACCENT_COLOR
+		local originalColor = card.BackgroundColor3
+		card.BackgroundColor3 = UI_CONFIG.ACCENT_COLOR
 		task.delay(0.1, function()
-			TweenService:Create(button, TweenInfo.new(0.2), {BackgroundColor3 = originalColor}):Play()
+			TweenService:Create(card, TweenInfo.new(0.2), {BackgroundColor3 = originalColor}):Play()
 		end)
 		
 		ChachingSound:Play()
 	else
-		-- Shake animation for failure
-		local originalPos = button.Position
+		-- Failure: shake
+		local originalPos = card.Position
 		
 		for i = 1, 3 do
 			local offset = i % 2 == 0 and 5 or -5
-			TweenService:Create(button, TweenInfo.new(0.05), {
+			TweenService:Create(card, TweenInfo.new(0.05), {
 				Position = UDim2.new(originalPos.X.Scale, originalPos.X.Offset + offset, originalPos.Y.Scale, originalPos.Y.Offset)
 			}):Play()
 			task.wait(0.05)
 		end
 		
-		button.Position = originalPos
+		card.Position = originalPos
 		ErrorSound:Play()
 	end
 end
 
-local function setupButtonClick(button: Frame, unitName: string)
-	local clickArea = button:FindFirstChild("ClickArea")
+local function setupCardClick(card: Frame, unitName: string)
+	local clickArea = card:FindFirstChild("ClickArea")
 	if not clickArea then return end
 	
 	local debounce = false
@@ -621,15 +877,15 @@ local function setupButtonClick(button: Frame, unitName: string)
 	-- Hover effects
 	clickArea.MouseEnter:Connect(function()
 		if canAfford(unitName) then
-			TweenService:Create(button, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
-				BackgroundColor3 = UI_CONFIG.BUTTON_HOVER_COLOR
+			TweenService:Create(card, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
+				BackgroundColor3 = UI_CONFIG.CARD_HOVER_COLOR
 			}):Play()
 		end
 	end)
 	
 	clickArea.MouseLeave:Connect(function()
-		local targetColor = canAfford(unitName) and UI_CONFIG.BUTTON_COLOR or UI_CONFIG.BUTTON_DISABLED_COLOR
-		TweenService:Create(button, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
+		local targetColor = canAfford(unitName) and UI_CONFIG.CARD_COLOR or UI_CONFIG.CARD_DISABLED_COLOR
+		TweenService:Create(card, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
 			BackgroundColor3 = targetColor
 		}):Play()
 	end)
@@ -637,14 +893,10 @@ local function setupButtonClick(button: Frame, unitName: string)
 	-- Click to buy
 	clickArea.MouseButton1Click:Connect(function()
 		if debounce then return end
-		
-		-- REMOVED: Main island check - players can buy from anywhere
-		-- Selling still requires visiting the Market on Main Island
-		
 		debounce = true
 		
 		local success, message = BuyUnitRemote:InvokeServer(unitName)
-		animatePurchase(button, success)
+		animatePurchase(card, success)
 		
 		if not success then
 			warn("Purchase failed: " .. tostring(message))
@@ -656,20 +908,13 @@ local function setupButtonClick(button: Frame, unitName: string)
 end
 
 --[[
-	Refreshes the shop UI to show visible units based on unlock progress.
+	Refreshes the shop UI, rendering ALL units.
+	Locked units get silhouette treatment.
 ]]
 local function refreshShopUI()
 	if not ScrollFrame then return end
 	
-	-- Clean up viewport previews
-	for _, preview in ViewportPreviews do
-		if preview and preview.Destroy then
-			preview:Destroy()
-		end
-	end
-	ViewportPreviews = {}
-	
-	-- Clear existing buttons
+	-- Clear existing cards
 	for _, child in ScrollFrame:GetChildren() do
 		if child:IsA("Frame") then
 			child:Destroy()
@@ -677,27 +922,28 @@ local function refreshShopUI()
 	end
 	ShopButtons = {}
 	
-	-- Get visible units based on unlock progress
-	local visibleUnits = ShopConfig.GetVisibleUnits(UnlockProgress)
+	-- Get ALL units sorted by price
+	local allUnits = ShopConfig.GetAllUnitsSorted()
 	
-	for i, unitData in visibleUnits do
+	for i, unitData in allUnits do
 		local unitName = unitData.name
 		local config = unitData.config
-		local isLocked = unitData.isLocked
+		local isLocked = not ShopConfig.IsUnitUnlocked(unitName, UnlockProgress)
 		
-		-- Create button
-		local button = createShopButton(unitName, config, i, isLocked)
-		button.Parent = ScrollFrame
+		-- Create card
+		local card = createShopCard(unitName, config, i, isLocked)
+		card.Parent = ScrollFrame
+		
+		-- Store reference for all cards (locked & unlocked)
+		ShopButtons[unitName] = card
 		
 		if not isLocked then
-			ShopButtons[unitName] = button
-			
-			-- Update with actual owned count and price
+			-- Update with actual owned count
 			local count = OwnedCounts[unitName] or 0
 			updateButtonPrice(unitName, count)
 			
 			-- Setup click handler
-			setupButtonClick(button, unitName)
+			setupCardClick(card, unitName)
 		end
 	end
 	
@@ -710,36 +956,33 @@ end
 --------------------------------------------------------------------------------
 
 local function initialize()
-	print("ShopUI: Initializing...")
+	print("ShopUI: Initializing (Grid Mode)...")
 	
-	-- Create the shop GUI
 	ShopGui = createShopGui()
 	if not ShopGui then return end
 	local shopPanel = ShopGui:FindFirstChild("ShopPanel")
 	ScrollFrame = shopPanel and shopPanel:FindFirstChild("ItemList")
 	
-	-- Get initial ownership data from server
+	-- Get initial ownership data
 	local ownershipData = GetOwnershipRemote:InvokeServer()
 	
-	-- Set unlock progress
 	if ownershipData and ownershipData.unlockProgress then
 		UnlockProgress = ownershipData.unlockProgress
 	end
 	
-	-- Initialize owned counts
 	if ownershipData and ownershipData.units then
 		for unitName, data in ownershipData.units do
 			OwnedCounts[unitName] = data.count
 		end
 	end
 	
-	-- Build initial shop UI
+	-- Build shop
 	refreshShopUI()
 	
 	-- Parent GUI
 	ShopGui.Parent = PlayerGui
 	
-	-- Listen for ownership updates from server
+	-- Listen for ownership updates
 	OwnershipChangedEvent.OnClientEvent:Connect(function(unitName: string, newCount: number, newPrice: number)
 		OwnedCounts[unitName] = newCount
 		updateButtonPrice(unitName, newCount)
@@ -753,13 +996,71 @@ local function initialize()
 		refreshShopUI()
 	end)
 	
-	-- Update affordability when money changes
+	-- Update affordability when money changes (debounced)
 	local leaderstats = Player:WaitForChild("leaderstats", 10)
 	if leaderstats then
 		local money = leaderstats:WaitForChild("Money", 5)
 		if money then
-			money:GetPropertyChangedSignal("Value"):Connect(updateButtonAffordability)
-			updateButtonAffordability() -- Initial update
+			money:GetPropertyChangedSignal("Value"):Connect(function()
+				if shortfallDebounce then return end
+				shortfallDebounce = true
+				task.delay(0.2, function()
+					shortfallDebounce = false
+					updateButtonAffordability()
+				end)
+			end)
+		end
+	end
+	
+	-- Listen for storage updates (cache for shortfall calc)
+	local StorageUpdatedEvent = RemoteEvents:FindFirstChild("StorageUpdated")
+	if StorageUpdatedEvent then
+		StorageUpdatedEvent.OnClientEvent:Connect(function(items, _total, _capacity)
+			cachedStorageItems = decodeItems(items) or {}
+			-- Debounced refresh
+			if shortfallDebounce then return end
+			shortfallDebounce = true
+			task.delay(0.2, function()
+				shortfallDebounce = false
+				-- Update item cost labels and affordability
+				for unitName, _count in pairs(OwnedCounts) do
+					updateButtonPrice(unitName, OwnedCounts[unitName] or 0)
+				end
+				updateButtonAffordability()
+			end)
+		end)
+	end
+	
+	-- Listen for cart/backpack updates (cache for shortfall calc)
+	local CartUpdateEvent = RemoteEvents:FindFirstChild("CartUpdate")
+	if CartUpdateEvent then
+		CartUpdateEvent.OnClientEvent:Connect(function(_state, inventory, _capacity)
+			cachedBackpackItems = decodeItems(inventory) or {}
+			-- Debounced refresh
+			if shortfallDebounce then return end
+			shortfallDebounce = true
+			task.delay(0.2, function()
+				shortfallDebounce = false
+				for unitName, _count in pairs(OwnedCounts) do
+					updateButtonPrice(unitName, OwnedCounts[unitName] or 0)
+				end
+				updateButtonAffordability()
+			end)
+		end)
+	end
+	
+	-- Initial storage fetch
+	local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions")
+	if RemoteFunctions then
+		local GetStorage = RemoteFunctions:FindFirstChild("GetStorage")
+		if GetStorage then
+			task.spawn(function()
+				local items = GetStorage:InvokeServer()
+				if items then
+					cachedStorageItems = decodeItems(items) or {}
+				end
+				updateButtonAffordability()
+			end)
 		end
 	end
 	
@@ -774,12 +1075,9 @@ initialize()
 --------------------------------------------------------------------------------
 
 local ShopVisible = false
-local SHOP_OPEN_POSITION = UDim2.new(1, -UI_CONFIG.SHOP_WIDTH - 10, 0, 10)
-local SHOP_CLOSED_POSITION = UDim2.new(1, 10, 0, 10)
 
---[[
-	Updates the warning banner visibility based on main island status.
-]]
+-- Responsive open/close: use AnchorPoint(1,0) so position is right-edge aligned
+
 local function updateWarningBanner()
 	if not ShopGui then return end
 	local shopPanel = ShopGui:FindFirstChild("ShopPanel")
@@ -798,9 +1096,10 @@ local function openShop()
 	if not shopPanel then return end
 	
 	ShopVisible = true
+	ShopGui.Enabled = true
 	updateWarningBanner()
 	TweenService:Create(shopPanel, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Position = SHOP_OPEN_POSITION
+		Position = UI_CONFIG.SHOP_OPEN_POSITION
 	}):Play()
 	print("ShopUI: Opened")
 end
@@ -812,12 +1111,17 @@ local function closeShop()
 	if not shopPanel then return end
 	
 	ShopVisible = false
-	TweenService:Create(shopPanel, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Position = SHOP_CLOSED_POSITION
-	}):Play()
+	local tween = TweenService:Create(shopPanel, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = UI_CONFIG.SHOP_CLOSED_POSITION
+	})
+	tween:Play()
+	tween.Completed:Connect(function()
+		if not ShopVisible then
+			ShopGui.Enabled = false
+		end
+	end)
 	print("ShopUI: Closed")
 end
-
 
 --------------------------------------------------------------------------------
 -- SHOP INTERACTION
@@ -837,14 +1141,12 @@ local interaction = ShopInteraction.new({
 	end,
 })
 
--- Setup BindableEvent listener for MoneyHUD shop button
+-- BindableEvent listener for MoneyHUD shop button
 local function setupBindableEventListener()
-	-- Wait a bit for MoneyHUD to potentially create the event
 	task.wait(0.5)
 	
 	local shopToggleEvent = ReplicatedStorage:FindFirstChild("ShopToggleEvent")
 	if not shopToggleEvent then
-		-- Create it ourselves if MoneyHUD hasn't yet
 		shopToggleEvent = Instance.new("BindableEvent")
 		shopToggleEvent.Name = "ShopToggleEvent"
 		shopToggleEvent.Parent = ReplicatedStorage
@@ -857,7 +1159,7 @@ local function setupBindableEventListener()
 	print("ShopUI: BindableEvent listener setup complete")
 end
 
--- Listen for B key as alternate toggle (legacy support)
+-- B key toggle (legacy)
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.B then
@@ -865,7 +1167,7 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
--- Setup close button on shop panel
+-- Close button setup
 local function setupCloseButton()
 	if not ShopGui then return end
 	local shopPanel = ShopGui:FindFirstChild("ShopPanel")
@@ -880,7 +1182,6 @@ local function setupCloseButton()
 			interaction:Close()
 		end)
 		
-		-- Hover effects
 		closeButton.MouseEnter:Connect(function()
 			TweenService:Create(closeButton, TweenInfo.new(0.1), {
 				BackgroundColor3 = Color3.fromRGB(255, 80, 80)
@@ -902,7 +1203,7 @@ local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
 if adminEvent then
 	adminEvent.Event:Connect(function(shopName)
 		if shopName == "MachineShop" then
-			if not ShopVisible then openShop() end
+			if ShopVisible then closeShop() else openShop() end
 		end
 	end)
 end

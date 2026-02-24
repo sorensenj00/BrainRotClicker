@@ -5,7 +5,7 @@
 	SECURED: Now requires admin permissions to execute.
 ]]
 
-local Players = game:GetService("Players")
+local _Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 
@@ -40,7 +40,7 @@ local function isAdmin(player)
 end
 
 --------------------------------------------------------------------------------
--- HANDLERS
+-- HANDLERS: Player
 --------------------------------------------------------------------------------
 
 handlers.ResetPlot = function(player)
@@ -69,7 +69,7 @@ handlers.ResetPlot = function(player)
 	return false, "MapSystem not available"
 end
 
-handlers.WipeProfile = function(player)
+handlers.WipeProfile = function(_player)
 	return false, "WipeProfile disabled"
 end
 
@@ -88,6 +88,67 @@ handlers.ToggleFly = function(player)
 	local newState = not isFlying
 	player:SetAttribute("IsFlying", newState)
 	return true, newState and "Flight Enabled" or "Flight Disabled"
+end
+
+--------------------------------------------------------------------------------
+-- HANDLERS: Economy
+--------------------------------------------------------------------------------
+
+handlers.GiveItems = function(player, itemId, count)
+	if type(itemId) ~= "string" or itemId == "" then
+		return false, "Invalid ItemId"
+	end
+	
+	local giveCount = tonumber(count) or 1000
+	if giveCount <= 0 or giveCount > 100000 then
+		return false, "Invalid count (1-100000)"
+	end
+	
+	-- Validate item exists
+	local Shared = ReplicatedStorage:WaitForChild("Shared")
+	local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+	if not ItemConfig.Items[itemId] then
+		return false, "Unknown item: " .. itemId
+	end
+	
+	local ISM = rawget(Services, "ItemStorageManager")
+	if not ISM then
+		return false, "ItemStorageManager not available"
+	end
+	
+	local added = ISM.AddToStorage(player, itemId, giveCount)
+	return true, string.format("Gave %dx %s (stored %d)", giveCount, itemId, added)
+end
+
+handlers.WipeInventory = function(player)
+	local ISM = rawget(Services, "ItemStorageManager")
+	if ISM and ISM.ResetPlayerStorage then
+		ISM.ResetPlayerStorage(player)
+		return true, "Storage & Backpack wiped!"
+	end
+	return false, "ItemStorageManager not available"
+end
+
+--------------------------------------------------------------------------------
+-- HANDLERS: Market
+--------------------------------------------------------------------------------
+
+handlers.ForceLocalCrash = function(player)
+	local SM = rawget(Services, "StockMarketManager")
+	if SM and SM.ForceLocalShock then
+		SM.ForceLocalShock(false) -- crash
+		return true, "🔻 FORCED LOCAL CRASH — prices tanked on this server!"
+	end
+	return false, "StockMarketManager not available"
+end
+
+handlers.ForceLocalMoon = function(player)
+	local SM = rawget(Services, "StockMarketManager")
+	if SM and SM.ForceLocalShock then
+		SM.ForceLocalShock(true) -- moon
+		return true, "🚀 FORCED LOCAL MOON — prices spiked on this server!"
+	end
+	return false, "StockMarketManager not available"
 end
 
 --------------------------------------------------------------------------------

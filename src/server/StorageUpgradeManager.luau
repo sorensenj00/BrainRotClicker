@@ -5,6 +5,7 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
 RemoteEvents.Name = "RemoteEvents"
@@ -31,6 +32,16 @@ local CONFIG = {
 local StorageUpgradeManager = {}
 local Services = {}
 
+-- Admin bypass (mirrors AdminService)
+local ADMIN_USER_IDS = { [1340966465] = true }
+local IS_STUDIO = RunService:IsStudio()
+local function isAdmin(player)
+	if IS_STUDIO then return true end
+	if ADMIN_USER_IDS[player.UserId] then return true end
+	if player.UserId == game.CreatorId then return true end
+	return false
+end
+
 --------------------------------------------------------------------------------
 -- LOGIC
 --------------------------------------------------------------------------------
@@ -49,13 +60,15 @@ local function getNewMaxStorage(curr)
 end
 
 local function handleUpgradeStorage(player)
-	local mainIsland = workspace:FindFirstChild("MainIsland")
-	local vendor = mainIsland and mainIsland:FindFirstChild("StorageVendor")
-	if vendor then
-		local char = player.Character
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		if hrp and (hrp.Position - vendor.Position).Magnitude > 20 then
-			return false, "Too far from vendor"
+	if not isAdmin(player) then
+		local mainIsland = workspace:FindFirstChild("MainIsland")
+		local vendor = mainIsland and mainIsland:FindFirstChild("StorageVendor")
+		if vendor then
+			local char = player.Character
+			local hrp = char and char:FindFirstChild("HumanoidRootPart")
+			if hrp and (hrp.Position - vendor.Position).Magnitude > 20 then
+				return false, "Too far from vendor"
+			end
 		end
 	end
 	

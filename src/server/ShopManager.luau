@@ -6,14 +6,18 @@
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 -- Lazy Configs
 local ShopConfig
 local RarityConfig
 
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local ShortfallCalc = require(Shared:WaitForChild("ShortfallCalc"))
+local MarketConfig = require(Shared:WaitForChild("MarketConfig"))
+
 local function getConfigs()
 	if not ShopConfig then
-		local Shared = ReplicatedStorage:WaitForChild("Shared")
 		ShopConfig = require(Shared:WaitForChild("ShopConfig"))
 		RarityConfig = require(Shared:WaitForChild("RarityConfig"))
 	end
@@ -46,6 +50,16 @@ local ShopManager = {}
 local Services = {}
 
 local CollectionService = game:GetService("CollectionService")
+
+-- Admin bypass (mirrors AdminService)
+local ADMIN_USER_IDS = { [1340966465] = true }
+local IS_STUDIO = RunService:IsStudio()
+local function isAdmin(player)
+	if IS_STUDIO then return true end
+	if ADMIN_USER_IDS[player.UserId] then return true end
+	if player.UserId == game.CreatorId then return true end
+	return false
+end
 
 -- State
 local PlayerUnlockProgress = {} 
@@ -166,16 +180,17 @@ function ShopManager.GetUnlockProgress(player)
 end
 
 function ShopManager.HandleBuyUnit(player, unitName)
-	-- Distance Check FIX
-	local mainIsland = workspace:FindFirstChild("MainIsland")
-	local shopsFolder = mainIsland and mainIsland:FindFirstChild("Shops")
-	local shopVendor = shopsFolder and shopsFolder:FindFirstChild("UnitShop")
-	
-	if shopVendor and player.Character then
-		local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-		-- Use GetPivot() to safely get the center of the shop model
-		if hrp and (hrp.Position - shopVendor:GetPivot().Position).Magnitude > 20 then
-			return false, "Too far from shop!"
+	-- Distance Check (bypassed for admins / Studio)
+	if not isAdmin(player) then
+		local mainIsland = workspace:FindFirstChild("MainIsland")
+		local shopsFolder = mainIsland and mainIsland:FindFirstChild("Shops")
+		local shopVendor = shopsFolder and shopsFolder:FindFirstChild("UnitShop")
+		
+		if shopVendor and player.Character then
+			local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+			if hrp and (hrp.Position - shopVendor:GetPivot().Position).Magnitude > 20 then
+				return false, "Too far from shop!"
+			end
 		end
 	end
 	
@@ -185,38 +200,74 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	if not ShopConfig.IsUnitUnlocked(unitName, progress) then return false, "Locked!" end
 	
 	local owned = ShopManager.GetOwnedCount(player, unitName)
-	local price = ShopConfig.CalculatePrice(unitName, owned)
+	local unitPrice = ShopConfig.CalculatePrice(unitName, owned)
 	
-	if getMoney(player) < price then return false, "Not enough cash" end
-	
-	-- Check item costs BEFORE deducting cash (avoid partial transactions)
+	-- Gather item costs and player inventory
 	local itemCost = ShopConfig.GetItemCost(unitName)
 	local ISM = rawget(Services, "ItemStorageManager")
+	local MarketMgr = rawget(Services, "MarketManager")
+	local shortfall = nil
+	local totalCost = unitPrice
+	
 	if itemCost then
 		if not ISM then return false, "Storage System Offline" end
+		
+		-- Merge storage + backpack into one "have" table
 		local storageItems = ISM.GetStorageContents(player)
 		local backpackItems = ISM.GetBackpackContents(player)
+		local playerItems = {}
+		for itemId, _ in pairs(itemCost) do
+			playerItems[itemId] = (storageItems[itemId] or 0) + (backpackItems[itemId] or 0)
+		end
+		
+		-- Calculate shortfall cost with slippage
+		local maxBuy = MarketConfig.CONFIG.MAX_BUY_PER_TRANSACTION or 100
+		local getBuyPriceFn = (MarketMgr and MarketMgr.GetBuyPrice) or function() return 0 end
+		shortfall = ShortfallCalc.Calculate(itemCost, playerItems, getBuyPriceFn, maxBuy)
+		
+		if shortfall.hasShortfall then
+			if not MarketMgr then return false, "Market System Offline" end
+			totalCost = unitPrice + shortfall.totalTaxed
+		end
+	end
+	
+	-- Check total affordability
+	local playerMoney = getMoney(player)
+	if playerMoney < totalCost then
+		if shortfall and shortfall.hasShortfall then
+			-- Explicit error for price fluctuation / shortfall
+			local needed = math.ceil(totalCost)
+			local _have = math.floor(playerMoney)
+			return false, string.format("Market price fluctuated! You need $%s (Unit $%s + Import $%s)",
+				tostring(needed), tostring(unitPrice), tostring(shortfall.totalTaxed))
+		else
+			return false, "Not enough cash"
+		end
+	end
+	
+	-- === EXECUTE TRANSACTION ===
+	if not deductMoney(player, totalCost) then return false, "Transaction failed" end
+	
+	-- Consume physical items (burn from storage/backpack)
+	if itemCost and ISM then
 		for itemId, needed in pairs(itemCost) do
-			local available = (storageItems[itemId] or 0) + (backpackItems[itemId] or 0)
-			if available < needed then
-				return false, "Need " .. needed .. "x " .. itemId .. " (have " .. available .. ")"
+			-- Only consume what the player physically has (not the virtual imports)
+			local physicalHave = shortfall and shortfall.perItem[itemId]
+				and math.min(needed, shortfall.perItem[itemId].have) or needed
+			if physicalHave > 0 then
+				local remaining = physicalHave
+				local fromStorage = ISM.RemoveFromStorage(player, itemId, remaining)
+				remaining -= fromStorage
+				if remaining > 0 then
+					ISM.RemoveFromBackpack(player, itemId, remaining)
+				end
 			end
 		end
 	end
 	
-	if not deductMoney(player, price) then return false, "Transaction failed" end
-	
-	-- Deduct items (burn them — NOT reported as sales to market)
-	if itemCost and ISM then
-		for itemId, needed in pairs(itemCost) do
-			local remaining = needed
-			-- Take from storage first, then backpack
-			local fromStorage = ISM.RemoveFromStorage(player, itemId, remaining)
-			remaining -= fromStorage
-			if remaining > 0 then
-				ISM.RemoveFromBackpack(player, itemId, remaining)
-			end
-		end
+	-- Register virtual imports in AMM (raw cost only — tax was burned above)
+	if shortfall and shortfall.hasShortfall and MarketMgr then
+		MarketMgr.ExecuteShortfallBuy(shortfall.perItem)
 	end
 	
 	local InvMgr = rawget(Services, "InventoryManager")
@@ -231,9 +282,9 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	local newPrice = ShopConfig.CalculatePrice(unitName, newLevel)
 	OwnershipChangedEvent:FireClient(player, unitName, newLevel, newPrice)
 	
-	-- Increment Unlock
+	-- Increment Unlock ONLY when buying a NEW unit type for the first time
 	local total = ShopConfig.GetTotalUnits()
-	if progress < total then
+	if owned == 0 and progress < total then
 		PlayerUnlockProgress[player] = progress + 1
 		local uv = player:FindFirstChild("UnlockProgress")
 		if uv then uv.Value = PlayerUnlockProgress[player] end

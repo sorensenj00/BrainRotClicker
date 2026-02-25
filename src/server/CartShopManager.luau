@@ -16,9 +16,13 @@ local PurchaseCartUpgradeEvent = RemoteEvents:FindFirstChild("PurchaseCartUpgrad
 PurchaseCartUpgradeEvent.Name = "PurchaseCartUpgrade"
 PurchaseCartUpgradeEvent.Parent = RemoteEvents
 
-local GetCartUpgradeInfoEvent = RemoteEvents:FindFirstChild("GetCartUpgradeInfo") or Instance.new("RemoteFunction")
+local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions") or Instance.new("Folder")
+RemoteFunctions.Name = "RemoteFunctions"
+RemoteFunctions.Parent = ReplicatedStorage
+
+local GetCartUpgradeInfoEvent = RemoteFunctions:FindFirstChild("GetCartUpgradeInfo") or Instance.new("RemoteFunction")
 GetCartUpgradeInfoEvent.Name = "GetCartUpgradeInfo"
-GetCartUpgradeInfoEvent.Parent = RemoteEvents
+GetCartUpgradeInfoEvent.Parent = RemoteFunctions
 
 local CartShopConfig
 

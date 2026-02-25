@@ -516,14 +516,10 @@ local function initialize()
 		end
 	end
 	
-	local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
-	if adminEvent then
-		adminEvent.Event:Connect(function(shopName)
-			if shopName == "StorageUpgrades" then
-				if PanelVisible then hidePanel() else showPanel() end
-			end
-		end)
-	end
+	local UIManager = require(script.Parent:WaitForChild("Managers"):WaitForChild("UIManager"))
+	UIManager.RegisterShop("StorageUpgrades", function()
+		if PanelVisible then hidePanel() else showPanel() end
+	end)
 	
 	print("StorageUpgradeUI: Ready!")
 end

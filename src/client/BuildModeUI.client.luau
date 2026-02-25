@@ -298,17 +298,19 @@ local function enterBuildMode()
 	-- Listeners
 	table.insert(uiConnections, BuildInteractionService.StatusChanged:Connect(updateStatus))
 	table.insert(uiConnections, BuildInteractionService.UnitDropped:Connect(function(unitName, rarity, slot)
-		local success, msg = PlaceBrainrotRemote:InvokeServer(unitName, rarity, slot)
-		if success then
-			updateStatus("✓ Placed " .. unitName)
-			-- Refresh grid
-			local newState = GetGrid:InvokeServer()
-			local newPos = BuildGridVisualizer.Render(newState)
-			-- Refresh inventory
-			refreshInventory()
-		else
-			updateStatus("✗ " .. (msg or "Placement failed"))
-		end
+		task.spawn(function()
+			local success, msg = PlaceBrainrotRemote:InvokeServer(unitName, rarity, slot)
+			if success then
+				updateStatus("✓ Placed " .. unitName)
+				-- Refresh grid
+				local newState = GetGrid:InvokeServer()
+				local newPos = BuildGridVisualizer.Render(newState)
+				-- Refresh inventory
+				refreshInventory()
+			else
+				updateStatus("✗ " .. (msg or "Placement failed"))
+			end
+		end)
 	end))
 	
 	table.insert(uiConnections, BuildInteractionService.UnitMoved:Connect(function(fromSlot, toSlot)

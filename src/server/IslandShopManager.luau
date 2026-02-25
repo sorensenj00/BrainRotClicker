@@ -54,7 +54,7 @@ local function setupIslandShopVendor()
 	CollectionService:AddTag(vendor, "IslandShopVendor")
 	
 	-- Ensure prompt exists
-	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart", true)
+	local primary = vendor:FindFirstChild("Meshes/tung tung", true) or vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart", true)
 	if primary and not vendor:FindFirstChild("ShopPrompt", true) then
 		local pp = Instance.new("ProximityPrompt")
 		pp.Name = "ShopPrompt"

@@ -126,7 +126,8 @@ RunService.Heartbeat:Connect(function()
         if not startPos or not endPos then continue end
         
         local targetCFrame
-        local dir = (endPos - startPos).Unit
+        local diff = endPos - startPos
+        local dir = diff.Magnitude > 0.001 and diff.Unit or Vector3.new(1, 0, 0)
         
         if state == "idle" then
             targetCFrame = CFrame.new(startPos, startPos + dir)

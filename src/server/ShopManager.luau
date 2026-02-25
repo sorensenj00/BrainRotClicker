@@ -86,7 +86,7 @@ local function setupShopVendor()
 	CollectionService:AddTag(existingVendor, "UnitShopVisual")
 
 	-- Ensure it has a prompt
-	local primary = existingVendor.PrimaryPart or existingVendor:FindFirstChildWhichIsA("BasePart")
+	local primary = existingVendor:FindFirstChild("Meshes/tung tung", true) or existingVendor.PrimaryPart or existingVendor:FindFirstChildWhichIsA("BasePart", true)
 	if primary and not existingVendor:FindFirstChild("ShopPrompt", true) then
 		local pp = Instance.new("ProximityPrompt")
 		pp.Name = "ShopPrompt"

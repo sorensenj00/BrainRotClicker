@@ -18,6 +18,7 @@ local GEN_CONFIG = {
 
 local BridgeTemplate
 local MainIslandTemplate
+local HFTTerminalTemplate -- [NEW] Reference for the terminal
 
 --------------------------------------------------------------------------------
 -- INITIALIZATION
@@ -29,6 +30,9 @@ function TerrainGenerator.Init()
 	local models = ReplicatedStorage:FindFirstChild("Models")
 	MainIslandTemplate = (models and models:FindFirstChild("MainIsland")) or ServerStorage:FindFirstChild("MainIsland") or ReplicatedStorage:FindFirstChild("MainIsland")
 	BridgeTemplate = ServerStorage:FindFirstChild("Bridge") or ReplicatedStorage:FindFirstChild("Bridge")
+	
+	-- [NEW] Load the HFT Terminal from ReplicatedStorage.Models
+	HFTTerminalTemplate = models and models:FindFirstChild("Plot_HFT_Terminal")
 	
 	-- Placeholders if missing
 	if not MainIslandTemplate then
@@ -77,7 +81,8 @@ function TerrainGenerator.CreateClaimPart(model)
 end
 
 -- Formerly generateUniquePlayerPlot
-function TerrainGenerator.CreatePlotModel()
+-- [NEW] Added isStarterPlot parameter
+function TerrainGenerator.CreatePlotModel(isStarterPlot)
 	local rng = Random.new()
 	local topDiameter = 120 
 	local topY = 50 
@@ -181,7 +186,7 @@ function TerrainGenerator.CreatePlotModel()
 	-- 4. Overgrown Vines
 	for v = 1, rng:NextInteger(5, 8) do
 		local vine = Instance.new("Part")
-		local vLength = rng:NextNumber(6, 14)
+		local vLength = rng:NextNumber(15, 70)
 		vine.Size = Vector3.new(rng:NextNumber(0.8, 1.5), vLength, rng:NextNumber(0.8, 1.5))
 		local angle = rng:NextNumber(0, math.pi * 2)
 		local dist = (topDiameter / 2) - 2 
@@ -248,6 +253,35 @@ function TerrainGenerator.CreatePlotModel()
 	plotGuide.Anchored = true
 	plotGuide.CanCollide = false
 	plotGuide.Parent = model
+
+	-- =========================================================
+	-- [NEW] 8. Spawn HFT Terminal on Starter Plot Only
+	-- =========================================================
+	if isStarterPlot and HFTTerminalTemplate then
+		local terminal = HFTTerminalTemplate:Clone()
+		
+		-- Place it off to the side of the bridge connection
+		-- Radius is 60. We position it at X=30, Z=-40 (near the edge)
+		-- Angles(0, math.rad(-35), 0) turns it to face inward towards the center
+		local termX = 30
+		local termZ = -40
+		local termY = topY + 1.5 -- Matches the surface height
+		
+		terminal:PivotTo(CFrame.new(termX, termY, termZ) * CFrame.Angles(0, math.rad(-35), 0))
+		terminal.Parent = model
+		
+		local attachPart = terminal.PrimaryPart or terminal:FindFirstChildWhichIsA("BasePart", true)
+		if attachPart then
+			local prompt = Instance.new("ProximityPrompt")
+			prompt.Name = "HFTTerminalPrompt"
+			prompt.ActionText = "Open Terminal"
+			prompt.ObjectText = "HFT Terminal"
+			prompt.KeyboardKeyCode = Enum.KeyCode.E
+			prompt.RequiresLineOfSight = false
+			prompt.MaxActivationDistance = 12
+			prompt.Parent = attachPart
+		end
+	end
 
 	return model
 end

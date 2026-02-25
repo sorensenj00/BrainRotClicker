@@ -27,10 +27,30 @@ local BRAINROT_TAG = "ActiveBrainrot"
 
 local BILLBOARD_CONFIG = {
 	Size = UDim2.new(0, 52, 0, 52),
-	StudsOffset = Vector3.new(0, 10, 0),
 	MaxDistance = 45,
 	AlwaysOnTop = false,
 }
+
+local function calculateIconOffset(unitModel: Instance): Vector3
+	local HUD_PADDING = 1.2 -- Placed explicitly under the main HUD (which uses 4)
+	
+	if unitModel:IsA("Model") then
+		local success, boundsCF, boundsSize = pcall(function()
+			return unitModel:GetBoundingBox()
+		end)
+		
+		if success and boundsSize then
+			local pivotPos = unitModel:GetPivot().Position
+			local boundsCenter = boundsCF.Position
+			local modelTopY = boundsCenter.Y + (boundsSize.Y / 2)
+			local pivotToTop = modelTopY - pivotPos.Y
+			local offsetY = pivotToTop + HUD_PADDING
+			return Vector3.new(0, offsetY, 0)
+		end
+	end
+	
+	return Vector3.new(0, 1.5, 0)
+end
 
 local COLORS = {
 	BG = Color3.fromRGB(20, 22, 35),
@@ -79,7 +99,7 @@ local function createOverhead(unitModel)
 	local billboard = Instance.new("BillboardGui")
 	billboard.Name = "ProductionOverhead"
 	billboard.Size = BILLBOARD_CONFIG.Size
-	billboard.StudsOffset = BILLBOARD_CONFIG.StudsOffset
+	billboard.StudsOffset = calculateIconOffset(unitModel)
 	billboard.MaxDistance = BILLBOARD_CONFIG.MaxDistance
 	billboard.AlwaysOnTop = BILLBOARD_CONFIG.AlwaysOnTop
 	billboard.Adornee = attachPart

@@ -170,12 +170,20 @@ local function getPlayerSellPrice(player, itemId)
 end
 
 -- BUY price: raw market rate, no welfare, no bonus multipliers
-local function getBuyPrice(itemId)
+local function getBuyPrice(player, itemId)
 	local info = ItemConfig.Items[itemId]
 	if not info then return 0 end
 	
 	local basePrice = info.basePrice or 1
 	local marketRate = getBuyRate(itemId)
+	
+	-- FIX: If they are on welfare, they cannot buy cheaper than their bailout sell price
+	if player and not isEndgame(player) then
+		local sector = getItemSector(itemId)
+		local SM = rawget(Services, "StockMarketManager")
+		local bailout = SM and SM.GetBailoutRate(sector) or 1.0
+		marketRate = math.max(marketRate, bailout)
+	end
 	
 	-- Buy price uses raw market rate — no welfare floor, no income bonuses
 	return math.max(1, math.floor(basePrice * marketRate))
@@ -336,7 +344,7 @@ function MarketManager.BuyItem(player, itemId, count)
 	if cappedCount <= 0 then return 0, 0 end
 	
 	-- Get buy price (raw market rate, no welfare floor)
-	local unitPrice = getBuyPrice(itemId)
+	local unitPrice = getBuyPrice(player, itemId)
 	if unitPrice <= 0 then return 0, 0 end
 	
 	-- Verify and deduct cash
@@ -441,12 +449,13 @@ function MarketManager.GetAllPrices(player)
 			buyRate = SM.GetItemRate(id) or 1.0
 		end
 		local effectiveRate = (endgame == true) and marketRate or bailoutRate
+		local effectiveBuyRate = (endgame == true) and buyRate or math.max(buyRate, bailoutRate)
 		p[id] = {
 			basePrice = bp,
 			currentPrice = math.floor(bp * effectiveRate),  -- Sell price (welfare-aware)
 			marketPrice = math.floor(bp * marketRate),
 			bailoutPrice = math.floor(bp * bailoutRate),
-			buyPrice = math.max(1, math.floor(bp * buyRate)), -- Buy price (raw, no welfare)
+			buyPrice = math.max(1, math.floor(bp * effectiveBuyRate)), -- Buy price (welfare-aware)
 			tier = info.tier or 1,
 			sector = sector,
 			sectorRate = effectiveRate,
@@ -526,7 +535,7 @@ function MarketManager.BuyToCart(player, itemId, count)
 	if cappedCount <= 0 then return 0, 0 end
 	
 	-- Get buy price (raw market rate, no welfare floor)
-	local unitPrice = getBuyPrice(itemId)
+	local unitPrice = getBuyPrice(player, itemId)
 	if unitPrice <= 0 then return 0, 0 end
 	
 	-- Verify and deduct cash

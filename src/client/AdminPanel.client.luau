@@ -299,6 +299,7 @@ local shopButtons = {
 	{"🧠 Machine Shop", "MachineShop"},
 	{"📦 Storage Shop", "StorageUpgrades"},
 	{"⚡ Conv. Shop", "ConvenienceUpgrades"},
+	{"🏛️ Artifact Exchange", "ArtifactExchange"},
 }
 
 for _, shop in ipairs(shopButtons) do
@@ -340,6 +341,7 @@ local function stopFlying()
 end
 
 local function startFlying()
+	stopFlying()
 	local character = player.Character
 	if not character then return end
 	local hrp = character:FindFirstChild("HumanoidRootPart")

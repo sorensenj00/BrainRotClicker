@@ -32,9 +32,13 @@ local PurchaseUpgradeEvent = RemoteEvents:FindFirstChild("PurchaseConvenienceUpg
 PurchaseUpgradeEvent.Name = "PurchaseConvenienceUpgrade"
 PurchaseUpgradeEvent.Parent = RemoteEvents
 
-local GetUpgradesInfoEvent = RemoteEvents:FindFirstChild("GetConvenienceUpgradesInfo") or Instance.new("RemoteFunction")
+local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions") or Instance.new("Folder")
+RemoteFunctions.Name = "RemoteFunctions"
+RemoteFunctions.Parent = ReplicatedStorage
+
+local GetUpgradesInfoEvent = RemoteFunctions:FindFirstChild("GetConvenienceUpgradesInfo") or Instance.new("RemoteFunction")
 GetUpgradesInfoEvent.Name = "GetConvenienceUpgradesInfo"
-GetUpgradesInfoEvent.Parent = RemoteEvents
+GetUpgradesInfoEvent.Parent = RemoteFunctions
 
 -- State
 local PlayerUpgrades = {} 
@@ -256,7 +260,7 @@ local function setupConvenienceShopVendor()
 	CollectionService:AddTag(vendor, "ConvenienceShopVendor")
 	
 	-- Ensure prompt exists
-	local primary = vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart", true)
+	local primary = vendor:FindFirstChild("Meshes/tung tung", true) or vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart", true)
 	if primary and not vendor:FindFirstChild("ShopPrompt", true) then
 		local pp = Instance.new("ProximityPrompt")
 		pp.Name = "ShopPrompt"

@@ -5,12 +5,12 @@
 	Coordinates with BuildGridVisualizer.
 ]]
 
-local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local BuildGridVisualizer = require(script.Parent.BuildGridVisualizer)
+local ClientPlotService = require(script.Parent:WaitForChild("ClientPlotService"))
 
 local BuildInteractionService = {}
 export type BuildInteractionService = {
@@ -64,13 +64,7 @@ local currentRotation = 0
 --------------------------------------------------------------------------------
 
 local function getPlayerPlot()
-	local player = Players.LocalPlayer
-	local plots = workspace:FindFirstChild("Plots")
-	if not plots then return nil end
-	for _, p in plots:GetChildren() do
-		if p:GetAttribute("OwnerId") == player.UserId then return p end
-	end
-	return nil
+	return ClientPlotService.GetMyPlot()
 end
 
 local function getMousePlanePosition(floorHeight)
@@ -423,6 +417,7 @@ function BuildInteractionService.CompleteDrag()
 				if originalUnitModel then
 					-- Keep hidden until grid refresh destroys/moves it
 					-- Actually, visual refresh will destroy old tiles/grid.
+					originalUnitModel = nil
 				end
 				BuildInteractionService.Stop()
 			end

@@ -58,7 +58,15 @@ local HUD_CONFIG = {
 local BRAINROT_TAG = "ActiveBrainrot"
 
 -- Track active HUDs
-local ActiveHUDs: {[Instance]: {billboard: BillboardGui, startTime: number}} = {}
+local ActiveHUDs: {[Instance]: {
+	billboard: BillboardGui, 
+	startTime: number,
+	cycleTime: number?,
+	producedItem: string?,
+	lastCycle: number?,
+	lastProdTS: number?,
+	connection: RBXScriptConnection?
+}} = {}
 
 --------------------------------------------------------------------------------
 -- HUD CREATION
@@ -447,13 +455,14 @@ local function setupBrainrotHUD(brainrot: Instance)
 		producedItem = info.id,
 		lastCycle = 0,
 		lastProdTS = brainrot:GetAttribute("LastProductionTime") or 0,
+		connection = nil,
 	}
 	
 	-- Update stats/rarity labels from attributes
 	updateHUDLabels(brainrot, billboard)
 	
 	-- Listen for attribute changes to keep HUD in sync
-	brainrot.AttributeChanged:Connect(function(attributeName)
+	local conn = brainrot.AttributeChanged:Connect(function(attributeName)
 		if attributeName == "Level" or attributeName == "ItemTier" or attributeName == "CurrentProducing" or attributeName == "CurrentMode" then
 			updateHUDLabels(brainrot, billboard)
 		end
@@ -470,6 +479,8 @@ local function setupBrainrotHUD(brainrot: Instance)
 			end
 		end
 	end)
+	
+	ActiveHUDs[brainrot].connection = conn
 end
 
 --[[
@@ -480,6 +491,9 @@ local function cleanupBrainrotHUD(brainrot: Instance)
 	if hudData then
 		if hudData.billboard then
 			hudData.billboard:Destroy()
+		end
+		if hudData.connection then
+			hudData.connection:Disconnect()
 		end
 		ActiveHUDs[brainrot] = nil
 	end

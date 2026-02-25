@@ -25,10 +25,8 @@ local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 
 local StorageUpdatedEvent = RemoteEvents:WaitForChild("StorageUpdated")
-local CartUpdateEvent = RemoteEvents:WaitForChild("CartUpdate")
 local GetStorageFunction = RemoteFunctions:WaitForChild("GetStorage")
 local GetMarketPricesFunction = RemoteFunctions:WaitForChild("GetMarketPrices")
-local GetCartInfoFunction = RemoteFunctions:WaitForChild("GetCartInfo")
 local BuyToCartFunction = RemoteFunctions:WaitForChild("BuyToCart")
 local SellFromCartFunction = RemoteFunctions:WaitForChild("SellFromCart")
 
@@ -39,6 +37,7 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 local MarketConfig = require(Shared:WaitForChild("MarketConfig"))
 local SparklineRenderer = require(Shared:WaitForChild("SparklineRenderer"))
+local CartController = require(script.Parent:WaitForChild("Controllers"):WaitForChild("CartController"))
 
 --------------------------------------------------------------------------------
 -- THEME
@@ -68,7 +67,6 @@ local C = {
 local FONT_MONO = Enum.Font.RobotoMono
 local FONT_BOLD = Enum.Font.GothamBold
 local FONT_REG  = Enum.Font.Gotham
-local CORNER_R  = UDim.new(0, 5)
 local PAD       = 10
 
 local MAX_BUY = MarketConfig.CONFIG.MAX_BUY_PER_TRANSACTION or 100
@@ -104,21 +102,13 @@ local cartStatusBanner
 -- HELPERS
 --------------------------------------------------------------------------------
 
-local function addCorner(inst, r)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = r or CORNER_R
-	c.Parent = inst
-	return c
-end
+local FormatUtils = require(Shared:WaitForChild("Utils"):WaitForChild("FormatUtils"))
+local UIUtils = require(Shared:WaitForChild("Utils"):WaitForChild("UIUtils"))
 
-local function addStroke(inst, color, thick)
-	local s = Instance.new("UIStroke")
-	s.Color = color or C.border
-	s.Thickness = thick or 1
-	s.Transparency = 0.3
-	s.Parent = inst
-	return s
-end
+local addCorner = UIUtils.addCorner
+local addStroke = UIUtils.addStroke
+local formatMoney = FormatUtils.formatMoney
+local decodeItems = UIUtils.decodeItems
 
 local function makeLabel(parent, props)
 	local l = Instance.new("TextLabel")
@@ -136,12 +126,7 @@ local function makeLabel(parent, props)
 	return l
 end
 
-local function formatMoney(n)
-	if n >= 1e9 then return string.format("$%.2fB", n / 1e9) end
-	if n >= 1e6 then return string.format("$%.1fM", n / 1e6) end
-	if n >= 1000 then return string.format("$%.1fK", n / 1000) end
-	return string.format("$%d", n)
-end
+
 
 local function getItemSector(itemId)
 	for modelName, mapping in pairs(ItemConfig.BrainrotItems) do
@@ -244,21 +229,7 @@ local function parseSectorHistories()
 	end
 end
 
-local function decodeItems(encoded)
-	if type(encoded) ~= "table" then return encoded end
-	local success, IC = pcall(function() return require(Shared:WaitForChild("ItemConfig")) end)
-	if not success or not IC or not IC.SHORT_TO_ID then return encoded end
-	local decoded = {}
-	for k, count in pairs(encoded) do
-		local shortId = tonumber(k)
-		if shortId and IC.SHORT_TO_ID[shortId] then
-			decoded[IC.SHORT_TO_ID[shortId]] = count
-		else
-			decoded[k] = count
-		end
-	end
-	return decoded
-end
+
 
 --------------------------------------------------------------------------------
 -- MAIN CONTAINER
@@ -904,12 +875,20 @@ function updateLeftColumn()
 
 	-- Populate sorted by count (from CART inventory)
 	local sorted = {}
-	for itemId, count in pairs(cartInventory) do
-		if count > 0 then
-			table.insert(sorted, {id = itemId, count = count})
-		end
+	-- Iterate through ALL known items instead of just cartInventory
+	for itemId, _ in pairs(globalItemRates) do 
+		local count = cartInventory[itemId] or 0
+		table.insert(sorted, {id = itemId, count = count})
 	end
-	table.sort(sorted, function(a, b) return a.count > b.count end)
+	
+	-- Sort: Owned items first (by count), then unowned items alphabetically
+	table.sort(sorted, function(a, b) 
+		if a.count ~= b.count then
+			return a.count > b.count 
+		else
+			return a.id < b.id
+		end
+	end)
 
 	local totalAssetValue = 0
 	for _, item in ipairs(sorted) do
@@ -970,15 +949,6 @@ function fetchData()
 	storageUsage = total or 0
 	storageCapacity = Player:GetAttribute("StorageCapacity") or cap or 0
 
-	-- Fetch cart state
-	local cartInfo = GetCartInfoFunction:InvokeServer()
-	if cartInfo then
-		cartState = cartInfo.state or "idle"
-		cartInventory = decodeItems(cartInfo.inventory) or {}
-		cartCapacity = cartInfo.capacity or 200
-		cartItemCount = 0
-		for _, c in pairs(cartInventory) do cartItemCount += c end
-	end
 
 	local _prices = GetMarketPricesFunction:InvokeServer()
 
@@ -1041,15 +1011,14 @@ local function initialize()
 	end)
 
 	-- Cart state updates (real-time)
-	CartUpdateEvent.OnClientEvent:Connect(function(state, inventory, capacity)
-		cartState = state or "idle"
-		cartInventory = decodeItems(inventory) or {}
-		cartCapacity = capacity or cartCapacity
-		cartItemCount = 0
-		for _, c in pairs(cartInventory) do cartItemCount += c end
+	CartController.OnChanged(function(state, inventory, capacity, count)
+		cartState = state
+		cartInventory = inventory
+		cartCapacity = capacity
+		cartItemCount = count
 		if isOpen then
 			updateLeftColumn()
-			updateInspector()
+			if inspectedItem then updateInspector() end
 		end
 	end)
 
@@ -1111,24 +1080,16 @@ local function initialize()
 		end
 	end)
 
-	-- ProximityPrompt (market building)
-	task.spawn(function()
-		while true do
-			local mainIsland = workspace:FindFirstChild("MainIsland")
-			if mainIsland then
-				local marketBuilding = mainIsland:FindFirstChild("MarketBuilding")
-				if marketBuilding then
-					local prompt = marketBuilding:FindFirstChild("MarketPrompt")
-					if prompt then
-						prompt.Triggered:Connect(function() openUI() end)
-						break
-					end
-				end
+	-- ProximityPrompt (market building & player plot terminals)
+	local ProximityPromptService = game:GetService("ProximityPromptService")
+	ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
+		if player == Player then
+			if prompt.Name == "MarketPrompt" or prompt.Name == "HFTTerminalPrompt" then
+				openUI()
 			end
-			task.wait(1)
 		end
 	end)
-
+	
 	-- Blinking status indicator
 	task.spawn(function()
 		local dot = true

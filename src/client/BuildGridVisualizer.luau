@@ -6,11 +6,10 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
-local Players = game:GetService("Players")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GridTopology = require(Shared:WaitForChild("GridTopology"))
+local ClientPlotService = require(script.Parent:WaitForChild("ClientPlotService"))
 
 local BuildGridVisualizer = {}
 
@@ -79,19 +78,7 @@ local function createGridTile(slotIndex, cframe, isOccupied, unitName)
 end
 
 local function getPlotBoundsAndCFrame()
-	-- Find player's plot
-	local player = Players.LocalPlayer
-	local plotsFolder = workspace:FindFirstChild("Plots")
-	if not plotsFolder then return nil end
-	
-	local plot
-	for _, p in plotsFolder:GetChildren() do
-		if p:GetAttribute("OwnerId") == player.UserId then
-			plot = p
-			break
-		end
-	end
-	
+	local plot = ClientPlotService.GetMyPlot()
 	if not plot then return nil end
 	
 	-- Prioritize PlotBounds_80x80

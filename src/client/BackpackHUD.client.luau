@@ -10,7 +10,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local _UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -20,6 +19,8 @@ local _ItemTypes = require(Shared:WaitForChild("ItemTypes"))
 local _ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
 local _ShopConfig = require(Shared:WaitForChild("ShopConfig"))
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+local ViewportPreview = require(Shared:WaitForChild("ViewportPreview"))
+local ClientPlotService = require(script.Parent:WaitForChild("ClientPlotService"))
 
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 local GetUnifiedInventoryFunc = RemoteFunctions:WaitForChild("GetUnifiedInventory")
@@ -78,21 +79,11 @@ local StorageCapacity = 0 -- Updated via Player Attribute
 -- HELPERS
 --------------------------------------------------------------------------------
 
-local function addCorner(parent, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = parent
-	return corner
-end
+local UIUtils = require(Shared:WaitForChild("Utils"):WaitForChild("UIUtils"))
 
-local function addStroke(parent, color, thickness)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Thickness = thickness
-	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	stroke.Parent = parent
-	return stroke
-end
+local addCorner = UIUtils.addCorner
+local addStroke = UIUtils.addStroke
+local decodeItems = UIUtils.decodeItems
 
 local function getRarityColor(rarity)
 	return UI_CONFIG.RARITY_COLORS[rarity] or UI_CONFIG.RARITY_COLORS.Normal
@@ -103,41 +94,7 @@ end
 	Used to enable/disable taking items from storage.
 ]]
 local function isOnOwnIsland()
-	local character = Player.Character
-	if not character then return false end
-	
-	local hrp = character:FindFirstChild("HumanoidRootPart")
-	if not hrp then return false end
-	
-	local playerPos = hrp.Position
-	local plotsFolder = workspace:FindFirstChild("Plots")
-	if not plotsFolder then return false end
-	
-	for _, plot in plotsFolder:GetChildren() do
-		local ownerId = plot:GetAttribute("OwnerId")
-		if ownerId == Player.UserId then
-			-- Find the floor part
-			local floor = plot:FindFirstChild("Island")
-				or plot:FindFirstChild("PlotFloor")
-				or plot:FindFirstChild("Floor")
-				or plot:FindFirstChildWhichIsA("BasePart")
-			
-			if floor then
-				local floorPos = floor.Position
-				local floorSize = floor.Size
-				
-				-- Check if player is within plot bounds (XZ)
-				local dx = math.abs(playerPos.X - floorPos.X)
-				local dz = math.abs(playerPos.Z - floorPos.Z)
-				
-				if dx <= floorSize.X / 2 + 10 and dz <= floorSize.Z / 2 + 10 then
-					return true
-				end
-			end
-		end
-	end
-	
-	return false
+	return ClientPlotService.IsOnMyIsland()
 end
 
 --[[
@@ -189,47 +146,7 @@ local function clearHoverTooltip()
 	end
 end
 
-local function spawn3DPreviewForTooltip(viewport, unitName)
-	viewport:ClearAllChildren()
-	
-	local template = getBrainrotTemplate(unitName)
-	if not template then return end
-	
-	local model = template:Clone()
-	model.Parent = viewport
-	
-	-- Setup Camera
-	local cam = Instance.new("Camera")
-	cam.Parent = viewport
-	viewport.CurrentCamera = cam
-	
-	local success, cf, size = pcall(function()
-		return model:GetBoundingBox()
-	end)
-	if not success then return end
-	
-	local maxDim = math.max(size.X, size.Y, size.Z)
-	local dist = maxDim * 2.5 -- Further back for better framing
-	
-	-- Calculate center of model (vertically centered)
-	local modelCenter = cf.Position
-	
-	-- Rotate model with camera positioned at eye level
-	local rotation = 0
-	local connection
-	connection = RunService.RenderStepped:Connect(function(dt)
-		if not model.Parent then 
-			connection:Disconnect()
-			return 
-		end
-		rotation = rotation + dt * 0.5
-		local rotCFrame = CFrame.Angles(0, rotation, 0)
-		-- Camera positioned at model's vertical center, slightly elevated
-		local camHeight = size.Y * 0.3
-		local newPos = modelCenter + (rotCFrame * Vector3.new(0, camHeight, dist))
-		cam.CFrame = CFrame.new(newPos, modelCenter)
-	end)
-end
+
 
 local function createHoverTooltip(item, slotPosition)
 	clearHoverTooltip()
@@ -312,11 +229,11 @@ local function createHoverTooltip(item, slotPosition)
 	addCorner(previewFrame, 8)
 	
 	if item.Type == "Unit" then
-		local vp = Instance.new("ViewportFrame")
-		vp.Size = UDim2.new(1, 0, 1, 0)
-		vp.BackgroundTransparency = 1
-		vp.Parent = previewFrame
-		spawn3DPreviewForTooltip(vp, item.UUID)
+		local template = getBrainrotTemplate(item.UUID)
+		if template then
+			local preview = ViewportPreview.Create(template, previewFrame)
+			preview.viewport.BackgroundTransparency = 1
+		end
 	else
 		-- Fallback icon logic if item.Icon is missing
 		local displayIcon = item.Icon
@@ -411,38 +328,7 @@ end
 -- DETAIL POPUP
 --------------------------------------------------------------------------------
 
-local function spawn3DPreview(viewport, unitName)
-	viewport:ClearAllChildren()
-	
-	local template = getBrainrotTemplate(unitName)
-	if not template then return end
-	
-	local model = template:Clone()
-	model.Parent = viewport
-	
-	-- Setup Camera
-	local cam = Instance.new("Camera")
-	cam.Parent = viewport
-	viewport.CurrentCamera = cam
-	
-	local cf, size = model:GetBoundingBox()
-	local maxDim = math.max(size.X, size.Y, size.Z)
-	local dist = maxDim * 2
-	
-	-- Rotate model
-	local rotation = 0
-	local connection
-	connection = RunService.RenderStepped:Connect(function(dt)
-		if not model.Parent then 
-			connection:Disconnect()
-			return 
-		end
-		rotation = rotation + dt * 0.5
-		local rotCFrame = CFrame.Angles(0, rotation, 0)
-		local newPos = cf.Position + (rotCFrame * Vector3.new(0, maxDim*0.2, dist))
-		cam.CFrame = CFrame.new(newPos, cf.Position)
-	end)
-end
+
 
 local function openDetailPopup(item)
 	-- Remove existing popup
@@ -508,11 +394,11 @@ local function openDetailPopup(item)
 	
 	if item.Type == "Unit" then
 		-- 3D Viewport
-		local vp = Instance.new("ViewportFrame")
-		vp.Size = UDim2.new(1, 0, 1, 0)
-		vp.BackgroundTransparency = 1
-		vp.Parent = previewFrame
-		spawn3DPreview(vp, item.UUID) -- UUID is unitName for units
+		local template = getBrainrotTemplate(item.UUID) -- UUID is unitName for units
+		if template then
+			local preview = ViewportPreview.Create(template, previewFrame)
+			preview.viewport.BackgroundTransparency = 1
+		end
 		
 	elseif item.Type == "Artifact" then
 		-- Icon Image
@@ -605,27 +491,13 @@ local function refreshGrid()
 		return
 	end
 	
+	clearHoverTooltip()
 	-- Clean ALL children (including layouts) to prevent duplicates
 	for _, c in pairs(grid:GetChildren()) do
 		c:Destroy()
 	end
 	
-local function decodeItems(encoded)
-	if type(encoded) ~= "table" then return encoded end
-	local Shared = game:GetService("ReplicatedStorage"):WaitForChild("Shared")
-	local success, IC = pcall(function() return require(Shared:WaitForChild("ItemConfig")) end)
-	if not success or not IC or not IC.SHORT_TO_ID then return encoded end
-	local decoded = {}
-	for k, count in pairs(encoded) do
-		local shortId = tonumber(k)
-		if shortId and IC.SHORT_TO_ID[shortId] then
-			decoded[IC.SHORT_TO_ID[shortId]] = count
-		else
-			decoded[k] = count
-		end
-	end
-	return decoded
-end
+
 
 	-- If Storage tab, show storage items instead
 	if CurrentFilter == "Storage" then
@@ -684,11 +556,13 @@ end
 		if onIsland then
 			takeAllBtn.MouseButton1Click:Connect(function()
 				-- Take all items from storage
+				local payload = {}
 				for itemId, count in pairs(CurrentStorageItems) do
 					if count > 0 then
-						TakeFromStorageEvent:FireServer(itemId, count)
+						payload[itemId] = count
 					end
 				end
+				TakeFromStorageEvent:FireServer(payload)
 				-- Refresh after short delay
 				task.wait(0.3)
 				refreshGrid()
@@ -1143,12 +1017,6 @@ StorageUpdatedEvent.OnClientEvent:Connect(function()
 	end
 end)
 
--- Auto-refresh timer for Storage tab (every 2 seconds)
-task.spawn(function()
-	while true do
-		task.wait(2)
-		if BackpackVisible and CurrentFilter == "Storage" then
-			refreshGrid()
-		end
-	end
-end)
+-- Wait for storage updates
+-- Event handler is above
+

@@ -440,15 +440,18 @@ local ItemsAmountLabel: TextLabel
 local previousMoney: number = 0
 local OwnedCounts: {[string]: number} = {}
 
-local function calculateItemRate(itemId: string): number
-	local rate = 0
+local rateCache = {}
+local lastRateUpdate = 0
+
+local function updateRateCache()
+	if os.clock() - lastRateUpdate < 1 then return end
+	lastRateUpdate = os.clock()
 	
-	-- Count placed units that are producing this item
+	table.clear(rateCache)
 	for _, unit in CollectionService:GetTagged("ActiveBrainrot") do
 		if unit:GetAttribute("OwnerId") == Player.UserId then
 			local producingId = unit:GetAttribute("CurrentProducing")
 			
-			-- Fallback to default mode if producingId is missing
 			if not producingId then
 				local unitType = unit:GetAttribute("UnitType")
 				local currentMode = unit:GetAttribute("CurrentMode") or 1
@@ -457,17 +460,26 @@ local function calculateItemRate(itemId: string): number
 				end
 			end
 			
-			if producingId == itemId then
-				local unitType = unit:GetAttribute("UnitType")
-				local config = unitType and ShopConfig.GetConfig(unitType)
-				if config and config.CycleTime and config.CycleTime > 0 then
-					rate += (1 / config.CycleTime)
+			if producingId then
+				local interval = unit:GetAttribute("IncomeInterval")
+				local rate = 0
+				if interval and interval > 0 then
+					rate = 1 / interval
+				else
+					local unitType = unit:GetAttribute("UnitType")
+					local config = unitType and ShopConfig.GetConfig(unitType)
+					if config and config.CycleTime and config.CycleTime > 0 then
+						rate = 1 / config.CycleTime
+					end
 				end
+				rateCache[producingId] = (rateCache[producingId] or 0) + rate
 			end
 		end
 	end
-	
-	return rate
+end
+
+local function calculateItemRate(itemId: string): number
+	return rateCache[itemId] or 0
 end
 
 local function updateMPSDisplay()
@@ -576,6 +588,8 @@ local function updateHoldingsDisplay()
 	
 	-- Get sector rates
 	local sectorRates = getSectorRates()
+	
+	updateRateCache()
 	
 	-- Build sorted list by total value
 	local sortedItems = {}

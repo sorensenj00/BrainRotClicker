@@ -80,36 +80,12 @@ local statusLabel
 -- HELPERS
 --------------------------------------------------------------------------------
 
-local function addCorner(inst, r)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = r or UDim.new(0, 5)
-	c.Parent = inst
-	return c
-end
+local FormatUtils = require(Shared:WaitForChild("Utils"):WaitForChild("FormatUtils"))
+local UIUtils = require(Shared:WaitForChild("Utils"):WaitForChild("UIUtils"))
 
-local function addStroke(inst, color, thick)
-	local s = Instance.new("UIStroke")
-	s.Color = color or C.border
-	s.Thickness = thick or 1
-	s.Transparency = 0.3
-	s.Parent = inst
-	return s
-end
-
-local function decodeItems(encoded)
-	if type(encoded) ~= "table" then return encoded end
-	if not ItemConfig or not ItemConfig.SHORT_TO_ID then return encoded end
-	local decoded = {}
-	for k, count in pairs(encoded) do
-		local shortId = tonumber(k)
-		if shortId and ItemConfig.SHORT_TO_ID[shortId] then
-			decoded[ItemConfig.SHORT_TO_ID[shortId]] = count
-		else
-			decoded[k] = count
-		end
-	end
-	return decoded
-end
+local addCorner = UIUtils.addCorner
+local addStroke = UIUtils.addStroke
+local decodeItems = UIUtils.decodeItems
 
 -- Returns 0..1 position along the track (0 = Market, 1 = Plot)
 local function getCartTrackPosition(): number
@@ -530,7 +506,7 @@ local function initialize()
 		if (cartState == "rolling_to_market" or cartState == "rolling_to_plot")
 			and prevState ~= cartState then
 			startRollingAnimation()
-		else
+		elseif cartState ~= "rolling_to_market" and cartState ~= "rolling_to_plot" then
 			updateCartIcon()
 		end
 

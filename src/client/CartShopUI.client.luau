@@ -26,7 +26,8 @@ local ShopInteraction = require(script.Parent:WaitForChild("ShopInteraction"))
 -- Remote Events
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local PurchaseUpgradeEvent = RemoteEvents:WaitForChild("PurchaseCartUpgrade")
-local GetUpgradesInfoEvent = RemoteEvents:WaitForChild("GetCartUpgradeInfo")
+local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
+local GetUpgradesInfoEvent = RemoteFunctions:WaitForChild("GetCartUpgradeInfo")
 
 -- Configuration
 local UI_CONFIG = {
@@ -55,14 +56,11 @@ local currentInfo = nil
 -- UI CREATION
 --------------------------------------------------------------------------------
 
-local function formatPrice(price: number): string
+local FormatUtils = require(Shared:WaitForChild("Utils"):WaitForChild("FormatUtils"))
+
+local function formatPrice(price)
 	if not price then return "MAX" end
-	local suffixes = {"K", "M", "B", "T"}
-	if price < 1000 then return tostring(math.floor(price)) end
-	local magnitude = math.floor(math.log(price, 1000))
-	if magnitude > #suffixes then magnitude = #suffixes end
-	local value = price / (1000 ^ magnitude)
-	return string.format("%.1f%s", value, suffixes[magnitude])
+	return FormatUtils.formatPrice(price)
 end
 
 local function createShopUI()
@@ -323,13 +321,9 @@ closeBtn.MouseButton1Click:Connect(function()
 	_interaction:Close()
 end)
 
-local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
-if adminEvent then
-	adminEvent.Event:Connect(function(shopName)
-		if shopName == "CartShop" then
-			if shopOpen then closeShop() else openShop() end
-		end
-	end)
-end
+local UIManager = require(script.Parent:WaitForChild("Managers"):WaitForChild("UIManager"))
+UIManager.RegisterShop("CartShop", function()
+	if shopOpen then closeShop() else openShop() end
+end)
 
 print("✓ CartShopUI initialized")

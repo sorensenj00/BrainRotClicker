@@ -26,7 +26,8 @@ local ConvenienceUpgradesConfig = require(ReplicatedStorage:WaitForChild("Shared
 -- Remote Events
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local PurchaseUpgradeEvent = RemoteEvents:WaitForChild("PurchaseConvenienceUpgrade")
-local GetUpgradesInfoEvent = RemoteEvents:WaitForChild("GetConvenienceUpgradesInfo")
+local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
+local GetUpgradesInfoEvent = RemoteFunctions:WaitForChild("GetConvenienceUpgradesInfo")
 
 -- Configuration
 local UI_CONFIG = {
@@ -55,29 +56,11 @@ local ownedUpgrades: {string} = {}
 -- UI CREATION
 --------------------------------------------------------------------------------
 
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local FormatUtils = require(Shared:WaitForChild("Utils"):WaitForChild("FormatUtils"))
+
 local function formatPrice(price: number): string
-	local suffixes = {"K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"}
-	
-	if price < 1000 then
-		return tostring(math.floor(price))
-	end
-	
-	-- Calculate the magnitude (power of 1000)
-	local magnitude = math.floor(math.log(price, 1000))
-	
-	-- Cap at the largest suffix
-	if magnitude > #suffixes then
-		magnitude = #suffixes
-	end
-	
-	local value = price / (1000 ^ magnitude)
-	
-	-- Format with 1 decimal place if < 100, otherwise no decimals
-	if value < 100 and value % 1 ~= 0 then
-		return string.format("%.1f%s", value, suffixes[magnitude])
-	else
-		return string.format("%.0f%s", value, suffixes[magnitude])
-	end
+	return FormatUtils.formatPrice(price)
 end
 
 local function createShopUI()
@@ -501,13 +484,9 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	end
 end)
 
-local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
-if adminEvent then
-	adminEvent.Event:Connect(function(shopName)
-		if shopName == "ConvenienceUpgrades" then
-			if shopOpen then closeShop() else openShop() end
-		end
-	end)
-end
+local UIManager = require(script.Parent:WaitForChild("Managers"):WaitForChild("UIManager"))
+UIManager.RegisterShop("ConvenienceUpgrades", function()
+	if shopOpen then closeShop() else openShop() end
+end)
 
 print("✓ ConvenienceUpgradesUI initialized")

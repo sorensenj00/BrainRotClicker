@@ -158,22 +158,116 @@ end
 --------------------------------------------------------------------------------
 -- MEMORYSTORE CACHE LOOP
 --------------------------------------------------------------------------------
+local function formatMoneyShort(amount)
+    if amount >= 1000000000 then return string.format("$%.2fB", amount / 1000000000)
+    elseif amount >= 1000000 then return string.format("$%.2fM", amount / 1000000)
+    elseif amount >= 1000 then return string.format("$%.1fK", amount / 1000)
+    else return "$" .. tostring(math.floor(amount)) end
+end
+
+local function updateHoloScreens(cachedListings)
+    -- Safely navigate the Explorer hierarchy
+    local mainIsland = workspace:FindFirstChild("MainIsland")
+    local shops = mainIsland and mainIsland:FindFirstChild("Shops")
+    local marketShop = shops and shops:FindFirstChild("MarketShop")
+    local monolith = marketShop and marketShop:FindFirstChild("Artifact_DarkPool_Monolith")
+	
+    if not monolith then return end
+
+    -- Sort parsed listings by price (Descending) to get the most expensive
+    local sortedListings = {}
+    for _, entry in ipairs(cachedListings) do
+        table.insert(sortedListings, entry)
+    end
+    table.sort(sortedListings, function(a, b) 
+        return (a.listing.Price or 0) > (b.listing.Price or 0) 
+    end)
+
+    -- Build the display text
+    local displayText = "💎 LIVE MARKET ASKS 💎\n\n"
+    if #sortedListings == 0 then
+        displayText = displayText .. "No Active Listings"
+    else
+        for i = 1, math.min(5, #sortedListings) do
+            local entry = sortedListings[i]
+            local artName = entry.artifact.Name or "Unknown"
+            displayText = displayText .. string.format("%d. %s — %s\n\n", i, artName, formatMoneyShort(entry.listing.Price or 0))
+        end
+    end
+
+    -- Apply to all 4 screens
+    for i = 1, 4 do
+        local screen = monolith:FindFirstChild("HoloScreen_" .. i)
+        if screen then
+            local surfGui = screen:FindFirstChild("MarketDisplay")
+            if not surfGui then
+                -- Create the SurfaceGui if it doesn't exist
+                surfGui = Instance.new("SurfaceGui")
+                surfGui.Name = "MarketDisplay"
+                surfGui.Face = Enum.NormalId.Front
+                surfGui.CanvasSize = Vector2.new(600, 400)
+                
+                local txt = Instance.new("TextLabel")
+                txt.Name = "ListText"
+                txt.Size = UDim2.new(0.9, 0, 0.9, 0)
+                txt.Position = UDim2.new(0.05, 0, 0.05, 0)
+                txt.BackgroundTransparency = 1
+                txt.TextColor3 = Color3.fromRGB(0, 255, 255)
+                txt.TextScaled = true
+                txt.Font = Enum.Font.RobotoMono
+                txt.TextXAlignment = Enum.TextXAlignment.Left
+                txt.TextYAlignment = Enum.TextYAlignment.Top
+                txt.Parent = surfGui
+                surfGui.Parent = screen
+            end
+            surfGui.ListText.Text = displayText
+        end
+    end
+end
+
 
 local function refreshCache()
 	local cfg = getConfig()
-	local success, data = pcall(function()
-		return ExchangeMap:GetRangeAsync(
-			Enum.SortDirection.Ascending,
-			cfg.MAX_CACHED_LISTINGS
-		)
+	local allListings = {}
+	local exclusiveLowerBound = nil
+	local hasMore = true
+	local success, err = pcall(function()
+		while hasMore do
+			local data = ExchangeMap:GetRangeAsync(
+				Enum.SortDirection.Ascending,
+				200, -- Maximum limit per GetRangeAsync call
+				exclusiveLowerBound
+			)
+			for _, entry in ipairs(data) do
+				-- Parse the JSON exactly once when the server fetches it
+				local ok, listing = pcall(HttpService.JSONDecode, HttpService, entry.value)
+				if ok and listing then
+					local artifact = deserializeArtifact(listing.ArtifactData)
+					if artifact then
+						table.insert(allListings, {
+							key = entry.key,
+							listing = listing,
+							artifact = artifact,
+						})
+					end
+				end
+			end
+			
+			if #data < 200 or #allListings >= cfg.MAX_CACHED_LISTINGS then
+				hasMore = false
+			else
+				exclusiveLowerBound = data[#data].key
+			end
+		end
 	end)
 
-	if success and data then
-		MarketCache = data
+	if success then
+		MarketCache = allListings
+		task.spawn(function()
+            updateHoloScreens(allListings)
+        end)
 	else
-		if not success then
-			warn("ArtifactExchangeManager: Cache refresh failed:", data)
-		end
+		warn("ArtifactExchangeManager: Cache refresh failed:", err)
 	end
 end
 
@@ -572,55 +666,52 @@ function ArtifactExchangeManager.GetListings(_player, filters)
 	local filterMaxPrice = type(safeFilters.maxPrice) == "number" and safeFilters.maxPrice or nil
 	local sortBy = type(safeFilters.sortBy) == "string" and safeFilters.sortBy or nil
 
-	for _, entry in ipairs(MarketCache) do
-		local listingJSON = entry.value
-		local ok, listing = pcall(HttpService.JSONDecode, HttpService, listingJSON)
-		if ok and listing then
+	for _, cached in ipairs(MarketCache) do
+		local listing = cached.listing
+		local artifact = cached.artifact
+		if listing and artifact then
 			local listingPrice = type(listing.Price) == "number" and listing.Price or 0
-			local artifact = deserializeArtifact(listing.ArtifactData)
-			if artifact then
-				local include = true
+			local include = true
 
-				-- Apply filters
-				if filterSlot and filterSlot ~= "All" and artifact.Slot ~= filterSlot then
+			-- Apply filters
+			if filterSlot and filterSlot ~= "All" and artifact.Slot ~= filterSlot then
+				include = false
+			end
+			if filterRarity and filterRarity ~= "All" and artifact.Rarity ~= filterRarity then
+				include = false
+			end
+			if filterSearch ~= "" then
+				local searchLower = string.lower(filterSearch)
+				local nameLower = string.lower(artifact.Name or "")
+				if not string.find(nameLower, searchLower, 1, true) then
 					include = false
 				end
-				if filterRarity and filterRarity ~= "All" and artifact.Rarity ~= filterRarity then
-					include = false
-				end
-				if filterSearch ~= "" then
-					local searchLower = string.lower(filterSearch)
-					local nameLower = string.lower(artifact.Name or "")
-					if not string.find(nameLower, searchLower, 1, true) then
-						include = false
-					end
-				end
-				if filterMaxPrice and listingPrice > filterMaxPrice then
-					include = false
-				end
-				if filterMinPrice and listingPrice < filterMinPrice then
-					include = false
-				end
+			end
+			if filterMaxPrice and listingPrice > filterMaxPrice then
+				include = false
+			end
+			if filterMinPrice and listingPrice < filterMinPrice then
+				include = false
+			end
 
-				if include then
-					table.insert(results, {
-							ListingGUID = listing.ListingGUID or entry.key,
-							Price = listingPrice,
-						SellerName = listing.SellerName,
-						SellerId = listing.SellerId,
-						Timestamp = listing.Timestamp,
-						Artifact = {
-							GUID = artifact.GUID,
-							Name = artifact.Name,
-							BaseId = artifact.BaseId,
-							BaseName = artifact.BaseName,
-							BaseIcon = artifact.BaseIcon,
-							Slot = artifact.Slot,
-							Rarity = artifact.Rarity,
-							Affixes = artifact.Affixes,
-						},
-					})
-				end
+			if include then
+				table.insert(results, {
+					ListingGUID = listing.ListingGUID or cached.key,
+					Price = listingPrice,
+					SellerName = listing.SellerName,
+					SellerId = listing.SellerId,
+					Timestamp = listing.Timestamp,
+					Artifact = {
+						GUID = artifact.GUID,
+						Name = artifact.Name,
+						BaseId = artifact.BaseId,
+						BaseName = artifact.BaseName,
+						BaseIcon = artifact.BaseIcon,
+						Slot = artifact.Slot,
+						Rarity = artifact.Rarity,
+						Affixes = artifact.Affixes,
+					},
+				})
 			end
 		end
 	end
@@ -646,10 +737,10 @@ function ArtifactExchangeManager.GetMyListings(player)
 	local results = {}
 	local listingPriceByGuid = {}
 
-	for _, entry in ipairs(MarketCache) do
-		local ok, listing = pcall(HttpService.JSONDecode, HttpService, entry.value)
-		if ok and listing then
-			listingPriceByGuid[entry.key] = listing.Price or 0
+	for _, cached in ipairs(MarketCache) do
+		local listing = cached.listing
+		if listing then
+			listingPriceByGuid[cached.key] = listing.Price or 0
 		end
 	end
 
@@ -680,71 +771,33 @@ end
 local function setupVendor()
 	local cfg = getConfig()
 
-	-- Try to find existing vendor in MainIsland.Shops
 	local mainIsland = workspace:FindFirstChild("MainIsland")
 	local shopsFolder = mainIsland and mainIsland:FindFirstChild("Shops")
+	local marketShop = shopsFolder and shopsFolder:FindFirstChild("MarketShop")
+	local monolith = marketShop and marketShop:FindFirstChild("Artifact_DarkPool_Monolith")
 
-	-- Check for an existing vendor
-	local existingVendor
-	if shopsFolder then
-		existingVendor = shopsFolder:FindFirstChild("ArtifactExchange")
-	end
-	if not existingVendor then
-		existingVendor = workspace:FindFirstChild("ArtifactExchange")
-	end
-
-	local vendor
-	if existingVendor then
-		vendor = existingVendor
+	if monolith then
+		for i = 1, 4 do
+			local screen = monolith:FindFirstChild("HoloScreen_" .. i)
+			if screen then
+				CollectionService:AddTag(screen, cfg.VENDOR_TAG)
+				
+				if not screen:FindFirstChild("ShopPrompt") then
+					local pp = Instance.new("ProximityPrompt")
+					pp.Name = "ShopPrompt"
+					pp.ActionText = "Trade Artifacts"
+					pp.ObjectText = "Grand Exchange"
+					pp.KeyboardKeyCode = Enum.KeyCode.E
+					pp.RequiresLineOfSight = false
+					pp.MaxActivationDistance = 20
+					pp.Parent = screen
+				end
+			end
+		end
+		print("ArtifactExchange: Vendor screens setup complete")
 	else
-		-- Create temp vendor part
-		local parent = shopsFolder or workspace
-
-		vendor = Instance.new("Part")
-		vendor.Name = "ArtifactExchange"
-		vendor.Size = cfg.VENDOR_SIZE
-		vendor.Position = cfg.VENDOR_POSITION
-		vendor.Anchored = true
-		vendor.CanCollide = true
-		vendor.Material = Enum.Material.SmoothPlastic
-		vendor.BrickColor = BrickColor.new("Gold")
-		vendor.Parent = parent
-
-		-- Add a SurfaceGui label
-		local surfGui = Instance.new("SurfaceGui")
-		surfGui.Name = "Label"
-		surfGui.Face = Enum.NormalId.Front
-		surfGui.Parent = vendor
-
-		local label = Instance.new("TextLabel")
-		label.Size = UDim2.new(1, 0, 1, 0)
-		label.BackgroundTransparency = 0.3
-		label.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
-		label.Text = "GRAND\nEXCHANGE"
-		label.TextColor3 = Color3.fromRGB(250, 190, 60)
-		label.TextSize = 42
-		label.Font = Enum.Font.GothamBold
-		label.TextScaled = true
-		label.Parent = surfGui
+		warn("ArtifactExchange: Could not find Artifact_DarkPool_Monolith to setup vendor")
 	end
-
-	-- Tag for ShopInteraction
-	CollectionService:AddTag(vendor, cfg.VENDOR_TAG)
-
-	-- Ensure proximity prompt exists
-	local primary = if vendor:IsA("Model") then (vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart", true)) else vendor
-	if primary and not vendor:FindFirstChild("ShopPrompt", true) then
-		local pp = Instance.new("ProximityPrompt")
-		pp.Name = "ShopPrompt"
-		pp.ActionText = "Trade Artifacts"
-		pp.ObjectText = "Grand Exchange"
-		pp.KeyboardKeyCode = Enum.KeyCode.E
-		pp.RequiresLineOfSight = false
-		pp.MaxActivationDistance = 20
-		pp.Parent = primary
-	end
-
-	print("ArtifactExchange: Vendor setup complete")
 end
 
 --------------------------------------------------------------------------------

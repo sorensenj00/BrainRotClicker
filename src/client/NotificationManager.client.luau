@@ -68,11 +68,11 @@ local function initializeUI()
 	ScreenGui.DisplayOrder = 100 -- Sit above most things
 	ScreenGui.Parent = PlayerGui
 	
-	-- Container for bottom-right toasts
+	-- Container for top-center toasts
 	ToastContainer = Instance.new("Frame")
 	ToastContainer.Name = "ToastContainer"
 	ToastContainer.Size = UDim2.new(0, THEME.ToastWidth, 1, 0)
-	ToastContainer.Position = UDim2.new(1, -THEME.ToastWidth - 20, 0, 0)
+	ToastContainer.Position = UDim2.new(0.5, -THEME.ToastWidth / 2, 0, 0)
 	ToastContainer.BackgroundTransparency = 1
 	ToastContainer.Parent = ScreenGui
 	
@@ -174,10 +174,10 @@ end
 
 local function updateToastPositions()
 	for i, toastData in ipairs(ActiveToasts) do
-		local targetY = -40 - ((i - 1) * (THEME.ToastHeight + THEME.ToastGap))
+		local targetY = 40 + ((i - 1) * (THEME.ToastHeight + THEME.ToastGap))
 		
 		TweenService:Create(toastData.frame, TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-			Position = UDim2.new(0, 0, 1, targetY)
+			Position = UDim2.new(0, 0, 0, targetY)
 		}):Play()
 	end
 end
@@ -190,19 +190,18 @@ local function ShowToast(message: string, typeKey: string, duration: number)
 	
 	local toast = createToastElement(message, typeKey, duration)
 	
-	-- Start position (slided off to the right)
-	toast.Position = UDim2.new(1.2, 0, 1, -40 - (#ActiveToasts * (THEME.ToastHeight + THEME.ToastGap)))
+	-- Start position (slided up, off-screen)
+	toast.Position = UDim2.new(0, 0, 0, -100 - (#ActiveToasts * (THEME.ToastHeight + THEME.ToastGap)))
 	toast.Parent = ToastContainer
 	
 	local toastData = { frame = toast, time = tick() + duration }
-	table.insert(ActiveToasts, 1, toastData) -- Insert at beginning (pushes others up)
+	table.insert(ActiveToasts, 1, toastData) -- Insert at beginning (pushes others down)
 	
 	-- Enforce MAX_TOASTS
 	if #ActiveToasts > THEME.MaxToasts then
 		local oldest = table.remove(ActiveToasts, #ActiveToasts)
 		TweenService:Create(oldest.frame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Position = UDim2.new(1.2, 0, oldest.frame.Position.Y.Scale, oldest.frame.Position.Y.Offset),
-			GroupTransparency = 1
+			Position = UDim2.new(0, 0, 0, -150)
 		}):Play()
 		task.delay(0.3, function() oldest.frame:Destroy() end)
 	end
@@ -217,7 +216,7 @@ local function ShowToast(message: string, typeKey: string, duration: number)
 			
 			-- Slide out
 			local outTween = TweenService:Create(toast, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-				Position = UDim2.new(1.2, 0, toast.Position.Y.Scale, toast.Position.Y.Offset)
+				Position = UDim2.new(0, 0, 0, -150)
 			})
 			outTween:Play()
 			

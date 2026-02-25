@@ -95,7 +95,7 @@ function PlotManager.Init(services)
 		local pm, bm, claimPart
 		
 		if TerrainGenerator then
-			pm = TerrainGenerator.CreatePlotModel()
+			pm = TerrainGenerator.CreatePlotModel(true)
 			pm.Name = "Plot_"..i
 			pm:PivotTo(cf)
 			pm.Parent = PlotsFolder

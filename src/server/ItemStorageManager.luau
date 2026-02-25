@@ -247,9 +247,18 @@ function ItemStorageManager.Init(services)
 	end
 
 	TakeFromStorageEvent.OnServerEvent:Connect(function(player, itemId, count)
-		if type(itemId) ~= "string" or type(count) ~= "number" then return end
-		if not isNearOwnStorage(player) then return end
-		ItemStorageManager.TakeFromStorage(player, itemId, math.max(1, math.floor(count)))
+		if type(itemId) == "table" then
+			if not isNearOwnStorage(player) then return end
+			for id, c in pairs(itemId) do
+				if type(id) == "string" and type(c) == "number" then
+					ItemStorageManager.TakeFromStorage(player, id, math.max(1, math.floor(c)))
+				end
+			end
+		else
+			if type(itemId) ~= "string" or type(count) ~= "number" then return end
+			if not isNearOwnStorage(player) then return end
+			ItemStorageManager.TakeFromStorage(player, itemId, math.max(1, math.floor(count)))
+		end
 	end)
 
 	print("✓ ItemStorageManager Initialized")

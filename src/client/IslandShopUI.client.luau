@@ -378,13 +378,9 @@ local _interaction = ShopInteraction.new({
 	OnClose = closeShop,
 })
 
-local adminEvent = ReplicatedStorage:WaitForChild("AdminOpenShop", 5)
-if adminEvent then
-	adminEvent.Event:Connect(function(shopName)
-		if shopName == "IslandShop" then
-			if shopOpen then closeShop() else openShop() end
-		end
-	end)
-end
+local UIManager = require(script.Parent:WaitForChild("Managers"):WaitForChild("UIManager"))
+UIManager.RegisterShop("IslandShop", function()
+	if shopOpen then closeShop() else openShop() end
+end)
 
 print("✓ IslandShopUI initialized")

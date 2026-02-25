@@ -35,6 +35,8 @@ local ExchangeNotifyEvent = RemoteEvents:WaitForChild("ArtifactExchangeNotify")
 -- Shared config
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ArtifactExchangeConfig = require(Shared:WaitForChild("ArtifactExchangeConfig"))
+
+local recentlyPurchased = {}
 local _ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
 
 -- ShopInteraction for proximity prompt
@@ -44,7 +46,6 @@ local C = ArtifactExchangeConfig.UI
 local FONT_MONO = Enum.Font.RobotoMono
 local FONT_BOLD = Enum.Font.GothamBold
 local FONT_REG = Enum.Font.Gotham
-local CORNER_R = UDim.new(0, 6)
 
 --------------------------------------------------------------------------------
 -- STATE
@@ -91,33 +92,12 @@ local closeExchange
 -- HELPERS
 --------------------------------------------------------------------------------
 
-local function addCorner(inst, r)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = r or CORNER_R
-	c.Parent = inst
-	return c
-end
+local FormatUtils = require(Shared:WaitForChild("Utils"):WaitForChild("FormatUtils"))
+local UIUtils = require(Shared:WaitForChild("Utils"):WaitForChild("UIUtils"))
 
-local function addStroke(inst, color, thick)
-	local s = Instance.new("UIStroke")
-	s.Color = color or C.BORDER
-	s.Thickness = thick or 1
-	s.Transparency = 0.3
-	s.Parent = inst
-	return s
-end
-
-local function formatMoney(amount)
-	if amount >= 1000000000 then
-		return string.format("$%.2fB", amount / 1000000000)
-	elseif amount >= 1000000 then
-		return string.format("$%.2fM", amount / 1000000)
-	elseif amount >= 1000 then
-		return string.format("$%.1fK", amount / 1000)
-	else
-		return "$" .. tostring(math.floor(amount))
-	end
-end
+local addCorner = UIUtils.addCorner
+local addStroke = UIUtils.addStroke
+local formatMoney = FormatUtils.formatMoney
 
 local function getRarityColor(rarity)
 	local colors = {
@@ -414,11 +394,34 @@ createLeftColumn = function(parent)
 	addCorner(priceInput)
 	addStroke(priceInput, C.BORDER)
 
+	-- Net profit label
+	local netProfitLabel = Instance.new("TextLabel")
+	netProfitLabel.Name = "NetProfitLabel"
+	netProfitLabel.Size = UDim2.new(1, 0, 0, 14)
+	netProfitLabel.Position = UDim2.new(0, 0, 0, 296)
+	netProfitLabel.BackgroundTransparency = 1
+	netProfitLabel.Text = ""
+	netProfitLabel.TextColor3 = C.GREEN
+	netProfitLabel.TextSize = 10
+	netProfitLabel.Font = FONT_REG
+	netProfitLabel.TextXAlignment = Enum.TextXAlignment.Center
+	netProfitLabel.Parent = col
+
+	priceInput:GetPropertyChangedSignal("Text"):Connect(function()
+		local val = tonumber(priceInput.Text)
+		if val and val > 0 then
+			local net = math.floor(val * 0.9) -- 10% tax
+			netProfitLabel.Text = "You will receive: " .. formatMoney(net)
+		else
+			netProfitLabel.Text = ""
+		end
+	end)
+
 	-- List button
 	local listBtn = Instance.new("TextButton")
 	listBtn.Name = "ListButton"
 	listBtn.Size = UDim2.new(1, 0, 0, 36)
-	listBtn.Position = UDim2.new(0, 0, 0, 300)
+	listBtn.Position = UDim2.new(0, 0, 0, 312)
 	listBtn.BackgroundColor3 = Color3.fromRGB(40, 120, 60)
 	listBtn.Text = "📤 LIST FOR SALE"
 	listBtn.TextColor3 = C.WHITE
@@ -502,7 +505,7 @@ createRightColumn = function(parent)
 		slotIndex = (slotIndex % #slotOptions) + 1
 		currentFilters.slot = slotOptions[slotIndex]
 		slotBtn.Text = "Slot: " .. slotOptions[slotIndex]
-		refreshBrowseListings()
+		refreshAll()
 	end)
 
 	-- Rarity filter
@@ -518,7 +521,7 @@ createRightColumn = function(parent)
 		else
 			rarityBtn.TextColor3 = C.WHITE
 		end
-		refreshBrowseListings()
+		refreshAll()
 	end)
 
 	-- Sort toggle
@@ -530,7 +533,7 @@ createRightColumn = function(parent)
 		sortIndex = (sortIndex % #sortOptions) + 1
 		currentFilters.sortBy = sortOptions[sortIndex]
 		sortBtn.Text = "Sort: " .. sortLabels[sortIndex]
-		refreshBrowseListings()
+		refreshAll()
 	end)
 
 	-- Search box
@@ -552,7 +555,7 @@ createRightColumn = function(parent)
 
 	searchBox:GetPropertyChangedSignal("Text"):Connect(function()
 		currentFilters.search = searchBox.Text
-		refreshBrowseListings()
+		refreshAll()
 	end)
 
 	-- Browse scroll
@@ -875,6 +878,7 @@ handleBuyListing = function(listingGUID, price, artifactName)
 		local ok, result = pcall(BuyListingFunc.InvokeServer, BuyListingFunc, listingGUID)
 		if ok and result == true then
 			setStatus("Purchased! Check your inventory.", C.GREEN)
+			recentlyPurchased[listingGUID] = true
 			refreshAll()
 		else
 			local msg = "Purchase failed"
@@ -920,24 +924,45 @@ end
 refreshMyListings = function()
 	if not myListingsScroll then return end
 
-	-- Clear
+	local currentCards = {}
 	for _, child in myListingsScroll:GetChildren() do
-		if child:IsA("Frame") then child:Destroy() end
+		if child:IsA("Frame") and string.sub(child.Name, 1, 5) == "Card_" then
+			currentCards[child.Name] = child
+		end
 	end
 
+	local emptyLabel = myListingsScroll:FindFirstChild("EmptyLabel")
+
 	if #myListingsData == 0 then
-		local emptyLabel = Instance.new("TextLabel")
-		emptyLabel.Size = UDim2.new(1, 0, 0, 40)
-		emptyLabel.BackgroundTransparency = 1
-		emptyLabel.Text = "No active listings"
-		emptyLabel.TextColor3 = C.DIM
-		emptyLabel.TextSize = 10
-		emptyLabel.Font = FONT_REG
-		emptyLabel.Parent = myListingsScroll
+		if not emptyLabel then
+			emptyLabel = Instance.new("TextLabel")
+			emptyLabel.Name = "EmptyLabel"
+			emptyLabel.Size = UDim2.new(1, 0, 0, 40)
+			emptyLabel.BackgroundTransparency = 1
+			emptyLabel.Text = "No active listings"
+			emptyLabel.TextColor3 = C.DIM
+			emptyLabel.TextSize = 10
+			emptyLabel.Font = FONT_REG
+			emptyLabel.Parent = myListingsScroll
+		end
+	else
+		if emptyLabel then emptyLabel:Destroy() end
 	end
 
 	for i, listing in ipairs(myListingsData) do
-		createListingCard(myListingsScroll, listing, true, i)
+		local cardName = "Card_" .. (listing.ListingGUID or "?")
+		local existing = currentCards[cardName]
+		if existing then
+			existing.LayoutOrder = i
+			currentCards[cardName] = nil -- keep it
+		else
+			createListingCard(myListingsScroll, listing, true, i)
+		end
+	end
+
+	-- Destroy leftover cards
+	for _, card in pairs(currentCards) do
+		card:Destroy()
 	end
 
 	-- Update canvas
@@ -948,18 +973,20 @@ end
 refreshBrowseListings = function()
 	if not browseScroll then return end
 
-	-- Clear
+	local currentCards = {}
 	for _, child in browseScroll:GetChildren() do
-		if child:IsA("Frame") or (child:IsA("TextLabel") and child.Name == "EmptyLabel") then
-			child:Destroy()
+		if child:IsA("Frame") and string.sub(child.Name, 1, 5) == "Card_" then
+			currentCards[child.Name] = child
 		end
 	end
+
+	local emptyLabel = browseScroll:FindFirstChild("EmptyLabel")
 
 	-- Apply client-side filters (server already filtered, but double-check for cached data)
 	local filtered = {}
 	for _, listing in ipairs(marketListingsData) do
 		local art = listing.Artifact
-		if art then
+		if art and not recentlyPurchased[listing.ListingGUID] then
 			local include = true
 			if currentFilters.slot ~= "All" and art.Slot ~= currentFilters.slot then
 				include = false
@@ -990,19 +1017,35 @@ refreshBrowseListings = function()
 	end
 
 	if #filtered == 0 then
-		local emptyLabel = Instance.new("TextLabel")
-		emptyLabel.Name = "EmptyLabel"
-		emptyLabel.Size = UDim2.new(1, 0, 0, 60)
-		emptyLabel.BackgroundTransparency = 1
-		emptyLabel.Text = "No listings found.\nBe the first to list an artifact!"
-		emptyLabel.TextColor3 = C.DIM
-		emptyLabel.TextSize = 13
-		emptyLabel.Font = FONT_REG
-		emptyLabel.Parent = browseScroll
+		if not emptyLabel then
+			emptyLabel = Instance.new("TextLabel")
+			emptyLabel.Name = "EmptyLabel"
+			emptyLabel.Size = UDim2.new(1, 0, 0, 60)
+			emptyLabel.BackgroundTransparency = 1
+			emptyLabel.Text = "No listings found.\nBe the first to list an artifact!"
+			emptyLabel.TextColor3 = C.DIM
+			emptyLabel.TextSize = 13
+			emptyLabel.Font = FONT_REG
+			emptyLabel.Parent = browseScroll
+		end
+	else
+		if emptyLabel then emptyLabel:Destroy() end
 	end
 
 	for i, listing in ipairs(filtered) do
-		createListingCard(browseScroll, listing, false, i)
+		local cardName = "Card_" .. (listing.ListingGUID or "?")
+		local existing = currentCards[cardName]
+		if existing then
+			existing.LayoutOrder = i
+			currentCards[cardName] = nil -- keep it
+		else
+			createListingCard(browseScroll, listing, false, i)
+		end
+	end
+
+	-- Destroy leftover cards
+	for _, card in pairs(currentCards) do
+		card:Destroy()
 	end
 
 	local totalHeight = #filtered * 72
@@ -1088,11 +1131,9 @@ if not exchangeToggleEvent then
 end
 exchangeToggleEvent.Event:Connect(toggleExchange)
 
--- AdminPanel integration (BindableEvent for admin shortcuts)
-local adminEvent = ReplicatedStorage:FindFirstChild("AdminOpenExchange")
-if adminEvent then
-	adminEvent.Event:Connect(openExchange)
-end
+-- AdminPanel integration
+local UIManager = require(script.Parent:WaitForChild("Managers"):WaitForChild("UIManager"))
+UIManager.RegisterShop("ArtifactExchange", toggleExchange)
 
 -- Proximity Prompt (ShopInteraction pattern)
 local _shopInteraction = ShopInteraction.new({

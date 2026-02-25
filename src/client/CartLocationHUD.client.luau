@@ -118,9 +118,9 @@ local function getCartTrackPosition(): number
 	elseif cartState == "at_market" or cartState == "selling" then
 		return 0.0 -- At market
 	elseif cartState == "rolling_to_market" then
-		return 0.35 -- Animating: somewhere in middle, leaning market
+		return 1.0 -- Started from plot
 	elseif cartState == "rolling_to_plot" then
-		return 0.65 -- Animating: somewhere in middle, leaning plot
+		return 0.0 -- Started from market
 	end
 	return 1.0 -- Default: at plot
 end
@@ -461,7 +461,7 @@ local function startRollingAnimation()
 	if rollingConnection then rollingConnection:Disconnect() end
 
 	local startTime = tick()
-	local startPos = getCartTrackPosition()
+	local startPos = (cartState == "rolling_to_market") and 1.0 or 0.0
 	local endPos = (cartState == "rolling_to_market") and 0.0 or 1.0
 
 	-- Estimate travel duration from cart model attributes
@@ -568,7 +568,7 @@ local function initialize()
 	
 	marketBtn.MouseButton1Click:Connect(function()
 		if cartState ~= "at_market" then return end
-		local exchangeEvent = ReplicatedStorage:FindFirstChild("ExchangeToggleEvent")
+		local exchangeEvent = ReplicatedStorage:FindFirstChild("StockToggleEvent")
 		if exchangeEvent then exchangeEvent:Fire() end
 	end)
 

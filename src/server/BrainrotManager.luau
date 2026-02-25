@@ -371,23 +371,6 @@ function BrainrotManager.GetPlayerPlot(player)
 	return getPlayerPlot(player)
 end
 
--- Spawn directly at slot (legacy wrapper)
-function BrainrotManager.SpawnBrainrotAtSlot(player, unitName, slotIndex, level, unitId)
-	local GridManager = rawget(Services, "GridManager")
-	
-	-- No more retry loop. If GridManager isn't there, we fail.
-	if GridManager then
-		local unit = spawnOrUpdateUnit(player, unitName, {
-			level = level or 1,
-			unitId = unitId
-		})
-		
-		if unit then
-			GridManager.PlaceUnit(player, unit, slotIndex)
-		end
-	end
-end
-
 -- Compatibility Exports
 BrainrotManager.SpawnBrainrot = BrainrotManager.AddUnit
 BrainrotManager.RARITY_CONFIG = nil -- RarityConfig.CONFIG

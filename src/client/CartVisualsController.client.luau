@@ -118,78 +118,41 @@ RunService.Heartbeat:Connect(function()
 		local state = model:GetAttribute("CartState")
         if not state then continue end
         
-        local wp1 = model:GetAttribute("CartWP1")
-        local wp2 = model:GetAttribute("CartWP2")
-        local wp3 = model:GetAttribute("CartWP3")
+        local startPos = model:GetAttribute("CartStartPos")
+        local endPos = model:GetAttribute("CartEndPos")
         local duration = model:GetAttribute("CartDuration") or 0
         local startTime = model:GetAttribute("CartStartTime") or 0
         
-        if not wp1 or not wp2 or not wp3 then continue end
-        
-        local dist1 = (wp2 - wp1).Magnitude
-        local dist2 = (wp3 - wp2).Magnitude
-        local totalDist = dist1 + dist2
-        local ratio1 = totalDist > 0 and (dist1 / totalDist) or 0.5
+        if not startPos or not endPos then continue end
         
         local targetCFrame
+        local dir = (endPos - startPos).Unit
         
         if state == "idle" then
-            local dir = (wp2 - wp1).Unit
-            targetCFrame = CFrame.new(wp1, wp1 + dir)
+            targetCFrame = CFrame.new(startPos, startPos + dir)
         elseif state == "at_market" or state == "selling" then
-            local dir = (wp3 - wp2).Unit
-            targetCFrame = CFrame.new(wp3, wp3 + dir)
+            targetCFrame = CFrame.new(endPos, endPos + dir)
         elseif state == "rolling_to_market" then
             if duration <= 0 then
-                local dir = (wp3 - wp2).Unit
-                targetCFrame = CFrame.new(wp3, wp3 + dir)
+                targetCFrame = CFrame.new(endPos, endPos + dir)
             else
                 local alpha = math.clamp((now - startTime) / duration, 0, 1)
                 -- Ease InOutQuad for smoother start and stop
                 local easedAlpha = alpha < 0.5 and 2 * alpha * alpha or 1 - math.pow(-2 * alpha + 2, 2) / 2
                 
-                local currentPos
-                local dir
-                if easedAlpha <= ratio1 then
-                    -- Segment 1: wp1 -> wp2
-                    local segmentAlpha = easedAlpha / ratio1
-                    currentPos = wp1:Lerp(wp2, segmentAlpha)
-                    dir = (wp2 - wp1).Unit
-                else
-                    -- Segment 2: wp2 -> wp3
-                    local segmentAlpha = (easedAlpha - ratio1) / (1 - ratio1)
-                    currentPos = wp2:Lerp(wp3, segmentAlpha)
-                    dir = (wp3 - wp2).Unit
-                end
+                local currentPos = startPos:Lerp(endPos, easedAlpha)
                 
                 -- Always face the movement direction
                 targetCFrame = CFrame.new(currentPos, currentPos + dir)
             end
         elseif state == "rolling_to_plot" then
             if duration <= 0 then
-                local dir = (wp2 - wp1).Unit
-                targetCFrame = CFrame.new(wp1, wp1 - dir)
+                targetCFrame = CFrame.new(startPos, startPos - dir)
             else
                 local alpha = math.clamp((now - startTime) / duration, 0, 1)
                 local easedAlpha = alpha < 0.5 and 2 * alpha * alpha or 1 - math.pow(-2 * alpha + 2, 2) / 2
                 
-                -- Traveling in reverse: 0 alpha = WP3, 1 alpha = WP1
-                -- Inverse ratio: Segment 1 (start to middle) is wp3 -> wp2
-                local revRatio1 = 1 - ratio1
-                
-                local currentPos
-                local dir
-                if easedAlpha <= revRatio1 then
-                    -- Segment 1 (reverse): wp3 -> wp2
-                    local segmentAlpha = easedAlpha / revRatio1
-                    currentPos = wp3:Lerp(wp2, segmentAlpha)
-                    dir = (wp3 - wp2).Unit -- Positive direction (pointing towards plot if we negate)
-                else
-                    -- Segment 2 (reverse): wp2 -> wp1
-                    local segmentAlpha = (easedAlpha - revRatio1) / ratio1
-                    currentPos = wp2:Lerp(wp1, segmentAlpha)
-                    dir = (wp2 - wp1).Unit
-                end
+                local currentPos = endPos:Lerp(startPos, easedAlpha)
                 
                 -- Face the opposite direction
                 targetCFrame = CFrame.new(currentPos, currentPos - dir)

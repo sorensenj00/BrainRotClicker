@@ -141,9 +141,8 @@ local function spawnCart(player)
 	model.Name = "Cart_" .. player.Name
 	
 	-- Waypoints computation:
-	-- WP1: Plot edge (Start of bridge)
-	-- WP2: Hub edge (End of bridge, meeting Main Island)
-	-- WP3: Market/Hole position (Center of Main Island)
+	-- StartPos: Plot edge (Start of bridge)
+	-- EndPos: Hub edge (End of bridge, meeting Main Island)
 	local plotPos = plot:GetPivot().Position
 	local dir2D = Vector3.new(plotPos.X, 0, plotPos.Z).Unit
 	
@@ -156,13 +155,12 @@ local function spawnCart(player)
 	-- Add more to Y so the drone/cart doesn't clip into the bridge/ground, starting higher
 	local yOffset = Vector3.new(0, 20, 0)
 	
-	local wp1 = plotEdgePos + yOffset
-	local wp2 = hubEdgePos + yOffset
-	local wp3 = Vector3.new(0, hubEdgePos.Y + 10, 0) -- Hole is at center, so X=0, Z=0
+	local spawnPos = plotEdgePos + yOffset
+	local mainPos = hubEdgePos + yOffset
 	
-	local dir = (wp3 - wp1).Unit -- General direction for facing at spawn
+	local dir = (mainPos - spawnPos).Unit -- General direction for facing at spawn
 	
-	model:PivotTo(CFrame.new(wp1, wp1 + dir))
+	model:PivotTo(CFrame.new(spawnPos, spawnPos + dir))
 	model.Parent = workspace
 	
 	local Config = require(ReplicatedStorage.Shared.CartShopConfig)
@@ -175,16 +173,16 @@ local function spawnCart(player)
 		Capacity = capOverride > 0 and capOverride or CONFIG.DEFAULT_CAPACITY,
 		Speed = CONFIG.ROLL_SPEED,
 		ModelTier = upgrades.Model or 1,
-		Waypoints = { wp1, wp2, wp3 },
+		StartPos = spawnPos,
+		EndPos = mainPos,
 		BridgeDir = dir
 	}
 	
 	-- Tag for client-side HUD and visuals
 	model:SetAttribute("OwnerId", player.UserId)
 	model:SetAttribute("CartState", "idle")
-	model:SetAttribute("CartWP1", data.Waypoints[1])
-	model:SetAttribute("CartWP2", data.Waypoints[2])
-	model:SetAttribute("CartWP3", data.Waypoints[3])
+	model:SetAttribute("CartStartPos", data.StartPos)
+	model:SetAttribute("CartEndPos", data.EndPos)
 	model:SetAttribute("CartDuration", 0)
 	model:SetAttribute("CartStartTime", 0)
 	
@@ -204,10 +202,7 @@ local function moveCart(player, targetState)
 		return 
 	end
 	
-	local dist = 0
-	if data.Waypoints then
-		dist = (data.Waypoints[1] - data.Waypoints[2]).Magnitude + (data.Waypoints[2] - data.Waypoints[3]).Magnitude
-	end
+	local dist = (data.EndPos - data.StartPos).Magnitude
 	
 	data.State = targetState
 	updateCartVisuals(data)

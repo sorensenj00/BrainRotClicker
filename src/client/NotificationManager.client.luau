@@ -325,6 +325,7 @@ local StorageUpdatedEvent = RemoteEvents:WaitForChild("StorageUpdated")
 local ItemSoldEvent = RemoteEvents:WaitForChild("ItemSold")
 local CartSoldEvent = RemoteEvents:WaitForChild("CartSold")
 local BackpackLoadedEvent = RemoteEvents:WaitForChild("BackpackLoaded")
+local ArtifactDroppedEvent = RemoteEvents:WaitForChild("ArtifactDropped")
 local StockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket")
 
 StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
@@ -376,6 +377,23 @@ BackpackLoadedEvent.OnClientEvent:Connect(function(itemId, count)
 		end
 		local msg = itemId and string.format("Loaded %dx %s onto transport", count, displayName) or string.format("Loaded %d items onto transport", count)
 		ShowToast(msg, "info", 3)
+	end
+end)
+
+ArtifactDroppedEvent.OnClientEvent:Connect(function(artifact)
+	if not artifact or not artifact.Name then return end
+
+	local rarity = artifact.Rarity or "Common"
+	
+	if rarity == "Legendary" or rarity == "Epic" then
+		-- Big banner for rare artifacts
+		local msg = string.format("🏆 RARE ARTIFACT FOUND: %s!", artifact.Name)
+		ShowBanner(msg, THEME.gold, 5)
+	else
+		-- Standard toast for normal artifacts
+		local msg = string.format("Found new artifact: %s", artifact.Name)
+		local typeKey = rarity == "Rare" and "gold" or "info"
+		ShowToast(msg, typeKey, 4)
 	end
 end)
 

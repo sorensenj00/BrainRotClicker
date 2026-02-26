@@ -84,8 +84,8 @@ local UI_CONFIG = {
 	THEME_TEXT_SECONDARY = Color3.fromRGB(170, 170, 190),
 	
 	-- Bottom bar
-	BOTTOM_BAR_BTN_SIZE = 48,
-	BOTTOM_BAR_PADDING = 12,
+	BOTTOM_BAR_BTN_SIZE = 56,
+	BOTTOM_BAR_PADDING = 16,
 }
 
 --------------------------------------------------------------------------------
@@ -311,11 +311,11 @@ local function createMoneyHUD(): ScreenGui
 	emptyLabel.Parent = holdingsList
 	
 	----------------------------------------------------------------------
-	-- BOTTOM CENTER ACTION BAR (7 buttons in a row)
+	-- BOTTOM CENTER ACTION BAR (3 buttons)
 	----------------------------------------------------------------------
 	local btnSize = UI_CONFIG.BOTTOM_BAR_BTN_SIZE
 	local btnPad = UI_CONFIG.BOTTOM_BAR_PADDING
-	local totalBarWidth = 8 * btnSize + 7 * btnPad + 24 -- + side padding for 8 buttons
+	local totalBarWidth = 3 * btnSize + 2 * btnPad + 24
 	
 	local bottomBar = Instance.new("Frame")
 	bottomBar.Name = "BottomBar"
@@ -367,63 +367,9 @@ local function createMoneyHUD(): ScreenGui
 		return btn
 	end
 	
-	-- 0. Build (Hammer) - Order 0 to be first? Or last? User said "a button down in the hotbar". 
-	-- Let's put it first or last. First is accessible.
-	createBarButton("BuildButton", "🔨", Color3.fromRGB(255, 140, 0), 0)
-	
-	-- 1. Shop
-	createBarButton("ShopButton", "🛒", UI_CONFIG.THEME_ACCENT_PURPLE, 1)
-	
-	-- 2. Brainrots (with 3D preview + badge)
-	local brainrotsBtn = createBarButton("BrainrotsButton", "", UI_CONFIG.THEME_ACCENT_PINK, 2)
-	
-	local viewport = Instance.new("ViewportFrame")
-	viewport.Size = UDim2.new(1, -6, 1, -6)
-	viewport.Position = UDim2.new(0, 3, 0, 3)
-	viewport.BackgroundTransparency = 1
-	viewport.Parent = brainrotsBtn
-	
-	local countBadge = Instance.new("TextLabel")
-	countBadge.Name = "CountBadge"
-	countBadge.Size = UDim2.new(0, 20, 0, 16)
-	countBadge.Position = UDim2.new(1, -18, 1, -14)
-	countBadge.BackgroundColor3 = Color3.fromRGB(60, 180, 100)
-	countBadge.Text = "0"
-	countBadge.TextColor3 = Color3.new(1, 1, 1)
-	countBadge.TextSize = 11
-	countBadge.Font = Enum.Font.GothamBold
-	countBadge.ZIndex = 10
-	countBadge.Parent = brainrotsBtn
-	addCorner(countBadge, 8)
-	
-	task.spawn(function()
-		local allModels = {}
-		if BrainrotsFolder then
-			for _, m in BrainrotsFolder:GetChildren() do
-				if m:IsA("Model") then table.insert(allModels, m) end
-			end
-		end
-		if #allModels > 0 then
-			local randomModel = allModels[math.random(1, #allModels)]:Clone()
-			randomModel.Parent = viewport
-			local cam = Instance.new("Camera")
-			cam.Parent = viewport
-			viewport.CurrentCamera = cam
-			local cf, size = randomModel:GetBoundingBox()
-			local maxDim = math.max(size.X, size.Y, size.Z)
-			local dist = maxDim * 1.5
-			cam.CFrame = CFrame.new(cf.Position + Vector3.new(dist, dist*0.5, dist), cf.Position)
-		end
-	end)
-	
-	-- 4. Backpack
-	createBarButton("BackpackButton", "🎒", UI_CONFIG.THEME_ACCENT_BLUE, 4)
-	-- 5. Storage
-	createBarButton("StorageButton", "📦", Color3.fromRGB(255, 100, 50), 5)
-	-- 6. Stock Market
-	createBarButton("StockButton", "📈", Color3.fromRGB(80, 200, 100), 6)
-	-- 7. Grand Exchange
-	createBarButton("ExchangeButton", "🏛️", Color3.fromRGB(250, 190, 60), 7)
+	createBarButton("BuildButton", "B", Color3.fromRGB(255, 140, 0), 1)
+	createBarButton("BackpackButton", "I", UI_CONFIG.THEME_ACCENT_BLUE, 2)
+	createBarButton("StockButton", "M", Color3.fromRGB(80, 200, 100), 3)
 	
 	return screenGui
 end
@@ -808,27 +754,10 @@ local function initialize()
 			end)
 		end
 
-		setupBtn("ShopButton", "ShopToggleEvent", nil,
-			UI_CONFIG.THEME_ACCENT_PURPLE, Color3.fromRGB(100, 80, 170))
-		
-		local shopBtn = bottomBar:FindFirstChild("ShopButton")
-		if shopBtn then
-			local shopToggle = ReplicatedStorage:FindFirstChild("ShopToggleEvent")
-			shopToggle.Event:Connect(function()
-				IsShopOpen = not IsShopOpen
-				TweenService:Create(shopBtn, TweenInfo.new(0.2), {
-					BackgroundColor3 = IsShopOpen and Color3.fromRGB(150, 100, 255) or UI_CONFIG.THEME_ACCENT_PURPLE
-				}):Play()
-			end)
-		end
-		setupBtn("BrainrotsButton", "BackpackToggleEvent", "Unit",
-			UI_CONFIG.THEME_ACCENT_PINK, Color3.fromRGB(170, 100, 190))
-		setupBtn("StorageButton", "StorageToggleEvent", nil,
-			Color3.fromRGB(255, 100, 50), Color3.fromRGB(255, 140, 100))
+		setupBtn("BackpackButton", "BackpackToggleEvent", "Storage",
+			UI_CONFIG.THEME_ACCENT_BLUE, Color3.fromRGB(100, 180, 255))
 		setupBtn("StockButton", "StockToggleEvent", nil,
 			Color3.fromRGB(80, 200, 100), Color3.fromRGB(100, 230, 130))
-		setupBtn("ExchangeButton", "ExchangeToggleEvent", nil,
-			Color3.fromRGB(250, 190, 60), Color3.fromRGB(255, 210, 100))
 	end
 	
 	----------------------------------------------------------------------

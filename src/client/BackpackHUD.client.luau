@@ -64,7 +64,7 @@ local UI_CONFIG = {
 local BackpackGui
 local BackpackVisible = false
 local CurrentItems = {}
-local CurrentFilter = "All" -- "All", "Unit", "Artifact", "Storage"
+local CurrentFilter = "Storage" -- "Storage", "Artifact"
 
 -- Storage state
 local CurrentStorageItems = {} -- {[itemId] = count}
@@ -875,7 +875,7 @@ local function createBackpackHUD()
 	header.Parent = panel
 	
 	local title = Instance.new("TextLabel")
-	title.Text = "🎒 BACKPACK"
+	title.Text = "INVENTORY"
 	title.Font = Enum.Font.GothamBold
 	title.TextSize = 24
 	title.TextColor3 = UI_CONFIG.COLOR_TEXT
@@ -916,7 +916,7 @@ local function createBackpackHUD()
 	local function createTab(name, filter)
 		local t = Instance.new("TextButton")
 		t.Text = name
-		t.Size = UDim2.new(0.25, 0, 1, 0)
+		t.Size = UDim2.new(0.5, 0, 1, 0)
 		t.BackgroundTransparency = 1
 		t.TextColor3 = UI_CONFIG.COLOR_TEXT
 		t.TextSize = 11
@@ -930,10 +930,8 @@ local function createBackpackHUD()
 		end)
 	end
 	
-	createTab("ALL", "All")
-	createTab("UNITS", "Unit")
+	createTab("ITEMS", "Storage")
 	createTab("ARTIFACTS", "Artifact")
-	createTab("STORAGE", "Storage")
 	
 	-- Grid Scroll
 	local scroll = Instance.new("ScrollingFrame")
@@ -1019,4 +1017,3 @@ end)
 
 -- Wait for storage updates
 -- Event handler is above
-

@@ -54,6 +54,7 @@ local stockMarketFolder = nil
 
 -- AMM Liquidity Pool State (local cache, authoritative = MemoryStore)
 local poolState = {}          -- { [sector] = { globalItems: number, globalCash: number } }
+local estimatedActiveServers = 1
 
 -- MemoryStore state
 local GlobalPoolMap = nil         -- MemoryStoreService sorted map for pool deltas
@@ -63,6 +64,11 @@ local nextReadTime = 0
 local nextWriteTime = 0
 local nextLocalUpdate = 0
 local lastReboundTick = os.clock() -- For elastic rebound delta-time
+local localRatesDirty = false
+local localRatesReplicationAccumulator = 0
+local LOCAL_RATES_REPLICATION_INTERVAL = 0.25 -- 4Hz max
+local LOCAL_REBOUND_EPSILON = 0.002 -- Align with 3dp serialization precision
+local lastLocalItemRatesJson = ""
 
 -- Legacy compatibility
 local ServerSalesBuffer = {}      -- Kept for AddSalesVolume backward compat
@@ -150,9 +156,21 @@ local function computeAMMRates()
 		local pool = poolState[sector]
 		if not pool then continue end
 
+		-- Global Mean Reversion (Self-Healing Market)
+		-- Simulates the outside world absorbing surplus supply and replenishing liquidity.
+		local itemDiff = CONFIG.VIRTUAL_ITEMS - pool.globalItems
+		local cashDiff = CONFIG.VIRTUAL_CASH - pool.globalCash
+
+		pool.globalItems = pool.globalItems + (itemDiff * CONFIG.RECOVERY_RATE * dt)
+		pool.globalCash = pool.globalCash + (cashDiff * CONFIG.RECOVERY_RATE * dt)
+
+		-- Ensure pools never hit unsafe lows.
+		pool.globalItems = math.max(pool.globalItems, CONFIG.VIRTUAL_ITEMS * 0.01)
+		pool.globalCash = math.max(pool.globalCash, CONFIG.VIRTUAL_CASH * 0.01)
+
 		-- AMM Core Formula
-		local items = math.max(pool.globalItems, 1)  -- Prevent division by zero
-		local cash = math.max(pool.globalCash, 0)
+		local items = pool.globalItems
+		local cash = pool.globalCash
 		local ammBaseRate = (cash / items) * CONFIG.CALIBRATION_CONSTANT
 
 		-- Get volatility from service (for visual jitter only)
@@ -162,7 +180,8 @@ local function computeAMMRates()
 		-- This keeps the market "alive" visually even when nobody trades
 		local totalVolume = math.abs(pool.globalItems - CONFIG.VIRTUAL_ITEMS) + math.abs(pool.globalCash - CONFIG.VIRTUAL_CASH)
 		if totalVolume < CONFIG.DEAD_MARKET_THRESHOLD then
-			ammBaseRate = ammBaseRate + (targetTrend - ammBaseRate) * (CONFIG.TREND_DAMPING * dt)
+			local clampedTargetTrend = math.clamp(targetTrend, CONFIG.MIN_RATE, CONFIG.MAX_RATE)
+			ammBaseRate = ammBaseRate + (clampedTargetTrend - ammBaseRate) * (CONFIG.TREND_DAMPING * dt)
 		end
 
 		-- Clamp the real base rate
@@ -327,9 +346,12 @@ local function replicateToClients()
 	local sum = 0; for _, r in pairs(sectorRates) do sum += r end
 	local avgRate = sum / #SECTORS
 
+	local localRatesJson = serializeLocalItemRates()
+	lastLocalItemRatesJson = localRatesJson
+	localRatesDirty = false
 	stockMarketFolder:SetAttribute("SectorRates", serializeSectorRates())
 	stockMarketFolder:SetAttribute("ItemRates", serializeItemRates())
-	stockMarketFolder:SetAttribute("LocalItemRates", serializeLocalItemRates())
+	stockMarketFolder:SetAttribute("LocalItemRates", localRatesJson)
 	stockMarketFolder:SetAttribute("SectorHistories", serializeSectorHistories())
 	stockMarketFolder:SetAttribute("Sectors", HttpService:JSONEncode(SECTORS))
 	stockMarketFolder:SetAttribute("SectorColors", HttpService:JSONEncode(MarketConfig.SECTOR_COLORS))
@@ -467,7 +489,7 @@ function StockMarketManager.Init(services)
 	stockMarketFolder:SetAttribute("NextUpdate", nextReadTime)
 
 	-- Main heartbeat loop
-	RunService.Heartbeat:Connect(function()
+	RunService.Heartbeat:Connect(function(dt)
 		local now2 = os.time()
 
 		if useGlobalPricing then
@@ -497,22 +519,37 @@ function StockMarketManager.Init(services)
 
 		-- ELASTIC REBOUND: Smoothly lerp localItemRates back towards global itemRates
 		local clockNow = os.clock()
-		local dt = clockNow - lastReboundTick
+		local reboundDt = clockNow - lastReboundTick
 		lastReboundTick = clockNow
-		local alpha = math.clamp(CONFIG.LOCAL_REBOUND_SPEED * dt, 0, 1)
+		local alpha = math.clamp(CONFIG.LOCAL_REBOUND_SPEED * reboundDt, 0, 1)
 		local changed = false
 		for itemId, localRate in pairs(localItemRates) do
 			local globalRate = itemRates[itemId] or 1.0
-			if math.abs(localRate - globalRate) > 0.001 then
+			if math.abs(localRate - globalRate) > LOCAL_REBOUND_EPSILON then
 				localItemRates[itemId] = localRate + (globalRate - localRate) * alpha
 				changed = true
 			else
 				localItemRates[itemId] = globalRate
 			end
 		end
-		-- Replicate local rates if they changed (throttled to ~4 updates/sec max)
 		if changed then
-			stockMarketFolder:SetAttribute("LocalItemRates", serializeLocalItemRates())
+			localRatesDirty = true
+		end
+
+		localRatesReplicationAccumulator += dt
+		if localRatesReplicationAccumulator < LOCAL_RATES_REPLICATION_INTERVAL then
+			return
+		end
+		localRatesReplicationAccumulator -= LOCAL_RATES_REPLICATION_INTERVAL
+
+		-- Replicate local rates at fixed cadence only when materially changed.
+		if localRatesDirty then
+			local localRatesJson = serializeLocalItemRates()
+			if localRatesJson ~= lastLocalItemRatesJson then
+				lastLocalItemRatesJson = localRatesJson
+				localRatesDirty = false
+				stockMarketFolder:SetAttribute("LocalItemRates", localRatesJson)
+			end
 		end
 	end)
 
@@ -597,8 +634,13 @@ end
 function StockMarketManager.ApplyLocalShock(itemId: string, volume: number, isBuy: boolean)
 	if not itemId or not volume or volume <= 0 then return end
 
+	local ItemConfig = require(ReplicatedStorage.Shared.ItemConfig)
+	local itemDef = ItemConfig.Items[itemId]
+	local basePrice = math.max((itemDef and itemDef.basePrice) or 1, 1)
+	local economicWeight = math.max(1, math.log10(basePrice))
+
 	local currentLocal = localItemRates[itemId] or itemRates[itemId] or 1.0
-	local shockMagnitude = volume * CONFIG.LOCAL_SHOCK_FACTOR
+	local shockMagnitude = volume * economicWeight * (CONFIG.LOCAL_SHOCK_FACTOR * 0.5)
 
 	local newRate
 	if isBuy then
@@ -606,13 +648,11 @@ function StockMarketManager.ApplyLocalShock(itemId: string, volume: number, isBu
 		newRate = currentLocal * (1 + shockMagnitude)
 	else
 		-- Selling drives LOCAL price DOWN (surplus)
-		newRate = currentLocal * (1 - math.min(shockMagnitude, 0.8)) -- Cap at 80% crash
+		newRate = currentLocal * (1 - math.min(shockMagnitude, 0.6)) -- Cap at 60% crash
 	end
 
 	localItemRates[itemId] = math.clamp(newRate, CONFIG.MIN_RATE * 0.5, CONFIG.MAX_RATE * 2)
-
-	-- Immediately replicate the shock to clients
-	stockMarketFolder:SetAttribute("LocalItemRates", serializeLocalItemRates())
+	localRatesDirty = true
 end
 
 --[[
@@ -629,7 +669,10 @@ function StockMarketManager.ForceLocalShock(isMoon: boolean)
 			localItemRates[itemId] = math.clamp(currentLocal * 0.3, CONFIG.MIN_RATE * 0.5, CONFIG.MAX_RATE)
 		end
 	end
-	stockMarketFolder:SetAttribute("LocalItemRates", serializeLocalItemRates())
+	local localRatesJson = serializeLocalItemRates()
+	lastLocalItemRatesJson = localRatesJson
+	localRatesDirty = false
+	stockMarketFolder:SetAttribute("LocalItemRates", localRatesJson)
 end
 
 return StockMarketManager

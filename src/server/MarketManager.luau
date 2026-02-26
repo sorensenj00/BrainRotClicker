@@ -277,7 +277,7 @@ function MarketManager.SellItem(player, itemId, count)
 	end
 	
 	-- Adjust AMM pool: items enter pool, cash leaves pool
-	adjustAMMPool(itemId, removed, -total)
+	adjustAMMPool(itemId, removed, -(total * 0.9))
 	
 	-- Apply local shock: selling crashes local price
 	applyLocalShock(itemId, removed, false)
@@ -388,7 +388,7 @@ function MarketManager.BuyItem(player, itemId, count)
 	end
 	
 	-- Adjust AMM pool: items leave pool, cash enters pool
-	adjustAMMPool(itemId, -actualAdded, totalCost)
+	adjustAMMPool(itemId, -(actualAdded * 0.9), totalCost)
 	
 	-- Apply local shock: buying spikes local price
 	applyLocalShock(itemId, actualAdded, true)
@@ -416,7 +416,7 @@ function MarketManager.SellCartContents(player, cartInventory)
 			earned += total
 			
 			-- Adjust AMM pool: items enter pool, cash leaves pool
-			adjustAMMPool(itemId, count, -total)
+			adjustAMMPool(itemId, count, -(total * 0.9))
 		end
 	end
 	
@@ -487,7 +487,7 @@ function MarketManager.ExecuteShortfallBuy(shortfallPerItem)
 	for itemId, data in pairs(shortfallPerItem) do
 		if data.missing and data.missing > 0 and data.rawCost and data.rawCost > 0 then
 			-- Items leave pool (bought), raw cash enters pool
-			adjustAMMPool(itemId, -data.missing, data.rawCost)
+			adjustAMMPool(itemId, -(data.missing * 0.9), data.rawCost)
 			
 			-- Spike local prices as if a massive buy order happened
 			applyLocalShock(itemId, data.missing, true)
@@ -566,7 +566,7 @@ function MarketManager.BuyToCart(player, itemId, count)
 	if actualLoaded <= 0 then return 0, 0 end
 	
 	-- Adjust AMM pool: items leave pool, cash enters pool
-	adjustAMMPool(itemId, -actualLoaded, totalCost)
+	adjustAMMPool(itemId, -(actualLoaded * 0.9), totalCost)
 	applyLocalShock(itemId, actualLoaded, true)
 	
 	-- Notify client
@@ -616,7 +616,7 @@ function MarketManager.SellFromCart(player, itemId, count)
 	end
 	
 	-- Adjust AMM pool: items enter pool, cash leaves pool
-	adjustAMMPool(itemId, removed, -total)
+	adjustAMMPool(itemId, removed, -(total * 0.9))
 	applyLocalShock(itemId, removed, false)
 	
 	-- Notify client

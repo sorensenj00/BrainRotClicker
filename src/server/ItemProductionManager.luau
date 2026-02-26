@@ -28,15 +28,10 @@ local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instanc
 RemoteEvents.Name = "RemoteEvents"
 RemoteEvents.Parent = ReplicatedStorage
 
-local ItemProducedEvent = RemoteEvents:FindFirstChild("ItemProduced") or Instance.new("RemoteEvent")
-ItemProducedEvent.Name = "ItemProduced"
-ItemProducedEvent.Parent = RemoteEvents
-
 local StorageFullEvent = RemoteEvents:FindFirstChild("StorageFull") or Instance.new("RemoteEvent")
 StorageFullEvent.Name = "StorageFull"
 StorageFullEvent.Parent = RemoteEvents
 
--- Constants
 local CONFIG = {
 	PRODUCTION_TICK = 1,
 	STORAGE_FULL_CHECK_INTERVAL = 5,
@@ -59,49 +54,39 @@ local function initPlayerCache(player)
 	PlayerCache[player] = {
 		SlotProduction = {},  -- [slotIndex] = { lastProd = timestamp }
 		lastStorageFullWarning = 0,
+		lastStorageSnapshot = nil,
+		lastStorageCapacity = nil,
 	}
+end
+
+local function cloneItemMap(items)
+	local clone = {}
+	for itemId, count in pairs(items) do
+		clone[itemId] = count
+	end
+	return clone
+end
+
+local function areItemMapsEqual(a, b)
+	if a == b then return true end
+	if not a or not b then return false end
+	for itemId, count in pairs(a) do
+		if b[itemId] ~= count then
+			return false
+		end
+	end
+	for itemId, count in pairs(b) do
+		if a[itemId] ~= count then
+			return false
+		end
+	end
+	return true
 end
 
 --------------------------------------------------------------------------------
 -- PRODUCTION HELPERS
 --------------------------------------------------------------------------------
 
--- Find the physical brainrot model for a given slot
-local function findUnitInSlot(player, slotIndex)
-	local plot = nil
-	local MapSystem = rawget(Services, "MapSystem")
-	if MapSystem and MapSystem.GetPlayerPlot then
-		plot = MapSystem.GetPlayerPlot(player)
-	end
-
-	if not plot then
-		local BrainrotManager = rawget(Services, "BrainrotManager")
-		if BrainrotManager then
-			plot = BrainrotManager.GetPlayerPlot(player)
-		end
-	end
-
-	if not plot then
-		local plotsFolder = workspace:FindFirstChild("Plots")
-		if plotsFolder then
-			for _, p in plotsFolder:GetChildren() do
-				if p:GetAttribute("OwnerId") == player.UserId then plot = p; break end
-			end
-		end
-	end
-
-	if not plot then return nil end
-
-	local brainrots = plot:FindFirstChild("Brainrots")
-	if brainrots then
-		for _, unit in brainrots:GetChildren() do
-			if unit:GetAttribute("GridSlot") == slotIndex then
-				return unit
-			end
-		end
-	end
-	return nil
-end
 
 local function calculateUnitBonuses(player, brainrot)
 	local bonuses = {
@@ -207,68 +192,29 @@ local function produceItems(player)
 		return
 	end
 	
-	-- 2. Get grid state
+	-- 2. Fetch O(1) Cache directly from GridManager
 	local GridManager = rawget(Services, "GridManager")
 	if not GridManager then return end
 	
-	local gridPositions = GridManager.GetGridPositions(player)
-	if not gridPositions then return end
+	local gridCache = GridManager.GetGridCache(player)
+	if not gridCache then return end
 	
 	local cache = PlayerCache[player]
 	if not cache then return end
 	
 	local now = tick()
-	local itemsProducedThisTick = {} -- Buffer for batching
+	local storageItems = cloneItemMap(ISM.GetStorageContents(player) or {})
 	local totalAdded = 0
 	
 	-- 3. Iterate each occupied slot
-	for slotKey, slotData in pairs(gridPositions) do
-		if slotData.Unit then
-			local slotIndex = tonumber(slotKey)
-			if not slotIndex then continue end
+	for slotIndex, slotData in pairs(gridCache) do
+		local unitModel = slotData.Unit
+		if unitModel then
+			local outputItemId = slotData.OutputItem
+			local outputRate = slotData.OutputRate
+			local consumes = slotData.Consumes
 			
-			local unitType = slotData.Unit.unitType
-			local level = slotData.Unit.level or 1
-			local currentMode = slotData.CurrentMode or 1
-			
-			if not unitType then continue end
-			
-			-- Determine what to produce
-			local outputItemId, outputRate, consumes
-			local synergy = checkClusterSynergy(gridPositions, slotIndex, unitType)
-			local unitModel = findUnitInSlot(player, slotIndex)
-			
-			if synergy then
-				-- Synergy active: only the primary unit (unitA) actually produces the composite item
-				if unitType == synergy.unitA then
-					local baseProd = ItemConfig.GetModeProduction(unitType, currentMode, level)
-					if baseProd then
-						outputItemId = synergy.synergyItem
-						outputRate = baseProd.rate / synergy.bonus -- Faster with synergy bonus
-						consumes = baseProd.consumes
-					end
-				elseif unitType == synergy.unitB then
-					-- This is the secondary unit providing the synergy.
-					-- It does not produce anything itself.
-					-- We still update its attributes so the HUD shows its status
-					if unitModel then
-						unitModel:SetAttribute("LastProductionTime", now)
-						unitModel:SetAttribute("IncomeInterval", 9999) -- effectively paused
-						unitModel:SetAttribute("CurrentProducing", "SYNERGY_PROVIDER")
-					end
-					continue
-				end
-			else
-				-- Normal: produce selected mode item
-				local prod = ItemConfig.GetModeProduction(unitType, currentMode, level)
-				if prod then
-					outputItemId = prod.itemId
-					outputRate = prod.rate
-					consumes = prod.consumes
-				end
-			end
-			
-			if not outputItemId or not outputRate then continue end
+			if not outputItemId or not outputRate or outputItemId == "SYNERGY_PROVIDER" then continue end
 			
 			-- Apply tile/artifact bonuses
 			local bonuses = calculateUnitBonuses(player, unitModel)
@@ -282,10 +228,9 @@ local function produceItems(player)
 			local slotState = cache.SlotProduction[slotIndex]
 			
 			if now - slotState.lastProd >= adjustedRate then
-				-- NEW: Check and consume crafting requirements
+				-- Check and consume crafting requirements
 				local canConsume = true
 				if consumes then
-					local storageItems = ISM.GetStorageContents(player)
 					for reqId, reqCount in pairs(consumes) do
 						if (storageItems[reqId] or 0) < reqCount then
 							canConsume = false
@@ -294,6 +239,10 @@ local function produceItems(player)
 					end
 					if canConsume then
 						for reqId, reqCount in pairs(consumes) do
+							storageItems[reqId] = (storageItems[reqId] or 0) - reqCount
+							if storageItems[reqId] <= 0 then
+								storageItems[reqId] = nil
+							end
 							ISM.RemoveFromStorage(player, reqId, reqCount)
 						end
 					end
@@ -304,18 +253,14 @@ local function produceItems(player)
 				-- SILENT ADD: Pass true to suppress immediate event firing
 				local added = ISM.AddToStorage(player, outputItemId, 1, true)
 				if added > 0 then
+					storageItems[outputItemId] = (storageItems[outputItemId] or 0) + added
 					slotState.lastProd = now
 					
 					-- Batch the event data
-					itemsProducedThisTick[outputItemId] = (itemsProducedThisTick[outputItemId] or 0) + 1
 					totalAdded += 1
 					
 					-- Update physical unit with production timestamp
-					if unitModel then
-						unitModel:SetAttribute("LastProductionTime", now)
-						unitModel:SetAttribute("IncomeInterval", adjustedRate)
-						unitModel:SetAttribute("CurrentProducing", outputItemId)
-					end
+					unitModel:SetAttribute("LastProductionTime", now)
 					
 					-- Artifact Drop Roll
 					tryArtifactDrop(player, bonuses)
@@ -326,20 +271,19 @@ local function produceItems(player)
 	
 	-- BATCH FIRE: Send exactly ONE remote event per second for all production
 	if totalAdded > 0 then
-		-- Update the client's popups all at once (or sequentially if the client expects single items, but here we iterate keys)
-		for itemId, count in pairs(itemsProducedThisTick) do
-			ItemProducedEvent:FireClient(player, itemId, count)
-		end
-		
-		-- Force one master storage update instead of many
-		local storageContents = ISM.GetStorageContents(player)
 		local currentTotal = 0
-		for _, c in pairs(storageContents) do currentTotal += c end
+		for _, c in pairs(storageItems) do currentTotal += c end
 		local capacity = ISM.GetStorageCapacity(player)
 		
-		local StorageUpdatedEvent = ReplicatedStorage:FindFirstChild("RemoteEvents") and ReplicatedStorage.RemoteEvents:FindFirstChild("StorageUpdated")
-		if StorageUpdatedEvent then
-			StorageUpdatedEvent:FireClient(player, storageContents, currentTotal, capacity)
+		local storageChanged = not areItemMapsEqual(storageItems, cache.lastStorageSnapshot)
+		local capacityChanged = cache.lastStorageCapacity ~= capacity
+		if storageChanged or capacityChanged then
+			cache.lastStorageSnapshot = cloneItemMap(storageItems)
+			cache.lastStorageCapacity = capacity
+			local StorageUpdatedEvent = ReplicatedStorage:FindFirstChild("RemoteEvents") and ReplicatedStorage.RemoteEvents:FindFirstChild("StorageUpdated")
+			if StorageUpdatedEvent then
+				StorageUpdatedEvent:FireClient(player, storageItems, currentTotal, capacity)
+			end
 		end
 	end
 end
@@ -404,19 +348,24 @@ function ItemProductionManager.RefreshUnitAttributes(player: Player)
 	local gridPositions = GridManager.GetGridPositions(player)
 	if not gridPositions then return end
 	
+	local gridCache = GridManager.GetGridCache(player)
+
 	_loadConfigs()
 	local _now = tick()
 	
 	for slotKey, slotData in pairs(gridPositions) do
 		local slotIndex = tonumber(slotKey)
-		local unitModel = findUnitInSlot(player, slotIndex)
+		local unitModel = nil
+		if gridCache and gridCache[slotIndex] then
+			unitModel = gridCache[slotIndex].Unit
+		end
 		if not unitModel then continue end
 		
 		local unitType = slotData.Unit.unitType
 		local level = slotData.Unit.level or 1
 		local currentMode = slotData.CurrentMode or 1
 		
-		local outputItemId, outputRate
+		local outputItemId, outputRate, consumes
 		local synergy = checkClusterSynergy(gridPositions, slotIndex, unitType)
 		
 		if synergy then
@@ -425,6 +374,7 @@ function ItemProductionManager.RefreshUnitAttributes(player: Player)
 				if baseProd then
 					outputItemId = synergy.synergyItem
 					outputRate = baseProd.rate / synergy.bonus
+					consumes = baseProd.consumes
 				end
 			elseif unitType == synergy.unitB then
 				outputItemId = "SYNERGY_PROVIDER"
@@ -435,7 +385,15 @@ function ItemProductionManager.RefreshUnitAttributes(player: Player)
 			if prod then
 				outputItemId = prod.itemId
 				outputRate = prod.rate
+				consumes = prod.consumes
 			end
+		end
+
+		-- Store in GridCache so produceItems() reads it instantly
+		if gridCache and gridCache[slotIndex] then
+			gridCache[slotIndex].OutputItem = outputItemId
+			gridCache[slotIndex].OutputRate = outputRate
+			gridCache[slotIndex].Consumes = consumes
 		end
 		
 		if outputItemId and outputRate then

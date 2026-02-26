@@ -20,6 +20,7 @@ local Players = game:GetService("Players")
 local CollectionService = game:GetService("CollectionService")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 -- Get player
 local LocalPlayer = Players.LocalPlayer
@@ -38,7 +39,6 @@ local PROJECTILE_CONFIG = {
 	-- Projectile flight settings
 	FLIGHT_TIME = 0.5,              -- Seconds to reach Storage (LOWER = FASTER)
 	ARC_HEIGHT = 8,                 -- Studs above midpoint for arc peak
-	STEPS = 30,                     -- Number of bezier curve samples (smoothness)
 	
 	-- Projectile appearance
 	SIZE = Vector3.new(0.8, 0.8, 0.8),
@@ -55,17 +55,20 @@ local PROJECTILE_CONFIG = {
 	PARTICLE_SPEED = 15,            -- Particle velocity
 	
 	-- Performance
-	MAX_PROJECTILES = 100,          -- Max concurrent projectiles (prevents lag)
+	POOL_SIZE = 50,          -- Max concurrent projectiles (prevents lag)
 }
-
--- Track active projectiles for performance limiting
-local activeProjectileCount = 0
 
 -- Track unit loops (to clean up when units are removed)
 local unitLoops: {[Instance]: thread} = {}
 
 -- Cache true original sizes for storage parts to prevent size drift
 local storageOriginalSizes: {[BasePart]: Vector3} = {}
+
+-- Object Pooling
+local projectilePool = {}
+local activeProjectiles = {}
+local sharedImpactPart: BasePart = nil :: any
+local sharedImpactEmitter: ParticleEmitter = nil :: any
 
 -- ============================================================================
 -- MATH HELPER: BEZIER CURVE
@@ -250,42 +253,17 @@ local function playSquashAnimation(storage: BasePart)
 end
 
 --[[
-	Spawns impact particles at the collision point.
+	Spawns impact particles at the collision point using a shared pool emitter.
 	
 	@param position Vector3 - Where to spawn particles
 	@param color Color3 - Color of the particles
 ]]
 local function spawnImpactParticles(position: Vector3, color: Color3)
-	-- Create a temporary part for the particle emitter
-	local particlePart = Instance.new("Part")
-	particlePart.Size = Vector3.new(0.1, 0.1, 0.1)
-	particlePart.Position = position
-	particlePart.Anchored = true
-	particlePart.CanCollide = false
-	particlePart.Transparency = 1
-	particlePart.Parent = workspace
+	if not sharedImpactPart or not sharedImpactEmitter then return end
 	
-	-- Create particle emitter
-	local emitter = Instance.new("ParticleEmitter")
-	emitter.Color = ColorSequence.new(color)
-	emitter.Size = NumberSequence.new({
-		NumberSequenceKeypoint.new(0, 0.5),
-		NumberSequenceKeypoint.new(1, 0)
-	})
-	emitter.Lifetime = NumberRange.new(PROJECTILE_CONFIG.PARTICLE_LIFETIME * 0.5, PROJECTILE_CONFIG.PARTICLE_LIFETIME)
-	emitter.Speed = NumberRange.new(PROJECTILE_CONFIG.PARTICLE_SPEED * 0.5, PROJECTILE_CONFIG.PARTICLE_SPEED)
-	emitter.SpreadAngle = Vector2.new(360, 360)
-	emitter.Acceleration = Vector3.new(0, -30, 0) -- Gravity
-	emitter.Rate = 0 -- We'll use Emit() instead
-	emitter.Parent = particlePart
-	
-	-- Burst particles
-	emitter:Emit(PROJECTILE_CONFIG.PARTICLE_COUNT)
-	
-	-- Clean up after particles fade
-	task.delay(PROJECTILE_CONFIG.PARTICLE_LIFETIME + 0.1, function()
-		particlePart:Destroy()
-	end)
+	sharedImpactPart.Position = position
+	sharedImpactEmitter.Color = ColorSequence.new(color)
+	sharedImpactEmitter:Emit(PROJECTILE_CONFIG.PARTICLE_COUNT)
 end
 
 -- ============================================================================
@@ -294,6 +272,7 @@ end
 
 --[[
 	Creates and animates a projectile from a unit to its storage.
+	Uses object pooling.
 	
 	@param startPos Vector3 - Starting position (unit)
 	@param endPos Vector3 - Ending position (storage)
@@ -301,66 +280,74 @@ end
 	@param storage BasePart - The storage part (for impact effects)
 ]]
 local function fireProjectile(startPos: Vector3, endPos: Vector3, color: Color3, storage: BasePart)
-	-- Performance check
-	if activeProjectileCount >= PROJECTILE_CONFIG.MAX_PROJECTILES then
-		return
+	local poolCount = #projectilePool
+	if poolCount == 0 then
+		return -- Ignore if pool is empty
 	end
+	
+	local projectile = projectilePool[poolCount]
+	projectilePool[poolCount] = nil
 	
 	-- Calculate dynamic arc height based on distance and elevation
 	local arcHeight = calculateDynamicArcHeight(startPos, endPos)
 	
-	activeProjectileCount = activeProjectileCount + 1
-	
-	-- Create the projectile part
-	local projectile = Instance.new("Part")
-	projectile.Name = "IncomeProjectile"
-	projectile.Size = PROJECTILE_CONFIG.SIZE
-	projectile.Shape = PROJECTILE_CONFIG.SHAPE
-	projectile.Material = PROJECTILE_CONFIG.MATERIAL
+	-- Visual Setup
 	projectile.Color = color
-	projectile.Transparency = PROJECTILE_CONFIG.TRANSPARENCY
-	projectile.Anchored = true
-	projectile.CanCollide = false
-	projectile.CastShadow = false
 	projectile.Position = startPos
-	projectile.Parent = workspace
+	projectile.Transparency = PROJECTILE_CONFIG.TRANSPARENCY
+	local light = projectile:FindFirstChildWhichIsA("PointLight")
+	if light then
+		light.Color = color
+		light.Enabled = true
+	end
 	
-	-- Add a subtle glow effect
-	local pointLight = Instance.new("PointLight")
-	pointLight.Color = color
-	pointLight.Range = 3
-	pointLight.Brightness = 0.5
-	pointLight.Parent = projectile
-	
-	-- Animate along bezier curve
-	local stepTime = PROJECTILE_CONFIG.FLIGHT_TIME / PROJECTILE_CONFIG.STEPS
-	
-	task.spawn(function()
-		for i = 1, PROJECTILE_CONFIG.STEPS do
-			local t = i / PROJECTILE_CONFIG.STEPS
-			local newPos = sampleBezier(startPos, endPos, arcHeight, t)
-			
-			-- Use TweenService for smooth interpolation between steps
-			local tween = TweenService:Create(
-				projectile,
-				TweenInfo.new(stepTime, Enum.EasingStyle.Linear),
-				{Position = newPos}
-			)
-			tween:Play()
-			tween.Completed:Wait()
-		end
-		
-		-- Projectile reached storage - play impact effects
-		task.spawn(function()
-			playSquashAnimation(storage)
-		end)
-		spawnImpactParticles(endPos, color)
-		
-		-- Cleanup
-		projectile:Destroy()
-		activeProjectileCount = activeProjectileCount - 1
-	end)
+	table.insert(activeProjectiles, {
+		projectile = projectile,
+		startPos = startPos,
+		endPos = endPos,
+		arcHeight = arcHeight,
+		color = color,
+		storage = storage,
+		flightTime = 0
+	})
 end
+
+-- Efficient RenderStepped loop for all projectiles
+RunService.RenderStepped:Connect(function(dt)
+	for i = #activeProjectiles, 1, -1 do
+		local data = activeProjectiles[i]
+		data.flightTime += dt
+		
+		local t = data.flightTime / PROJECTILE_CONFIG.FLIGHT_TIME
+		if t >= 1 then
+			-- Reached target
+			local proj = data.projectile
+			proj.Transparency = 1
+			proj.Position = Vector3.yAxis * -100
+			
+			local light = proj:FindFirstChildWhichIsA("PointLight")
+			if light then
+				light.Enabled = false
+			end
+			
+			table.insert(projectilePool, proj)
+			
+			-- Impact
+			if data.storage and data.storage.Parent then
+				task.spawn(function()
+					playSquashAnimation(data.storage)
+				end)
+			end
+			spawnImpactParticles(data.endPos, data.color)
+			
+			table.remove(activeProjectiles, i)
+		else
+			-- Move
+			local newPos = sampleBezier(data.startPos, data.endPos, data.arcHeight, t)
+			data.projectile.Position = newPos
+		end
+	end
+end)
 
 -- ============================================================================
 -- UNIT LOOP MANAGEMENT
@@ -458,9 +445,60 @@ end
 
 local function initialize()
 	print("═══════════════════════════════════════════")
-	print("   ProjectileVisuals - Initializing")
+	print("   ProjectileVisuals - Initializing (Pooled)")
 	print("═══════════════════════════════════════════")
 	
+	-- Init Impact Emitter Pool Part
+	sharedImpactPart = Instance.new("Part")
+	sharedImpactPart.Name = "SharedImpactEmitter"
+	sharedImpactPart.Size = Vector3.new(0.1, 0.1, 0.1)
+	sharedImpactPart.Position = Vector3.yAxis * -100
+	sharedImpactPart.Anchored = true
+	sharedImpactPart.CanCollide = false
+	sharedImpactPart.Transparency = 1
+	sharedImpactPart.Parent = workspace
+	
+	sharedImpactEmitter = Instance.new("ParticleEmitter")
+	sharedImpactEmitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.5),
+		NumberSequenceKeypoint.new(1, 0)
+	})
+	sharedImpactEmitter.Lifetime = NumberRange.new(PROJECTILE_CONFIG.PARTICLE_LIFETIME * 0.5, PROJECTILE_CONFIG.PARTICLE_LIFETIME)
+	sharedImpactEmitter.Speed = NumberRange.new(PROJECTILE_CONFIG.PARTICLE_SPEED * 0.5, PROJECTILE_CONFIG.PARTICLE_SPEED)
+	sharedImpactEmitter.SpreadAngle = Vector2.new(360, 360)
+	sharedImpactEmitter.Acceleration = Vector3.new(0, -30, 0)
+	sharedImpactEmitter.Rate = 0
+	sharedImpactEmitter.Parent = sharedImpactPart
+	
+	-- Init Projectile Pool
+	local poolFolder = Instance.new("Folder")
+	poolFolder.Name = "ProjectilePool"
+	poolFolder.Parent = workspace
+	
+	for i = 1, PROJECTILE_CONFIG.POOL_SIZE do
+		local projectile = Instance.new("Part")
+		projectile.Name = "PooledProjectile"
+		projectile.Size = PROJECTILE_CONFIG.SIZE
+		projectile.Shape = PROJECTILE_CONFIG.SHAPE
+		projectile.Material = PROJECTILE_CONFIG.MATERIAL
+		projectile.Color = PROJECTILE_CONFIG.DEFAULT_COLOR
+		projectile.Transparency = 1
+		projectile.Anchored = true
+		projectile.CanCollide = false
+		projectile.CastShadow = false
+		projectile.Position = Vector3.yAxis * -100
+		
+		local pointLight = Instance.new("PointLight")
+		pointLight.Color = PROJECTILE_CONFIG.DEFAULT_COLOR
+		pointLight.Range = 3
+		pointLight.Brightness = 0.5
+		pointLight.Enabled = false
+		pointLight.Parent = projectile
+		
+		projectile.Parent = poolFolder
+		table.insert(projectilePool, projectile)
+	end
+
 	-- Handle existing brainrots
 	for _, brainrot in CollectionService:GetTagged(BRAINROT_TAG) do
 		task.spawn(startUnitLoop, brainrot)

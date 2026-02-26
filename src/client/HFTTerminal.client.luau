@@ -423,48 +423,53 @@ end
 -- ASSET ROW (Left Column)
 --------------------------------------------------------------------------------
 
-local function createAssetRow(parent, itemId, count)
-	local itemInfo = ItemConfig.Items[itemId] or {}
-	local rate = getLocalRate(itemId)
-	local _trending = rate >= 1.0
-	local isArb = isArbOpportunity(itemId)
+local function getOrCreateAssetRow(parent, index)
+	local rowName = "AssetRow_" .. index
+	local row = parent:FindFirstChild(rowName)
+	if row then return row end
 
-	local row = Instance.new("TextButton")
-	row.Name = "Asset_" .. itemId
+	row = Instance.new("TextButton")
+	row.Name = rowName
 	row.Size = UDim2.new(1, -4, 0, 30)
-	row.BackgroundColor3 = isArb and Color3.fromRGB(40, 35, 15) or C.dimBg
 	row.BackgroundTransparency = 0.2
 	row.BorderSizePixel = 0
 	row.Text = ""
 	row.AutoButtonColor = false
+	row.LayoutOrder = index
 	row.Parent = parent
 	addCorner(row, UDim.new(0, 4))
 
 	-- Icon
-	makeLabel(row, { Name = "Icon", Text = itemInfo.icon or "?", Font = FONT_REG, Size = 12,
+	makeLabel(row, { Name = "Icon", Text = "?", Font = FONT_REG, Size = 12,
 		UDim2Size = UDim2.new(0, 18, 1, 0), Position = UDim2.new(0, 5, 0, 0) })
 
 	-- Name
-	makeLabel(row, { Name = "Name", Text = itemInfo.displayName or itemId, Color = C.white, Font = FONT_REG, Size = 10,
+	makeLabel(row, { Name = "ItemName", Text = "Item", Color = C.white, Font = FONT_REG, Size = 10,
 		UDim2Size = UDim2.new(1, -130, 1, 0), Position = UDim2.new(0, 24, 0, 0) })
 
 	-- Qty
-	makeLabel(row, { Name = "Qty", Text = "×" .. count, Color = C.amber, Font = FONT_MONO, Size = 10,
+	makeLabel(row, { Name = "Qty", Text = "×0", Color = C.amber, Font = FONT_MONO, Size = 10,
 		UDim2Size = UDim2.new(0, 35, 1, 0), Position = UDim2.new(1, -100, 0, 0), XAlign = Enum.TextXAlignment.Right })
 
 	-- Price
-	makeLabel(row, { Name = "Price", Text = formatMoney(getLocalPrice(itemId)), Color = C.muted, Font = FONT_MONO, Size = 10,
+	makeLabel(row, { Name = "Price", Text = "$0", Color = C.muted, Font = FONT_MONO, Size = 10,
 		UDim2Size = UDim2.new(0, 60, 1, 0), Position = UDim2.new(1, -60, 0, 0), XAlign = Enum.TextXAlignment.Right })
 
 	-- Arb indicator
-	if isArb then
-		makeLabel(row, { Name = "ArbDot", Text = "⚡", Font = FONT_REG, Size = 10,
-			Color = C.arbFlash, UDim2Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -4, 0, 0) })
-	end
+	local arbDot = makeLabel(row, { Name = "ArbDot", Text = "⚡", Font = FONT_REG, Size = 10,
+		Color = C.arbFlash, UDim2Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -4, 0, 0) })
+	arbDot.Visible = false
+
+	local idValue = Instance.new("StringValue")
+	idValue.Name = "ItemId"
+	idValue.Parent = row
 
 	row.MouseButton1Click:Connect(function()
-		inspectedItem = itemId
-		updateInspector()
+		local id = row:FindFirstChild("ItemId")
+		if id and id.Value ~= "" then
+			inspectedItem = id.Value
+			updateInspector()
+		end
 	end)
 
 	row.MouseEnter:Connect(function()
@@ -475,6 +480,32 @@ local function createAssetRow(parent, itemId, count)
 	end)
 
 	return row
+end
+
+local function updateAssetRow(row, itemId, count)
+	local itemInfo = ItemConfig.Items[itemId] or {}
+	local isArb = isArbOpportunity(itemId)
+
+	local idValue = row:FindFirstChild("ItemId")
+	if idValue then idValue.Value = itemId end
+
+	row.BackgroundColor3 = isArb and Color3.fromRGB(40, 35, 15) or C.dimBg
+	row.Visible = true
+
+	local icon = row:FindFirstChild("Icon")
+	if icon then icon.Text = itemInfo.icon or "?" end
+
+	local name = row:FindFirstChild("ItemName")
+	if name then name.Text = itemInfo.displayName or itemId end
+
+	local qty = row:FindFirstChild("Qty")
+	if qty then qty.Text = "×" .. count end
+
+	local price = row:FindFirstChild("Price")
+	if price then price.Text = formatMoney(getLocalPrice(itemId)) end
+
+	local arbDot = row:FindFirstChild("ArbDot")
+	if arbDot then arbDot.Visible = isArb end
 end
 
 --------------------------------------------------------------------------------
@@ -868,9 +899,11 @@ end
 function updateLeftColumn()
 	if not leftScroll then return end
 
-	-- Clear
+	-- Hide all existing (Object Pooling)
 	for _, child in leftScroll:GetChildren() do
-		if child:IsA("TextButton") then child:Destroy() end
+		if child:IsA("TextButton") and string.match(child.Name, "^AssetRow_") then
+			child.Visible = false
+		end
 	end
 
 	-- Populate sorted by count (from CART inventory)
@@ -891,8 +924,9 @@ function updateLeftColumn()
 	end)
 
 	local totalAssetValue = 0
-	for _, item in ipairs(sorted) do
-		createAssetRow(leftScroll, item.id, item.count)
+	for i, item in ipairs(sorted) do
+		local row = getOrCreateAssetRow(leftScroll, i)
+		updateAssetRow(row, item.id, item.count)
 		totalAssetValue += getLocalPrice(item.id) * item.count
 	end
 

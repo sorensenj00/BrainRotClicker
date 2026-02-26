@@ -227,36 +227,23 @@ end
 
 
 local function refreshCache()
-	local cfg = getConfig()
 	local allListings = {}
-	local exclusiveLowerBound = nil
-	local hasMore = true
 	local success, err = pcall(function()
-		while hasMore do
-			local data = ExchangeMap:GetRangeAsync(
-				Enum.SortDirection.Ascending,
-				200, -- Maximum limit per GetRangeAsync call
-				exclusiveLowerBound
-			)
-			for _, entry in ipairs(data) do
-				-- Parse the JSON exactly once when the server fetches it
-				local ok, listing = pcall(HttpService.JSONDecode, HttpService, entry.value)
-				if ok and listing then
-					local artifact = deserializeArtifact(listing.ArtifactData)
-					if artifact then
-						table.insert(allListings, {
-							key = entry.key,
-							listing = listing,
-							artifact = artifact,
-						})
-					end
+		local data = ExchangeMap:GetRangeAsync(
+			Enum.SortDirection.Ascending,
+			20 -- Limit to 20 cheapest items instead of fetching all
+		)
+		for _, entry in ipairs(data) do
+			local ok, listing = pcall(HttpService.JSONDecode, HttpService, entry.value)
+			if ok and listing then
+				local artifact = deserializeArtifact(listing.ArtifactData)
+				if artifact then
+					table.insert(allListings, {
+						key = entry.key,
+						listing = listing,
+						artifact = artifact,
+					})
 				end
-			end
-			
-			if #data < 200 or #allListings >= cfg.MAX_CACHED_LISTINGS then
-				hasMore = false
-			else
-				exclusiveLowerBound = data[#data].key
 			end
 		end
 	end)
@@ -666,35 +653,81 @@ function ArtifactExchangeManager.GetListings(_player, filters)
 	local filterMaxPrice = type(safeFilters.maxPrice) == "number" and safeFilters.maxPrice or nil
 	local sortBy = type(safeFilters.sortBy) == "string" and safeFilters.sortBy or nil
 
-	for _, cached in ipairs(MarketCache) do
-		local listing = cached.listing
-		local artifact = cached.artifact
-		if listing and artifact then
-			local listingPrice = type(listing.Price) == "number" and listing.Price or 0
-			local include = true
+	local hasFilters = (filterSlot and filterSlot ~= "All")
+		or (filterRarity and filterRarity ~= "All")
+		or filterSearch ~= ""
+		or filterMinPrice
+		or filterMaxPrice
 
-			-- Apply filters
-			if filterSlot and filterSlot ~= "All" and artifact.Slot ~= filterSlot then
-				include = false
-			end
-			if filterRarity and filterRarity ~= "All" and artifact.Rarity ~= filterRarity then
-				include = false
-			end
-			if filterSearch ~= "" then
-				local searchLower = string.lower(filterSearch)
-				local nameLower = string.lower(artifact.Name or "")
-				if not string.find(nameLower, searchLower, 1, true) then
-					include = false
+	if hasFilters then
+		-- Search MemoryStore directly, bounded to avoid quota exhaustion
+		local exclusiveLowerBound = nil
+		local hasMore = true
+		local maxResults = 20
+		local fetchAttempts = 0
+		local maxFetches = 10 -- Cap at 1000 items scanned
+
+		pcall(function()
+			while hasMore and #results < maxResults and fetchAttempts < maxFetches do
+				fetchAttempts += 1
+				local data = ExchangeMap:GetRangeAsync(Enum.SortDirection.Ascending, 100, exclusiveLowerBound)
+				
+				for _, entry in ipairs(data) do
+					local ok, listing = pcall(HttpService.JSONDecode, HttpService, entry.value)
+					if ok and listing then
+						local artifact = deserializeArtifact(listing.ArtifactData)
+						if artifact then
+							local listingPrice = type(listing.Price) == "number" and listing.Price or 0
+							local include = true
+
+							if filterSlot and filterSlot ~= "All" and artifact.Slot ~= filterSlot then include = false end
+							if filterRarity and filterRarity ~= "All" and artifact.Rarity ~= filterRarity then include = false end
+							if filterSearch ~= "" then
+								local searchLower = string.lower(filterSearch)
+								local nameLower = string.lower(artifact.Name or "")
+								if not string.find(nameLower, searchLower, 1, true) then include = false end
+							end
+							if filterMaxPrice and listingPrice > filterMaxPrice then include = false end
+							if filterMinPrice and listingPrice < filterMinPrice then include = false end
+
+							if include then
+								table.insert(results, {
+									ListingGUID = listing.ListingGUID or entry.key,
+									Price = listingPrice,
+									SellerName = listing.SellerName,
+									SellerId = listing.SellerId,
+									Timestamp = listing.Timestamp,
+									Artifact = {
+										GUID = artifact.GUID,
+										Name = artifact.Name,
+										BaseId = artifact.BaseId,
+										BaseName = artifact.BaseName,
+										BaseIcon = artifact.BaseIcon,
+										Slot = artifact.Slot,
+										Rarity = artifact.Rarity,
+										Affixes = artifact.Affixes,
+									},
+								})
+								if #results >= maxResults then break end
+							end
+						end
+					end
+				end
+
+				if #data < 100 or #results >= maxResults then
+					hasMore = false
+				else
+					exclusiveLowerBound = data[#data].key
 				end
 			end
-			if filterMaxPrice and listingPrice > filterMaxPrice then
-				include = false
-			end
-			if filterMinPrice and listingPrice < filterMinPrice then
-				include = false
-			end
-
-			if include then
+		end)
+	else
+		-- No filters applied, return cached latest listings (up to 20)
+		for _, cached in ipairs(MarketCache) do
+			local listing = cached.listing
+			local artifact = cached.artifact
+			if listing and artifact then
+				local listingPrice = type(listing.Price) == "number" and listing.Price or 0
 				table.insert(results, {
 					ListingGUID = listing.ListingGUID or cached.key,
 					Price = listingPrice,
@@ -722,7 +755,8 @@ function ArtifactExchangeManager.GetListings(_player, filters)
 	elseif sortBy == "Newest" then
 		table.sort(results, function(a, b) return (a.Timestamp or 0) > (b.Timestamp or 0) end)
 	else
-		-- Default: price ascending (already sorted by MemoryStore sortKey)
+		-- Default: price ascending
+		table.sort(results, function(a, b) return a.Price < b.Price end)
 	end
 
 	return results

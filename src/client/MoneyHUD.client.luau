@@ -579,9 +579,11 @@ local function updateHoldingsDisplay()
 	local holdingsList = hudPanel:FindFirstChild("HoldingsList")
 	if not holdingsList then return end
 	
-	-- Clear old rows (keep EmptyLabel)
+	-- Hide old rows instead of destroying (Object Pooling)
 	for _, child in holdingsList:GetChildren() do
-		if child:IsA("Frame") then child:Destroy() end
+		if child:IsA("Frame") and string.sub(child.Name, 1, 3) == "Row" then
+			child.Visible = false
+		end
 	end
 	
 	local emptyLabel = holdingsList:FindFirstChild("EmptyLabel")
@@ -623,79 +625,106 @@ local function updateHoldingsDisplay()
 	for i = 1, math.min(UI_CONFIG.MAX_HOLDINGS_ROWS, #sortedItems) do
 		local data = sortedItems[i]
 		
-		local row = Instance.new("Frame")
-		row.Name = "Row" .. i
-		row.Size = UDim2.new(1, 0, 0, UI_CONFIG.ROW_HEIGHT)
-		row.BackgroundTransparency = 1
+		local row = holdingsList:FindFirstChild("Row" .. i)
+		if not row then
+			row = Instance.new("Frame")
+			row.Name = "Row" .. i
+			row.Size = UDim2.new(1, 0, 0, UI_CONFIG.ROW_HEIGHT)
+			row.BackgroundTransparency = 1
+			row.LayoutOrder = i
+			row.Parent = holdingsList
+			
+			-- Icon
+			local iconLabel = Instance.new("TextLabel")
+			iconLabel.Name = "Icon"
+			iconLabel.Size = UDim2.new(0, 18, 1, 0)
+			iconLabel.Position = UDim2.new(0, 0, 0, 0)
+			iconLabel.BackgroundTransparency = 1
+			iconLabel.TextSize = 12
+			iconLabel.Font = Enum.Font.Gotham
+			iconLabel.Parent = row
+			
+			-- Name (truncated)
+			local nameLabel = Instance.new("TextLabel")
+			nameLabel.Name = "ItemName"
+			nameLabel.Size = UDim2.new(0, 60, 1, 0)
+			nameLabel.Position = UDim2.new(0, 20, 0, 0)
+			nameLabel.BackgroundTransparency = 1
+			nameLabel.TextColor3 = UI_CONFIG.HOLDINGS_NAME_COLOR
+			nameLabel.TextSize = 10
+			nameLabel.Font = Enum.Font.Gotham
+			nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+			nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+			nameLabel.Parent = row
+			
+			-- Count
+			local countLabel = Instance.new("TextLabel")
+			countLabel.Name = "Count"
+			countLabel.Size = UDim2.new(0, 30, 1, 0)
+			countLabel.Position = UDim2.new(0, 82, 0, 0)
+			countLabel.BackgroundTransparency = 1
+			countLabel.TextColor3 = UI_CONFIG.HOLDINGS_COUNT_COLOR
+			countLabel.TextSize = 10
+			countLabel.Font = Enum.Font.Gotham
+			countLabel.TextXAlignment = Enum.TextXAlignment.Right
+			countLabel.Parent = row
+			
+			-- Item Rate (replaces total value)
+			local valueLabel = Instance.new("TextLabel")
+			valueLabel.Name = "Value"
+			valueLabel.Size = UDim2.new(0, 50, 1, 0)
+			valueLabel.Position = UDim2.new(0, 115, 0, 0)
+			valueLabel.BackgroundTransparency = 1
+			valueLabel.TextColor3 = UI_CONFIG.HOLDINGS_VALUE_COLOR
+			valueLabel.TextSize = 10
+			valueLabel.Font = Enum.Font.GothamBold
+			valueLabel.TextXAlignment = Enum.TextXAlignment.Right
+			valueLabel.Parent = row
+			
+			-- Arrow (▲ if rate >= 1, ▼ if < 1)
+			local arrowLabel = Instance.new("TextLabel")
+			arrowLabel.Name = "Arrow"
+			arrowLabel.Size = UDim2.new(0, 14, 1, 0)
+			arrowLabel.Position = UDim2.new(0, 168, 0, 0)
+			arrowLabel.BackgroundTransparency = 1
+			arrowLabel.TextSize = 10
+			arrowLabel.Font = Enum.Font.GothamBold
+			arrowLabel.Parent = row
+		end
+		
+		row.Visible = true
+		
+		-- Update layout order just in case it got mixed up somehow
 		row.LayoutOrder = i
-		row.Parent = holdingsList
 		
-		-- Icon
-		local iconLabel = Instance.new("TextLabel")
-		iconLabel.Size = UDim2.new(0, 18, 1, 0)
-		iconLabel.Position = UDim2.new(0, 0, 0, 0)
-		iconLabel.BackgroundTransparency = 1
-		iconLabel.Text = data.icon
-		iconLabel.TextSize = 12
-		iconLabel.Font = Enum.Font.Gotham
-		iconLabel.Parent = row
+		local iconLabel = row:FindFirstChild("Icon")
+		if iconLabel then iconLabel.Text = data.icon end
 		
-		-- Name (truncated)
-		local displayName = data.name
-		if #displayName > 10 then
-			displayName = string.sub(displayName, 1, 9) .. "…"
+		local nameLabel = row:FindFirstChild("ItemName")
+		if nameLabel then
+			local displayName = data.name
+			if #displayName > 10 then
+				displayName = string.sub(displayName, 1, 9) .. "…"
+			end
+			nameLabel.Text = displayName
 		end
-		local nameLabel = Instance.new("TextLabel")
-		nameLabel.Size = UDim2.new(0, 60, 1, 0)
-		nameLabel.Position = UDim2.new(0, 20, 0, 0)
-		nameLabel.BackgroundTransparency = 1
-		nameLabel.Text = displayName
-		nameLabel.TextColor3 = UI_CONFIG.HOLDINGS_NAME_COLOR
-		nameLabel.TextSize = 10
-		nameLabel.Font = Enum.Font.Gotham
-		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-		nameLabel.Parent = row
 		
-		-- Count
-		local countLabel = Instance.new("TextLabel")
-		countLabel.Size = UDim2.new(0, 30, 1, 0)
-		countLabel.Position = UDim2.new(0, 82, 0, 0)
-		countLabel.BackgroundTransparency = 1
-		countLabel.Text = "x" .. tostring(data.count)
-		countLabel.TextColor3 = UI_CONFIG.HOLDINGS_COUNT_COLOR
-		countLabel.TextSize = 10
-		countLabel.Font = Enum.Font.Gotham
-		countLabel.TextXAlignment = Enum.TextXAlignment.Right
-		countLabel.Parent = row
+		local countLabel = row:FindFirstChild("Count")
+		if countLabel then countLabel.Text = "x" .. tostring(data.count) end
 		
-		-- Item Rate (replaces total value)
-		local valueLabel = Instance.new("TextLabel")
-		valueLabel.Size = UDim2.new(0, 50, 1, 0)
-		valueLabel.Position = UDim2.new(0, 115, 0, 0)
-		valueLabel.BackgroundTransparency = 1
-		valueLabel.Text = string.format("+%.1f/s", data.itemRate)
-		valueLabel.TextColor3 = UI_CONFIG.HOLDINGS_VALUE_COLOR
-		valueLabel.TextSize = 10
-		valueLabel.Font = Enum.Font.GothamBold
-		valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-		valueLabel.Parent = row
+		local valueLabel = row:FindFirstChild("Value")
+		if valueLabel then valueLabel.Text = string.format("+%.1f/s", data.itemRate) end
 		
-		-- Arrow (▲ if rate >= 1, ▼ if < 1)
-		local arrowLabel = Instance.new("TextLabel")
-		arrowLabel.Size = UDim2.new(0, 14, 1, 0)
-		arrowLabel.Position = UDim2.new(0, 168, 0, 0)
-		arrowLabel.BackgroundTransparency = 1
-		if data.rate >= 1.0 then
-			arrowLabel.Text = "▲"
-			arrowLabel.TextColor3 = UI_CONFIG.ARROW_UP_COLOR
-		else
-			arrowLabel.Text = "▼"
-			arrowLabel.TextColor3 = UI_CONFIG.ARROW_DOWN_COLOR
+		local arrowLabel = row:FindFirstChild("Arrow")
+		if arrowLabel then
+			if data.rate >= 1.0 then
+				arrowLabel.Text = "▲"
+				arrowLabel.TextColor3 = UI_CONFIG.ARROW_UP_COLOR
+			else
+				arrowLabel.Text = "▼"
+				arrowLabel.TextColor3 = UI_CONFIG.ARROW_DOWN_COLOR
+			end
 		end
-		arrowLabel.TextSize = 10
-		arrowLabel.Font = Enum.Font.GothamBold
-		arrowLabel.Parent = row
 	end
 end
 
@@ -893,6 +922,45 @@ local function initialize()
 			updateHoldingsDisplay()
 		end)
 	end
+	
+	-- Watch ActiveBrainrot units to update cache instantly on mode change
+	local updatePending = false
+	local function requestHoldingsUpdate()
+		if updatePending then return end
+		updatePending = true
+		task.delay(0.1, function()
+			updatePending = false
+			lastRateUpdate = 0
+			updateHoldingsDisplay()
+		end)
+	end
+
+	local unitConnections = {}
+	local function onUnitAdded(unit)
+		if unitConnections[unit] then return end
+		unitConnections[unit] = {
+			unit:GetAttributeChangedSignal("CurrentProducing"):Connect(requestHoldingsUpdate),
+			unit:GetAttributeChangedSignal("CurrentMode"):Connect(requestHoldingsUpdate),
+			unit:GetAttributeChangedSignal("IncomeInterval"):Connect(requestHoldingsUpdate),
+			unit:GetAttributeChangedSignal("OwnerId"):Connect(requestHoldingsUpdate)
+		}
+	end
+
+	local function onUnitRemoved(unit)
+		if unitConnections[unit] then
+			for _, conn in unitConnections[unit] do
+				conn:Disconnect()
+			end
+			unitConnections[unit] = nil
+		end
+		requestHoldingsUpdate()
+	end
+
+	for _, unit in CollectionService:GetTagged("ActiveBrainrot") do
+		onUnitAdded(unit)
+	end
+	CollectionService:GetInstanceAddedSignal("ActiveBrainrot"):Connect(onUnitAdded)
+	CollectionService:GetInstanceRemovedSignal("ActiveBrainrot"):Connect(onUnitRemoved)
 	
 	-- Initial fetch
 	task.spawn(refreshFromAttribute)

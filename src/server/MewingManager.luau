@@ -7,7 +7,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TextChatService = game:GetService("TextChatService")
-local RunService = game:GetService("RunService")
 
 local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
 RemoteEvents.Name = "RemoteEvents"
@@ -30,7 +29,6 @@ local CONFIG = {
 local MewingManager = {}
 local Services = {}
 local PlayerMewingState = {}
-local lastCheck = 0
 
 --------------------------------------------------------------------------------
 -- LOGIC
@@ -108,8 +106,6 @@ end
 
 local function updateMewingStreaks()
 	local now = os.time()
-	if now - lastCheck < CONFIG.CHECK_INTERVAL then return end
-	lastCheck = now
 	
 	for player, state in pairs(PlayerMewingState) do
 		if not player.Parent then continue end
@@ -193,7 +189,12 @@ function MewingManager.Init(services)
 		end
 	end)
 	
-	RunService.Heartbeat:Connect(updateMewingStreaks)
+	task.spawn(function()
+		while true do
+			task.wait(CONFIG.CHECK_INTERVAL)
+			updateMewingStreaks()
+		end
+	end)
 	print("✓ MewingManager Initialized")
 end
 

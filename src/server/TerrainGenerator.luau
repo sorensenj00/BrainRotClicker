@@ -265,7 +265,7 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 		-- Angles(0, math.rad(-35), 0) turns it to face inward towards the center
 		local termX = 30
 		local termZ = -40
-		local termY = topY + 1.5 -- Matches the surface height
+		local termY = topY + 10 -- Matches the surface height
 		
 		terminal:PivotTo(CFrame.new(termX, termY, termZ) * CFrame.Angles(0, math.rad(-35), 0))
 		terminal.Parent = model

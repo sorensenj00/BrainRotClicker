@@ -139,7 +139,11 @@ local function recalculateStats(unit: Instance)
 	end
 	
 	if unit:IsA("Model") then
-		unit:ScaleTo(scaleMultiplier)
+		-- Fetch the original scale from Studio (defaults to 1 if missing)
+		local baseScale = unit:GetAttribute("BaseScale") or 1
+		
+		-- Multiply the original scale by the tier bonus
+		unit:ScaleTo(baseScale * scaleMultiplier)
 		
 		local player = _Players:GetPlayerByUserId(unit:GetAttribute("OwnerId"))
 		if player then
@@ -189,6 +193,7 @@ local function spawnOrUpdateUnit(player: Player, unitName: string, data: any): I
 		
 		brainrot:SetAttribute("OwnerId", player.UserId)
 		brainrot:SetAttribute("UnitType", unitName)
+		brainrot:SetAttribute("BaseScale", template:GetScale())
 		
 		local savedUnitId = data.unitId or data.UnitId or HttpService:GenerateGUID(false)
 		brainrot:SetAttribute("UnitId", savedUnitId)

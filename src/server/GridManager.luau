@@ -230,17 +230,13 @@ local function repositionUnitOnTile(player, brainrot, slotIndex)
 		dprint("[DEBUG] repositionUnitOnTile: brainrot is nil!")
 		return
 	end
+	
+	-- getSlotCFrame already returns the exact top surface of the tile
 	local baseCFrame = getSlotCFrame(player, slotIndex)
 
-	-- Step 1: Place at slot position (pivot = model center)
+	-- Step 1: Since your model's Pivot is exactly at their feet (as seen in Studio),
+	-- we just snap the pivot directly to the surface. No height math required!
 	brainrot:PivotTo(baseCFrame)
-
-	-- Step 2: Measure actual bounding box to find the bottom offset
-	local _, size = brainrot:GetBoundingBox()
-	local halfHeight = size.Y / 2
-
-	-- Step 3: Shift up so the bottom of the bounding box sits on the surface
-	brainrot:PivotTo(baseCFrame + Vector3.new(0, halfHeight, 0))
 
 	-- Immediately refresh unit attributes (Synergies, Production Info, HUD)
 	local ItemProductionManager = rawget(Services, "ItemProductionManager")
@@ -607,6 +603,23 @@ function GridManager.StashUnit(player, slotIndex)
 	end
 
 	return true
+end
+
+function GridManager.GetUnitInSlot(player, slotIndex)
+	if not player or not slotIndex then return nil end
+	local gridData = getPlayerGrid(player)
+	local slot = gridData.slots[slotIndex]
+	if slot then
+		return slot.Unit
+	end
+	return nil
+end
+
+function GridManager.GetGridCache(player)
+	-- Returns direct access to the grid cache table: [slotIndex] = { Unit = brainrotModel, ... }
+	if not player then return nil end
+	local gridData = getPlayerGrid(player)
+	return gridData.slots
 end
 
 function GridManager.GetGridPositions(player)

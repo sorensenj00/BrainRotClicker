@@ -410,14 +410,10 @@ function BuildInteractionService.CompleteDrag()
 				BuildInteractionService.CancelDrag()
 			else
 				UnitMoved:Fire(draggedFromSlot, slot)
-				-- Don't cancel yet, wait for UI/Server to confirm?
-				-- Actually we should probably cleanup local state now, 
-				-- assuming server will update grid and trigger redraw.
-				draggedFromSlot = nil -- Prevent CancelDrag from unhiding old model, since server will move it
-				if originalUnitModel then
-					-- Keep hidden until grid refresh destroys/moves it
-					-- Actually, visual refresh will destroy old tiles/grid.
-					originalUnitModel = nil
+				draggedFromSlot = nil 
+				if originalUnitModel and placementGhost then
+					-- Optimistically move the model to the ghost's location before unhiding
+					originalUnitModel:PivotTo(placementGhost:GetPivot())
 				end
 				BuildInteractionService.Stop()
 			end

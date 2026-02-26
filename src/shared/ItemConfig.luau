@@ -764,6 +764,8 @@ function ItemConfig.GetSector(modelName: string): string
     return "Neutral" -- Fallback
 end
 
+ItemConfig._ItemSectorLookup = nil
+
 local function buildItemSectorLookup()
     if ItemConfig._ItemSectorLookup then
         return

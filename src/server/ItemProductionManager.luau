@@ -32,6 +32,10 @@ local StorageFullEvent = RemoteEvents:FindFirstChild("StorageFull") or Instance.
 StorageFullEvent.Name = "StorageFull"
 StorageFullEvent.Parent = RemoteEvents
 
+local ItemProducedEvent = RemoteEvents:FindFirstChild("ItemProduced") or Instance.new("RemoteEvent")
+ItemProducedEvent.Name = "ItemProduced"
+ItemProducedEvent.Parent = RemoteEvents
+
 local CONFIG = {
 	PRODUCTION_TICK = 1,
 	STORAGE_FULL_CHECK_INTERVAL = 5,
@@ -205,6 +209,7 @@ local function produceItems(player)
 	local now = tick()
 	local storageItems = cloneItemMap(ISM.GetStorageContents(player) or {})
 	local totalAdded = 0
+	local itemsProducedThisTick = {}
 	
 	-- 3. Iterate each occupied slot
 	for slotIndex, slotData in pairs(gridCache) do
@@ -258,6 +263,7 @@ local function produceItems(player)
 					
 					-- Batch the event data
 					totalAdded += 1
+					itemsProducedThisTick[outputItemId] = (itemsProducedThisTick[outputItemId] or 0) + added
 					
 					-- Update physical unit with production timestamp
 					unitModel:SetAttribute("LastProductionTime", now)
@@ -271,6 +277,8 @@ local function produceItems(player)
 	
 	-- BATCH FIRE: Send exactly ONE remote event per second for all production
 	if totalAdded > 0 then
+		ItemProducedEvent:FireClient(player, itemsProducedThisTick)
+
 		local currentTotal = 0
 		for _, c in pairs(storageItems) do currentTotal += c end
 		local capacity = ISM.GetStorageCapacity(player)

@@ -10,6 +10,7 @@ MarketConfig.CONFIG = {
 	-- Timing
 	READ_INTERVAL = 5,       -- seconds between MemoryStore reads
 	WRITE_INTERVAL = 10,     -- seconds between buffer flushes
+	POOL_SYNC_INTERVAL = 10, -- seconds between AMM delta flushes (write loop)
 	LOCAL_UPDATE_INTERVAL = 20, -- fallback local update rate (Studio mode)
 
 	-- Sharding

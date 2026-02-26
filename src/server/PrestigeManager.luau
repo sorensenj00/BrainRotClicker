@@ -94,14 +94,8 @@ end
 
 local function createAltar()
 	task.wait(2)
-	local mainIsland = Workspace:WaitForChild("MainIsland", 10)
-	if not mainIsland then
-		mainIsland = Instance.new("Part")
-		mainIsland.Name = "MainIsland"
-		mainIsland.Size = Vector3.new(100, 1, 100)
-		mainIsland.Anchored = true
-		mainIsland.Parent = Workspace
-	end
+	local PrestigeAltar = Workspace:WaitForChild("PrestigeAltar", 10) -- for future use
+	
 	
 	local model = Instance.new("Model")
 	model.Name = "GoldenMeatballAltar"

@@ -89,6 +89,12 @@ end
 	Endgame = total money exceeds threshold.
 ]]
 local function isEndgame(player)
+	local DataService = rawget(Services, "DataService")
+	if DataService and DataService.GetMoney then
+		return DataService.GetMoney(player) >= CONFIG.ENDGAME_EARNINGS_THRESHOLD
+	end
+
+	-- Safety fallback if DataService isn't available yet.
 	local ls = player:FindFirstChild("leaderstats")
 	local m = ls and ls:FindFirstChild("Money")
 	if m and m.Value >= CONFIG.ENDGAME_EARNINGS_THRESHOLD then
@@ -421,9 +427,12 @@ function MarketManager.SellCartContents(player, cartInventory)
 	end
 	
 	if earned > 0 then
-		local ls = player:FindFirstChild("leaderstats")
-		local m = ls and ls:FindFirstChild("Money")
-		if m then m.Value += earned end
+		local DataService = rawget(Services, "DataService")
+		if DataService then
+			DataService.AddMoney(player, earned)
+		else
+			warn("MarketManager: DataService unavailable during SellCartContents payout for", player.Name)
+		end
 		
 		-- Fire a single aggregate event for the cart instead of per-item spam
 		CartSoldEvent:FireClient(player, earned, cartInventory)

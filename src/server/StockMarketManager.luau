@@ -206,7 +206,7 @@ local function computeAMMRates()
 	-- Update Item Rates based on new Sector Rates
 	local ItemConfig = require(ReplicatedStorage.Shared.ItemConfig)
 	for itemId, itemDef in pairs(ItemConfig.Items) do
-		local sector = ItemConfig.GetSector(itemDef.displayName)
+		local sector = ItemConfig.GetSectorByItemId(itemId)
 		local baseRate = sectorRates[sector] or 1.0
 		local divergence = getItemJitter(itemId, itemDef.volatility or 0.1)
 		local finalRate = baseRate * divergence
@@ -410,7 +410,7 @@ local function updateMarketLocal()
 	-- Update Item Rates (Local Fallback)
 	local ItemConfig = require(ReplicatedStorage.Shared.ItemConfig)
 	for itemId, itemDef in pairs(ItemConfig.Items) do
-		local sector = ItemConfig.GetSector(itemDef.displayName)
+		local sector = ItemConfig.GetSectorByItemId(itemId)
 		local baseRate = sectorRates[sector] or 1.0
 		local divergence = getItemJitter(itemId, itemDef.volatility or 0.1)
 		local finalRate = baseRate * divergence
@@ -505,7 +505,7 @@ function StockMarketManager.Init(services)
 
 			-- Flush pool delta buffer to a random shard
 			if now2 >= nextWriteTime then
-				nextWriteTime = now2 + CONFIG.POOL_SYNC_INTERVAL
+				nextWriteTime = now2 + CONFIG.WRITE_INTERVAL
 				task.spawn(flushPoolDeltas)
 			end
 		else

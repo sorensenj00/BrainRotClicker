@@ -7,28 +7,53 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
 
 local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instance.new("Folder")
 RemoteEvents.Name = "RemoteEvents"
 RemoteEvents.Parent = ReplicatedStorage
 
-local PurchaseCartUpgradeEvent = RemoteEvents:FindFirstChild("PurchaseCartUpgrade") or Instance.new("RemoteEvent")
-PurchaseCartUpgradeEvent.Name = "PurchaseCartUpgrade"
-PurchaseCartUpgradeEvent.Parent = RemoteEvents
-
 local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions") or Instance.new("Folder")
 RemoteFunctions.Name = "RemoteFunctions"
 RemoteFunctions.Parent = ReplicatedStorage
 
-local GetCartUpgradeInfoEvent = RemoteFunctions:FindFirstChild("GetCartUpgradeInfo") or Instance.new("RemoteFunction")
-GetCartUpgradeInfoEvent.Name = "GetCartUpgradeInfo"
-GetCartUpgradeInfoEvent.Parent = RemoteFunctions
+local function getOrCreateRemote(parent, remoteName, className)
+	local remote = parent:FindFirstChild(remoteName)
+	if remote and not remote:IsA(className) then
+		remote:Destroy()
+		remote = nil
+	end
+	if not remote then
+		remote = Instance.new(className)
+		remote.Name = remoteName
+		remote.Parent = parent
+	end
+	return remote
+end
+
+local PurchaseCartUpgradeEvent = getOrCreateRemote(RemoteEvents, "PurchaseCartUpgrade", "RemoteEvent") -- Legacy
+local UpgradeCartCapacityEvent = getOrCreateRemote(RemoteEvents, "UpgradeCartCapacity", "RemoteEvent")
+local UpgradeCartTierEvent = getOrCreateRemote(RemoteEvents, "UpgradeCartTier", "RemoteEvent")
+local GetCartUpgradeInfoEvent = getOrCreateRemote(RemoteFunctions, "GetCartUpgradeInfo", "RemoteFunction")
 
 local CartShopConfig
 
 -- State: Managed via DataService
 local CartShopManager = {}
 local Services = {} 
+local CONFIG = {
+	VENDOR_DISTANCE = 20,
+}
+
+-- Admin bypass (mirrors other managers)
+local ADMIN_USER_IDS = { [1340966465] = true }
+local IS_STUDIO = RunService:IsStudio()
+local function isAdmin(player)
+	if IS_STUDIO then return true end
+	if ADMIN_USER_IDS[player.UserId] then return true end
+	if player.UserId == game.CreatorId then return true end
+	return false
+end
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -58,6 +83,63 @@ local function setupCartShopVendor()
 		pp.MaxActivationDistance = 20
 		pp.Parent = primary
 	end
+end
+
+local function isNearCartVendor(player)
+	if isAdmin(player) then return true end
+	local char = player.Character
+	local hrp = char and char:FindFirstChild("HumanoidRootPart")
+	if not hrp then return false end
+
+	local mainIsland = workspace:FindFirstChild("MainIsland")
+	local shopsFolder = mainIsland and mainIsland:FindFirstChild("Shops")
+	local vendor = shopsFolder and shopsFolder:FindFirstChild("CartShop")
+	local target = vendor and (vendor.PrimaryPart or vendor:FindFirstChildWhichIsA("BasePart", true))
+	if not target then return true end
+
+	return (hrp.Position - target.Position).Magnitude <= CONFIG.VENDOR_DISTANCE
+end
+
+local function buildUpgradeInfo(player)
+	local DataService = rawget(Services, "DataService")
+	local data = { Capacity = 0, Model = 1 }
+	if DataService then
+		data = DataService.GetCartUpgrades(player)
+	end
+
+	local capacityInfo = CartShopConfig.GetUpgradeInfo("Capacity", data.Capacity or 0)
+	local tierInfo = CartShopConfig.GetUpgradeInfo("Model", data.Model or 1)
+
+	local currentCapacity = CartShopConfig.GetValue("Capacity", data.Capacity or 0)
+	local nextCapacity = capacityInfo and capacityInfo.NextValue or nil
+	local maxTier = #CartShopConfig.Carts
+	local currentTier = data.Model or 1
+	local nextTier = tierInfo and tierInfo.NextValue or math.min(currentTier + 1, maxTier)
+	local canTierUpgrade = tierInfo and (not tierInfo.IsMaxed) or false
+
+	return {
+		-- Legacy fields
+		Capacity = capacityInfo,
+		Model = tierInfo,
+		CurrentTiers = data,
+
+		-- Structured fields
+		capacity = {
+			level = data.Capacity or 0,
+			current = currentCapacity,
+			next = nextCapacity,
+			price = capacityInfo and capacityInfo.Price or nil,
+			canUpgrade = capacityInfo and (not capacityInfo.IsMaxed) or false,
+		},
+		tier = {
+			current = currentTier,
+			next = math.min(nextTier, maxTier),
+			max = maxTier,
+			canUpgrade = canTierUpgrade,
+			price = tierInfo and tierInfo.Price or nil,
+			name = tierInfo and tierInfo.Name or nil,
+		},
+	}
 end
 
 --------------------------------------------------------------------------------
@@ -93,9 +175,27 @@ function CartShopManager.Init(services)
 		setupCartShopVendor()
 	end)
 	
+	-- Legacy event support
 	PurchaseCartUpgradeEvent.OnServerEvent:Connect(function(player, upgradeType)
-		local s, msg = CartShopManager.HandleUpgradePurchase(player, upgradeType)
+		local s, msg
+		if upgradeType == "Capacity" then
+			s, msg = CartShopManager.HandleCapacityUpgrade(player)
+		elseif upgradeType == "Model" then
+			s, msg = CartShopManager.HandleTierUpgrade(player)
+		else
+			s, msg = false, "Invalid Upgrade Type"
+		end
 		PurchaseCartUpgradeEvent:FireClient(player, s, msg)
+	end)
+
+	UpgradeCartCapacityEvent.OnServerEvent:Connect(function(player)
+		local s, msg = CartShopManager.HandleCapacityUpgrade(player)
+		UpgradeCartCapacityEvent:FireClient(player, s, msg)
+	end)
+
+	UpgradeCartTierEvent.OnServerEvent:Connect(function(player)
+		local s, msg = CartShopManager.HandleTierUpgrade(player)
+		UpgradeCartTierEvent:FireClient(player, s, msg)
 	end)
 	
 	GetCartUpgradeInfoEvent.OnServerInvoke = function(player)
@@ -106,20 +206,23 @@ function CartShopManager.Init(services)
 end
 
 function CartShopManager.GetUpgradeInfo(player)
-	local DataService = rawget(Services, "DataService")
-	local data = { Capacity = 0, Model = 1 }
-	if DataService then
-		data = DataService.GetCartUpgrades(player)
-	end
-	
-	return {
-		Capacity = CartShopConfig.GetUpgradeInfo("Capacity", data.Capacity or 0),
-		Model = CartShopConfig.GetUpgradeInfo("Model", data.Model or 1),
-		CurrentTiers = data
-	}
+	return buildUpgradeInfo(player)
 end
 
-function CartShopManager.HandleUpgradePurchase(player, upgradeType)
+function CartShopManager.HandleUpgradePurchase(player, upgradeType) -- Legacy entrypoint
+	if upgradeType == "Capacity" then
+		return CartShopManager.HandleCapacityUpgrade(player)
+	elseif upgradeType == "Model" then
+		return CartShopManager.HandleTierUpgrade(player)
+	end
+	return false, "Invalid Upgrade Type"
+end
+
+local function handleUpgradePurchase(player, upgradeType)
+	if not isNearCartVendor(player) then
+		return false, "Too far from vendor"
+	end
+
 	local DataService = rawget(Services, "DataService")
 	if not DataService then return false, "System Offline" end
 	
@@ -153,6 +256,14 @@ function CartShopManager.HandleUpgradePurchase(player, upgradeType)
 	end
 	
 	return false, "Transaction Failed"
+end
+
+function CartShopManager.HandleCapacityUpgrade(player)
+	return handleUpgradePurchase(player, "Capacity")
+end
+
+function CartShopManager.HandleTierUpgrade(player)
+	return handleUpgradePurchase(player, "Model")
 end
 
 return CartShopManager

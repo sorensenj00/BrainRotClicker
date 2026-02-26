@@ -50,7 +50,6 @@ MarketConfig.CONFIG = {
 	VIRTUAL_ITEMS = 100000,       -- Seed supply per sector (virtual liquidity baseline)
 	VIRTUAL_CASH = 100000,        -- Seed cash per sector ($) prevents division-by-zero
 	CALIBRATION_CONSTANT = 1.0,   -- Normalizes GlobalCash/GlobalItems to match game price scale
-	POOL_SYNC_INTERVAL = 10,      -- Seconds between pool delta flushes to MemoryStore
 	POOL_READ_INTERVAL = 5,       -- Seconds between pool state reads from MemoryStore
 
 	-- Buy Transaction Limits (Slippage Protection)

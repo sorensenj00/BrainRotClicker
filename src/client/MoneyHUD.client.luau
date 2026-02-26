@@ -599,7 +599,7 @@ local function updateHoldingsDisplay()
 		if count > 0 then
 			local itemDef = ItemConfig.Items[itemId]
 			if itemDef then
-				local sector = ItemConfig.GetSector(itemId) -- item-level lookup
+				local sector = ItemConfig.GetSectorByItemId(itemId)
 				local rate = sectorRates[sector] or 1.0
 				local totalValue = count * itemDef.basePrice * rate
 				local itemRate = calculateItemRate(itemId)

@@ -764,4 +764,36 @@ function ItemConfig.GetSector(modelName: string): string
     return "Neutral" -- Fallback
 end
 
+local function buildItemSectorLookup()
+    if ItemConfig._ItemSectorLookup then
+        return
+    end
+
+    local lookup = {}
+
+    -- Authoritative mapping: modelName -> sector, then all mapped tier items inherit it.
+    for modelName, mapping in pairs(ItemConfig.BrainrotItems) do
+        local sector = ItemConfig.GetSector(modelName)
+        if mapping.tier1 then lookup[mapping.tier1] = sector end
+        if mapping.tier2 then lookup[mapping.tier2] = sector end
+        if mapping.tier3 then lookup[mapping.tier3] = sector end
+        if mapping.tier4 then lookup[mapping.tier4] = sector end
+    end
+
+    -- Safety fallback for items not present in BrainrotItems (e.g. composites/future additions).
+    for itemId, itemDef in pairs(ItemConfig.Items) do
+        if not lookup[itemId] then
+            lookup[itemId] = ItemConfig.GetSector(itemDef.displayName or itemId)
+        end
+    end
+
+    ItemConfig._ItemSectorLookup = lookup
+end
+
+function ItemConfig.GetSectorByItemId(itemId: string): string
+    if not itemId then return "Neutral" end
+    buildItemSectorLookup()
+    return (ItemConfig._ItemSectorLookup and ItemConfig._ItemSectorLookup[itemId]) or "Neutral"
+end
+
 return ItemConfig

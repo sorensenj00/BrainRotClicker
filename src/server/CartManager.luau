@@ -44,11 +44,15 @@ local Services = {}
 
 -- State
 local PlayerCarts = {} -- [Player] = { Model, State, Inventory, Capacity }
+local CartRemoteCooldowns = {} -- [Player] = last remote toggle timestamp
 -- States: "idle" (at plot), "rolling_to_market", "at_market", "rolling_to_plot"
 
 local CONFIG = {
 	ROLL_SPEED = 40, -- Studs per second
 	DEFAULT_CAPACITY = 200,
+	-- Keep remote checks close to prompt behavior, with a small buffer for latency/movement.
+	REMOTE_TOGGLE_COOLDOWN = 0.45,
+	REMOTE_TOGGLE_MAX_DISTANCE = 12,
 }
 
 --------------------------------------------------------------------------------
@@ -118,6 +122,59 @@ local function updateCartVisuals(cartData)
 	end
 end
 
+local function isPlayerNearOwnCart(player, maxDistance)
+	local data = PlayerCarts[player]
+	if not data or not data.Model then return false end
+
+	local character = player.Character
+	local hrp = character and character:FindFirstChild("HumanoidRootPart")
+	if not hrp then return false end
+
+	local cartPart = data.Model.PrimaryPart
+	if not cartPart then
+		cartPart = data.Model:FindFirstChildWhichIsA("BasePart")
+	end
+	if not cartPart then return false end
+
+	local distance = (hrp.Position - cartPart.Position).Magnitude
+	return distance <= (maxDistance or CONFIG.REMOTE_TOGGLE_MAX_DISTANCE)
+end
+
+local function getRemoteToggleDistance(player)
+	local data = PlayerCarts[player]
+	if not data or not data.Model or not data.Model.PrimaryPart then
+		return CONFIG.REMOTE_TOGGLE_MAX_DISTANCE
+	end
+
+	local prompt = data.Model.PrimaryPart:FindFirstChild("CartPrompt")
+	if prompt and prompt:IsA("ProximityPrompt") then
+		-- Prompt default is typically 10 studs; add a small tolerance.
+		return math.max(CONFIG.REMOTE_TOGGLE_MAX_DISTANCE, (prompt.MaxActivationDistance or 10) + 2)
+	end
+
+	return CONFIG.REMOTE_TOGGLE_MAX_DISTANCE
+end
+
+local function validateRemoteToggle(player)
+	local data = PlayerCarts[player]
+	if not data then
+		return false, "no_cart"
+	end
+
+	if not isPlayerNearOwnCart(player, getRemoteToggleDistance(player)) then
+		return false, "too_far"
+	end
+
+	local now = os.clock()
+	local last = CartRemoteCooldowns[player] or 0
+	if now - last < CONFIG.REMOTE_TOGGLE_COOLDOWN then
+		return false, "cooldown"
+	end
+
+	CartRemoteCooldowns[player] = now
+	return true
+end
+
 --------------------------------------------------------------------------------
 -- LOGIC
 --------------------------------------------------------------------------------
@@ -153,7 +210,7 @@ local function spawnCart(player)
 	local plotEdgePos = Vector3.new(plotPos.X - dir2D.X * 60, plotPos.Y, plotPos.Z - dir2D.Z * 60)
 	
 	-- Add more to Y so the drone/cart doesn't clip into the bridge/ground, starting higher
-	local yOffset = Vector3.new(0, 20, 0)
+	local yOffset = Vector3.new(0, 8, 0)
 	
 	local spawnPos = plotEdgePos + yOffset
 	local mainPos = hubEdgePos + yOffset
@@ -323,15 +380,24 @@ function CartManager.Init(services)
 			end
 			PlayerCarts[player] = nil
 		end
+		CartRemoteCooldowns[player] = nil
 	end)
 	
 	PushCartRemote.OnServerEvent:Connect(function(player)
-		print("CartManager: PushCart remote received")
+		local ok, reason = validateRemoteToggle(player)
+		if not ok then
+			warn("CartManager: Reject PushCart from", player.Name, "-", reason)
+			return
+		end
 		CartManager.HandlePrompt(player)
 	end)
 	
 	ReturnCartRemote.OnServerEvent:Connect(function(player)
-		print("CartManager: ReturnCart remote received")
+		local ok, reason = validateRemoteToggle(player)
+		if not ok then
+			warn("CartManager: Reject ReturnCart from", player.Name, "-", reason)
+			return
+		end
 		CartManager.HandlePrompt(player)
 	end)
 	

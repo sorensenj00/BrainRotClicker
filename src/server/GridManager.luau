@@ -149,9 +149,20 @@ local function getGridDimensions(player)
 	return sizeConfig.rows, sizeConfig.cols
 end
 
+local function getUnlockedSlots(player)
+	local ds = getDataService()
+	if ds and ds.IsLoaded and ds.IsLoaded(player) and ds.GetData then
+		local data = ds.GetData(player)
+		local unlockedSlots = data and tonumber(data.unlockedGridSlots)
+		if unlockedSlots then
+			return math.max(4, math.floor(unlockedSlots))
+		end
+	end
+	return 4
+end
+
 local function getTotalSlots(player)
-	local rows, cols = getGridDimensions(player)
-	return rows * cols
+	return getUnlockedSlots(player)
 end
 
 local function isValidSlotIndex(player, slotIndex)
@@ -217,7 +228,12 @@ end
 
 
 local function getSlotCFrame(player, slotIndex)
-	local plot = findPlayerPlot(player)
+	local tierIndex = math.floor((slotIndex - 1) / 16) + 1
+
+	local MapSystem = rawget(Services, "MapSystem")
+	local tierSys = MapSystem and MapSystem.GetPlayerTierSystem(player)
+	local tierData = tierSys and tierSys.Tiers[tierIndex]
+	local plot = tierData and tierData.Model
 	if not plot then return CFrame.new(0, 10, 0) end
 
 	local plotCF, plotSize = getPlotCFrameAndSize(plot)
@@ -383,6 +399,7 @@ function GridManager.Init(services)
 		-- Serialize specific fields for client
 		local serialized = {
 			gridSize = gridData.gridSize,
+			unlockedSlots = getUnlockedSlots(player),
 			slots = {}
 		}
 		for k, v in pairs(gridData.slots) do

@@ -9,6 +9,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
+local ProximityPromptService = game:GetService("ProximityPromptService")
 
 -- Get player
 local LocalPlayer = Players.LocalPlayer
@@ -729,6 +730,13 @@ CollectionService:GetInstanceAddedSignal("TransportCartPrompt"):Connect(setupPro
 for _, prompt in CollectionService:GetTagged("TransportCartPrompt") do
 	setupPromptListener(prompt)
 end
+
+-- Fallback for world prompts that are not tagged yet (ex: placed kiosk prompts).
+ProximityPromptService.PromptTriggered:Connect(function(prompt, playerWhoTriggered)
+	if playerWhoTriggered == LocalPlayer and prompt.Name == "TransportCartPrompt" then
+		openUI()
+	end
+end)
 
 --------------------------------------------------------------------------------
 -- INITIALIZATION

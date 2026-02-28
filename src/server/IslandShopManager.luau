@@ -31,14 +31,92 @@ local SHOP_CONFIG = {
 
 local IslandShopManager = {}
 local Services = {}
+local DataService
 
 --------------------------------------------------------------------------------
 -- HELPERS
 --------------------------------------------------------------------------------
 
-local function getTierPrice(tierNumber)
-	if tierNumber <= 1 then return 0 end
-	return SHOP_CONFIG.BASE_TIER_PRICE * (SHOP_CONFIG.PRICE_MULTIPLIER ^ (tierNumber - 2))
+local function getDataService()
+	if not DataService then
+		DataService = rawget(Services, "DataService")
+	end
+	return DataService
+end
+
+local function getTierConfig()
+	local PlotManager = rawget(Services, "PlotManager")
+	return PlotManager and PlotManager.TIER_CONFIG or nil
+end
+
+local function getMaxSlots()
+	local conf = getTierConfig()
+	if not conf then
+		return 96
+	end
+	return conf.MAX_TIERS * conf.MODELS_PER_TIER
+end
+
+local function getCurrentSlots(player)
+	local ds = getDataService()
+	local defaultSlots = 4
+	if not ds or not ds.GetData then
+		return defaultSlots
+	end
+
+	local data = ds.GetData(player)
+	local rawSlots = data and tonumber(data.unlockedGridSlots) or defaultSlots
+	return math.max(defaultSlots, math.floor(rawSlots))
+end
+
+local function getNextUpgradeType(currentSlots)
+	if currentSlots % 16 == 0 then
+		return "NewIsland"
+	end
+	return "ExpandGrid"
+end
+
+local function getNextPrice(currentSlots)
+	return math.floor(5000 * (2 ^ (currentSlots / 4)))
+end
+
+local function findParentTierWithSpace(tierSystem)
+	for i = #tierSystem.Tiers, 1, -1 do
+		local tierData = tierSystem.Tiers[i]
+		if tierData and (3 - #tierData.UsedSides) > 0 then
+			return tierData
+		end
+	end
+	return nil
+end
+
+local function deductMoney(player, amount)
+	local ds = getDataService()
+	if ds and ds.DeductMoney then
+		return ds.DeductMoney(player, amount)
+	end
+
+	local ls = player:FindFirstChild("leaderstats")
+	local m = ls and ls:FindFirstChild("Money")
+	if not m or m.Value < amount then
+		return false
+	end
+	m.Value -= amount
+	return true
+end
+
+local function refundMoney(player, amount)
+	local ds = getDataService()
+	if ds and ds.AddMoney then
+		ds.AddMoney(player, amount)
+		return
+	end
+
+	local ls = player:FindFirstChild("leaderstats")
+	local m = ls and ls:FindFirstChild("Money")
+	if m then
+		m.Value += amount
+	end
 end
 
 local function setupIslandShopVendor()
@@ -91,60 +169,91 @@ end
 
 function IslandShopManager.HandleTierPurchase(player)
 	local MapSystem = rawget(Services, "MapSystem")
-	local PlotManager = rawget(Services, "PlotManager") -- Add this
-	
-	if not MapSystem or not PlotManager then return false, "Shop system not ready" end
-	local ts = MapSystem.GetPlayerTierSystem(player)
-	if not ts then return false, "No plot assigned" end
-	
-	local currentCount = #ts.Tiers
-	local nextNum = currentCount + 1
-	local CONF = PlotManager.TIER_CONFIG -- Changed this line
-	
-	if nextNum > CONF.MAX_TIERS then return false, "Max islands reached" end
-	
-	local price = getTierPrice(nextNum)
-	local ls = player:FindFirstChild("leaderstats")
-	local m = ls and ls:FindFirstChild("Money")
-	if not m or m.Value < price then return false, "Not enough money" end
-	
-	local parentTier
-	for i = currentCount, 1, -1 do
-		local t = ts.Tiers[i]
-		if (3 - #t.UsedSides) > 0 then parentTier = t; break end
+	if not MapSystem then return false, "Shop system not ready" end
+
+	local maxSlots = getMaxSlots()
+	local currentSlots = getCurrentSlots(player)
+	if currentSlots >= maxSlots then
+		return false, "Max slots reached"
 	end
-	if not parentTier then return false, "No space for new island" end
-	
-	m.Value -= price
-	local newTier = MapSystem.SpawnTierPlot(player, parentTier)
-	if not newTier then
-		m.Value += price
-		return false, "Spawn failed"
+
+	local nextPrice = getNextPrice(currentSlots)
+	local nextUpgradeType = getNextUpgradeType(currentSlots)
+
+	if not deductMoney(player, nextPrice) then
+		return false, "Not enough money"
 	end
-	
-	return true, "Purchased Island " .. nextNum
+
+	if nextUpgradeType == "NewIsland" then
+		local tierSystem = MapSystem.GetPlayerTierSystem(player)
+		if not tierSystem then
+			refundMoney(player, nextPrice)
+			return false, "No plot assigned"
+		end
+
+		local parentTier = findParentTierWithSpace(tierSystem)
+		if not parentTier then
+			refundMoney(player, nextPrice)
+			return false, "No space for new island"
+		end
+
+		local newTier = MapSystem.SpawnTierPlot(player, parentTier)
+		if not newTier then
+			refundMoney(player, nextPrice)
+			return false, "Spawn failed"
+		end
+	end
+
+	local ds = getDataService()
+	if not ds or not ds.GetData then
+		refundMoney(player, nextPrice)
+		return false, "Data service unavailable"
+	end
+
+	local data = ds.GetData(player)
+	if not data then
+		refundMoney(player, nextPrice)
+		return false, "Data not loaded"
+	end
+
+	data.unlockedGridSlots = math.min(maxSlots, currentSlots + 4)
+
+	return true, "Grid Expanded!"
 end
 
 function IslandShopManager.GetTierInfo(player)
 	local MapSystem = rawget(Services, "MapSystem")
-	local PlotManager = rawget(Services, "PlotManager") -- Add this
-	
-	if not MapSystem or not PlotManager then return nil end
-	local ts = MapSystem.GetPlayerTierSystem(player)
-	if not ts then return nil end
-	local cnt = #ts.Tiers
-	local Conf = PlotManager.TIER_CONFIG -- Changed this line
+	local maxSlots = getMaxSlots()
+	local currentSlots = getCurrentSlots(player)
+	local canPurchase = currentSlots < maxSlots
+	local nextUpgradeType = getNextUpgradeType(currentSlots)
+	local nextPrice = getNextPrice(currentSlots)
+
+	local currentTiers = 1
+	if MapSystem and MapSystem.GetPlayerTierSystem then
+		local ts = MapSystem.GetPlayerTierSystem(player)
+		if ts and ts.Tiers then
+			currentTiers = #ts.Tiers
+		end
+	end
+
 	return {
-		CurrentTiers = cnt,
-		MaxTiers = Conf.MAX_TIERS,
-		NextTierPrice = getTierPrice(cnt + 1),
-		CanPurchase = (cnt + 1) <= Conf.MAX_TIERS,
-		TotalModels = ts.TotalModels,
-		ModelsPerTier = Conf.MODELS_PER_TIER
+		CurrentSlots = currentSlots,
+		MaxSlots = maxSlots,
+		NextUpgradeType = nextUpgradeType,
+		NextPrice = nextPrice,
+		CanPurchase = canPurchase,
+
+		-- Backward-compatible fields for any legacy UI readers
+		CurrentTiers = currentTiers,
+		MaxTiers = (getTierConfig() and getTierConfig().MAX_TIERS) or 6,
+		NextTierPrice = nextPrice,
+		TotalModels = 0,
+		ModelsPerTier = (getTierConfig() and getTierConfig().MODELS_PER_TIER) or 16,
 	}
 end
 
-IslandShopManager.GetTierPrice = getTierPrice
+IslandShopManager.GetTierPrice = getNextPrice
 IslandShopManager.SHOP_CONFIG = SHOP_CONFIG
 
 return IslandShopManager

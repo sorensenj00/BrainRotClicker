@@ -26,6 +26,7 @@ GridTopology.CONSTANTS = {
 ]]
 function GridTopology.GetSlotCFrame(plotCFrame: CFrame, plotSize: Vector3, slotIndex: number, tileHeight: number?)
 	tileHeight = tileHeight or 0
+	local localSlotIndex = ((slotIndex - 1) % 16) + 1
 
 	local plotCenter = plotCFrame.Position
 	local posY = plotCenter.Y + (plotSize.Y / 2) + GridTopology.CONSTANTS.GRID_OFFSET_Y + tileHeight
@@ -36,8 +37,8 @@ function GridTopology.GetSlotCFrame(plotCFrame: CFrame, plotSize: Vector3, slotI
 	local centerDistance = (plotSize.X / 2) * 0.55 -- Push out to 55% of the radius
 	
 	-- 4 Clusters of 4 slots each (standard 16 slot layout)
-	local cornerIndex = math.floor((slotIndex - 1) / 4)
-	local posInCorner = (slotIndex - 1) % 4
+	local cornerIndex = math.floor((localSlotIndex - 1) / 4)
+	local posInCorner = (localSlotIndex - 1) % 4
 	
 	-- Diamond pattern offsets instead of 2x2 square
 	local diamondOffsets = {

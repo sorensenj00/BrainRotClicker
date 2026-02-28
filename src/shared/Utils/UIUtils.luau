@@ -3,9 +3,15 @@ local Shared = ReplicatedStorage:WaitForChild("Shared")
 
 local UIUtils = {}
 
-function UIUtils.addCorner(inst: Instance, r: UDim?): UICorner
+function UIUtils.addCorner(inst: Instance, r: any): UICorner
 	local c = Instance.new("UICorner")
-	c.CornerRadius = r or UDim.new(0, 5)
+	if typeof(r) == "UDim" then
+		c.CornerRadius = r
+	elseif type(r) == "number" then
+		c.CornerRadius = UDim.new(0, r)
+	else
+		c.CornerRadius = UDim.new(0, 5)
+	end
 	c.Parent = inst
 	return c
 end

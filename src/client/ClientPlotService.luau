@@ -20,6 +20,24 @@ function ClientPlotService.GetMyPlot()
 	return nil
 end
 
+function ClientPlotService.GetMyPlots()
+	local player = Players.LocalPlayer
+	if not player then return {} end
+	
+	local plotsFolder = Workspace:FindFirstChild("Plots")
+	if not plotsFolder then return {} end
+	
+	local myPlots = {}
+	for _, plot in plotsFolder:GetChildren() do
+		local ownerId = plot:GetAttribute("OwnerId")
+		if ownerId == player.UserId then
+			table.insert(myPlots, plot)
+		end
+	end
+	
+	return myPlots
+end
+
 function ClientPlotService.IsOnMyIsland(playerPos)
 	local player = Players.LocalPlayer
 	if not player then return false end
@@ -34,24 +52,22 @@ function ClientPlotService.IsOnMyIsland(playerPos)
 		pos = hrp.Position
 	end
 	
-	local myPlot = ClientPlotService.GetMyPlot()
-	if not myPlot then return false end
+	local myPlots = ClientPlotService.GetMyPlots()
+	if #myPlots == 0 then return false end
 	
-	local floor = myPlot:FindFirstChild("Island")
-		or myPlot:FindFirstChild("PlotFloor")
-		or myPlot:FindFirstChild("Floor")
-		or myPlot:FindFirstChildWhichIsA("BasePart")
-	
-	if floor then
-		local floorPos = floor.Position
-		local floorSize = floor.Size
-		
-		-- Check if position is within plot bounds (XZ)
-		local dx = math.abs(pos.X - floorPos.X)
-		local dz = math.abs(pos.Z - floorPos.Z)
-		
-		if dx <= floorSize.X / 2 + 10 and dz <= floorSize.Z / 2 + 10 then
-			return true
+	for _, plot in myPlots do
+		local root = plot.PrimaryPart or plot:FindFirstChild("Root") or plot:FindFirstChild("MainPlatform") or plot:FindFirstChildWhichIsA("BasePart")
+		if root then
+			local plotPos = root.Position
+			
+			-- The main platform is a cylinder of radius 60. 
+			-- Check if the player is within a 70 stud radius (including a small buffer)
+			local dx = pos.X - plotPos.X
+			local dz = pos.Z - plotPos.Z
+			
+			if dx*dx + dz*dz <= 70 * 70 then
+				return true
+			end
 		end
 	end
 	

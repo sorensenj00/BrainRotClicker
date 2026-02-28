@@ -161,9 +161,9 @@ local function validateRemoteToggle(player)
 		return false, "no_cart"
 	end
 
-	if not isPlayerNearOwnCart(player, getRemoteToggleDistance(player)) then
-		return false, "too_far"
-	end
+	-- if not isPlayerNearOwnCart(player, getRemoteToggleDistance(player)) then
+	-- 	return false, "too_far"
+	-- end
 
 	local now = os.clock()
 	local last = CartRemoteCooldowns[player] or 0
@@ -210,14 +210,14 @@ local function spawnCart(player)
 	local plotEdgePos = Vector3.new(plotPos.X - dir2D.X * 60, plotPos.Y, plotPos.Z - dir2D.Z * 60)
 	
 	-- Add more to Y so the drone/cart doesn't clip into the bridge/ground, starting higher
-	local yOffset = Vector3.new(0, 8, 0)
+	local yOffset = Vector3.new(0, 10, 0)
 	
 	local spawnPos = plotEdgePos + yOffset
 	local mainPos = hubEdgePos + yOffset
 	
 	local dir = (mainPos - spawnPos).Unit -- General direction for facing at spawn
 	
-	model:PivotTo(CFrame.new(spawnPos, spawnPos + dir))
+	--model:PivotTo(CFrame.new(spawnPos, spawnPos + dir) * CFrame.Angles(0, math.rad(-90), 0))
 	model.Parent = workspace
 	
 	local Config = require(ReplicatedStorage.Shared.CartShopConfig)

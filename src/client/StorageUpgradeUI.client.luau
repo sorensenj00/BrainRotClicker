@@ -23,8 +23,8 @@ local ShopInteraction = require(script.Parent:WaitForChild("ShopInteraction"))
 -- Wait for remotes
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
-local UpgradeStorageEvent = RemoteEvents:WaitForChild("UpgradeStorage")
-local UpgradeStorageTierEvent = RemoteEvents:WaitForChild("UpgradeStorageTier")
+local UpgradeStorageEvent = RemoteEvents:WaitForChild("UpgradeStorageRequest")
+local UpgradeStorageTierEvent = RemoteEvents:WaitForChild("UpgradeStorageTierRequest")
 local GetStorageInfoEvent = RemoteFunctions:WaitForChild("GetStorageInfo")
 local StorageUpgradedEvent = RemoteEvents:WaitForChild("StorageUpgraded")
 

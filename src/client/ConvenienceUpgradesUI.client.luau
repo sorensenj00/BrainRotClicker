@@ -391,9 +391,6 @@ local function openShop()
 	if shopOpen then return end
 	shopOpen = true
 	
-	loadUpgradesInfo()
-	refreshShop()
-	
 	mainFrame.Visible = true
 	mainFrame.Size = UDim2.new(0, 0, 0, 0)
 	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
@@ -403,6 +400,13 @@ local function openShop()
 		Position = UDim2.new(0.5, -275, 0.5, -250),
 	})
 	tween:Play()
+	
+	task.spawn(function()
+		loadUpgradesInfo()
+		if shopOpen then
+			refreshShop()
+		end
+	end)
 end
 
 local function closeShop()
@@ -436,7 +440,7 @@ end
 --------------------------------------------------------------------------------
 
 -- Close button
-mainFrame.Header.CloseButton.MouseButton1Click:Connect(closeShop)
+-- Connected after _interaction is initialized
 
 -- Purchase result
 PurchaseUpgradeEvent.OnClientEvent:Connect(function(success, message)
@@ -464,6 +468,14 @@ local _interaction = ShopInteraction.new({
 	OnOpen = openShop,
 	OnClose = closeShop,
 })
+
+mainFrame.Header.CloseButton.MouseButton1Click:Connect(function()
+	if _interaction and _interaction.IsOpen then
+		_interaction:Close()
+	else
+		closeShop()
+	end
+end)
 
 -- Handle H key for teleport home separately as it's not part of the standard shop interaction
 UserInputService.InputBegan:Connect(function(input, gameProcessed)

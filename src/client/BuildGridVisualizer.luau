@@ -6,10 +6,11 @@
 ]]
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local GridTopology = require(Shared:WaitForChild("GridTopology"))
-local ClientPlotService = require(script.Parent:WaitForChild("ClientPlotService"))
+local LocalPlayer = Players.LocalPlayer
 
 local BuildGridVisualizer = {}
 
@@ -77,8 +78,18 @@ local function createGridTile(slotIndex, cframe, isOccupied, unitName)
 	return tile
 end
 
-local function getPlotBoundsAndCFrame()
-	local plot = ClientPlotService.GetMyPlot()
+local function getPlotBoundsAndCFrame(tierIndex)
+	local plotsFolder = workspace:FindFirstChild("Plots")
+	if not plotsFolder or not LocalPlayer then return nil end
+
+	local plot = nil
+	for _, candidate in plotsFolder:GetChildren() do
+		if candidate:GetAttribute("OwnerId") == LocalPlayer.UserId
+			and candidate:GetAttribute("TierIndex") == tierIndex then
+			plot = candidate
+			break
+		end
+	end
 	if not plot then return nil end
 	
 	-- Prioritize PlotBounds_80x80
@@ -99,10 +110,9 @@ end
 --------------------------------------------------------------------------------
 
 function BuildGridVisualizer.Render(gridState)
-	local plotCF, plotSize = getPlotBoundsAndCFrame()
-	if not plotCF then return end
-	
-	gridFloorHeight = plotCF.Position.Y
+	gridState = gridState or {}
+	gridState.slots = gridState.slots or {}
+	gridFloorHeight = 0
 	
 	-- Clear old
 	BuildGridVisualizer.Destroy()
@@ -113,19 +123,22 @@ function BuildGridVisualizer.Render(gridState)
 	
 	gridTiles = {}
 	
-	local totalSlots = 16
-	if gridState.gridSize then
-		local sizes = {
-			starter = 16,
-			bronze = 20,
-			silver = 25,
-			gold = 36
-		}
-		totalSlots = sizes[gridState.gridSize] or 16
-	end
+	local totalSlots = tonumber(gridState.unlockedSlots) or 16
+	totalSlots = math.max(1, math.floor(totalSlots))
+	local firstRenderedPlotPosition = nil
 	
 	-- Create tiles dynamically based on grid size
 	for slotIndex = 1, totalSlots do
+		local tierIndex = math.floor((slotIndex - 1) / 16) + 1
+		local plotCF, plotSize = getPlotBoundsAndCFrame(tierIndex)
+		if not plotCF then
+			continue
+		end
+		if not firstRenderedPlotPosition then
+			firstRenderedPlotPosition = plotCF.Position
+			gridFloorHeight = plotCF.Position.Y
+		end
+
 		local cframe = GridTopology.GetSlotCFrame(plotCF, plotSize, slotIndex, 0)
 		
 		-- FIX: Safely check for number key (1) OR string key ("1")
@@ -147,7 +160,7 @@ function BuildGridVisualizer.Render(gridState)
 		gridTiles[slotIndex] = tile
 	end
 	
-	return plotCF.Position
+	return firstRenderedPlotPosition
 end
 
 function BuildGridVisualizer.Destroy()

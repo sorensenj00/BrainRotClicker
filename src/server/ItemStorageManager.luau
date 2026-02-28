@@ -138,20 +138,16 @@ local function isNearOwnStorage(player)
 
 	for _, plot in ipairs(plotsFolder:GetChildren()) do
 		if plot:GetAttribute("OwnerId") == player.UserId then
-			local floor = plot:FindFirstChild("Island")
-				or plot:FindFirstChild("PlotFloor")
-				or plot:FindFirstChild("Floor")
-				or plot:FindFirstChildWhichIsA("BasePart")
-			if not floor or not floor:IsA("BasePart") then
-				return false
+			local root = plot.PrimaryPart or plot:FindFirstChild("Root") or plot:FindFirstChild("MainPlatform") or plot:FindFirstChildWhichIsA("BasePart")
+			if root and root:IsA("BasePart") then
+				local playerPos = hrp.Position
+				local plotPos = root.Position
+				local dx = playerPos.X - plotPos.X
+				local dz = playerPos.Z - plotPos.Z
+				if dx*dx + dz*dz <= 70 * 70 then
+					return true
+				end
 			end
-
-			local playerPos = hrp.Position
-			local floorPos = floor.Position
-			local floorSize = floor.Size
-			local dx = math.abs(playerPos.X - floorPos.X)
-			local dz = math.abs(playerPos.Z - floorPos.Z)
-			return dx <= floorSize.X / 2 + 10 and dz <= floorSize.Z / 2 + 10
 		end
 	end
 

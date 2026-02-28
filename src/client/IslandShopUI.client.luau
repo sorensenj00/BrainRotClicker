@@ -273,21 +273,34 @@ end
 local function updateShopInfo()
 	local info = GetTierInfoEvent:InvokeServer()
 	if not info then return end
-	
+
+	local currentSlots = tonumber(info.CurrentSlots) or 4
+	local maxSlots = tonumber(info.MaxSlots) or 96
+	local nextPrice = tonumber(info.NextPrice) or 0
+	local nextUpgradeType = info.NextUpgradeType or "ExpandGrid"
+
 	-- Update status labels
-	statusFrame.TiersLabel.Text = string.format("Current Islands: %d / %d", info.CurrentTiers, info.MaxTiers)
-	statusFrame.ModelsLabel.Text = string.format("Total Models: %d", info.TotalModels)
-	statusFrame.FillLabel.Text = string.format("Models per island: %d", info.ModelsPerTier)
-	
+	statusFrame.TiersLabel.Text = string.format("Unlocked Slots: %d / %d", currentSlots, maxSlots)
+	statusFrame.ModelsLabel.Text = string.format("Next Upgrade: %s", nextUpgradeType == "NewIsland" and "New Island +4 Slots" or "Expand Grid +4 Slots")
+	statusFrame.FillLabel.Text = "Progression: +4 slots per purchase"
+
 	-- Update purchase section
 	if info.CanPurchase then
-		purchaseFrame.PriceLabel.Text = string.format("Price: %s", formatMoney(info.NextTierPrice))
-		purchaseFrame.PurchaseButton.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
-		purchaseFrame.PurchaseButton.Text = "PURCHASE ISLAND"
+		purchaseFrame.PriceLabel.Text = string.format("Price: %s", formatMoney(nextPrice))
+		if nextUpgradeType == "NewIsland" then
+			purchaseFrame.PurchaseButton.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
+			purchaseFrame.PurchaseButton.Text = "🛒 PURCHASE NEW ISLAND"
+			purchaseFrame.PurchaseTitle.Text = "🛒 Purchase New Island"
+		else
+			purchaseFrame.PurchaseButton.BackgroundColor3 = Color3.fromRGB(70, 130, 255)
+			purchaseFrame.PurchaseButton.Text = "⛔ EXPAND GRID (+4 Slots)"
+			purchaseFrame.PurchaseTitle.Text = "⛔ Expand Grid (+4 Slots)"
+		end
 	else
-		purchaseFrame.PriceLabel.Text = "Max islands reached!"
+		purchaseFrame.PriceLabel.Text = "Max slots reached!"
 		purchaseFrame.PurchaseButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-		purchaseFrame.PurchaseButton.Text = "MAX ISLANDS"
+		purchaseFrame.PurchaseButton.Text = "MAX SLOTS"
+		purchaseFrame.PurchaseTitle.Text = "Progression Complete"
 	end
 end
 

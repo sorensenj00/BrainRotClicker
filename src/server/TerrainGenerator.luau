@@ -7,6 +7,7 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local ServerStorage = game:GetService("ServerStorage")
+local CollectionService = game:GetService("CollectionService")
 
 local TerrainGenerator = {}
 
@@ -19,6 +20,7 @@ local GEN_CONFIG = {
 local BridgeTemplate
 local MainIslandTemplate
 local HFTTerminalTemplate -- [NEW] Reference for the terminal
+local FulfillmentKioskTemplate
 
 --------------------------------------------------------------------------------
 -- INITIALIZATION
@@ -33,6 +35,7 @@ function TerrainGenerator.Init()
 	
 	-- [NEW] Load the HFT Terminal from ReplicatedStorage.Models
 	HFTTerminalTemplate = models and models:FindFirstChild("Plot_HFT_Terminal")
+	FulfillmentKioskTemplate = models and models:FindFirstChild("Fulfillment_Kiosk")
 	
 	-- Placeholders if missing
 	if not MainIslandTemplate then
@@ -280,6 +283,27 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 			prompt.RequiresLineOfSight = false
 			prompt.MaxActivationDistance = 12
 			prompt.Parent = attachPart
+		end
+	end
+
+	-- 9. Spawn Fulfillment Kiosk on Starter Plot Only
+	if isStarterPlot and FulfillmentKioskTemplate then
+		local kiosk = FulfillmentKioskTemplate:Clone()
+
+		-- Bridge connection is on the +X edge of the plot.
+		-- Place kiosk just behind that connection so it is near the bridge entrance.
+		local kioskX = 50
+		local kioskZ = -7
+		local kioskY = topY + 1.3
+
+		kiosk:PivotTo(CFrame.new(kioskX, kioskY, kioskZ) * CFrame.Angles(0, math.rad(-90), 0))
+		kiosk.Parent = model
+
+		-- Keep compatibility with existing client prompt listeners.
+		for _, desc in kiosk:GetDescendants() do
+			if desc:IsA("ProximityPrompt") and not CollectionService:HasTag(desc, "TransportCartPrompt") then
+				CollectionService:AddTag(desc, "TransportCartPrompt")
+			end
 		end
 	end
 

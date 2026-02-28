@@ -60,6 +60,10 @@ local LoadMaxFromStorageRemote = RemoteFunctions:FindFirstChild("LoadMaxFromStor
 LoadMaxFromStorageRemote.Name = "LoadMaxFromStorage"
 LoadMaxFromStorageRemote.Parent = RemoteFunctions
 
+local CartLoadVisual = RemoteEvents:FindFirstChild("CartLoadVisual") or Instance.new("RemoteEvent")
+CartLoadVisual.Name = "CartLoadVisual"
+CartLoadVisual.Parent = RemoteEvents
+
 -- Module
 local TransportManager = {}
 local Services = {}
@@ -209,6 +213,7 @@ function TransportManager.LoadFromStorage(player, itemId, count)
 	local actuallyRemoved = ISM.RemoveFromStorage(player, itemId, toMove)
 	if actuallyRemoved > 0 then
 		CM.LoadItem(player, itemId, actuallyRemoved)
+		CartLoadVisual:FireAllClients(player, actuallyRemoved)
 	end
 	return actuallyRemoved
 end
@@ -241,6 +246,7 @@ function TransportManager.LoadMaxFromStorage(player)
 	end
 	table.sort(list, function(a,b) return a.val > b.val end)
 
+	local totalLoaded = 0
 	for _, item in ipairs(list) do
 		if space <= 0 then break end
 		local toLoad = math.min(item.count, space)
@@ -249,7 +255,12 @@ function TransportManager.LoadMaxFromStorage(player)
 			CM.LoadItem(player, item.id, didLoad)
 			loaded[item.id] = didLoad
 			space -= didLoad
+			totalLoaded += didLoad
 		end
+	end
+	
+	if totalLoaded > 0 then
+		CartLoadVisual:FireAllClients(player, totalLoaded)
 	end
 
 	return loaded

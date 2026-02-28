@@ -92,6 +92,7 @@ local ProfileStore = ProfileService.GetProfileStore(
 		-- Upgrades & Progress
 		storageCapacity = 2000,
 		purchasedTiers = 1,
+		unlockedGridSlots = 4,
 		unlockProgress = 5,
 		selectedVehicle = "Sneakers",
 		vehicleCapacities = {},

@@ -30,8 +30,8 @@ local function getOrCreateRemote(parent, remoteName, className)
 	return remote
 end
 
-local UpgradeStorageEvent = getOrCreateRemote(RemoteEvents, "UpgradeStorage", "RemoteEvent")
-local UpgradeStorageTierEvent = getOrCreateRemote(RemoteEvents, "UpgradeStorageTier", "RemoteEvent")
+local UpgradeStorageEvent = getOrCreateRemote(RemoteEvents, "UpgradeStorageRequest", "RemoteEvent")
+local UpgradeStorageTierEvent = getOrCreateRemote(RemoteEvents, "UpgradeStorageTierRequest", "RemoteEvent")
 local GetStorageInfoEvent = getOrCreateRemote(RemoteFunctions, "GetStorageInfo", "RemoteFunction")
 local StorageUpgradedEvent = getOrCreateRemote(RemoteEvents, "StorageUpgraded", "RemoteEvent")
 

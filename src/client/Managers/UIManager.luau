@@ -22,6 +22,7 @@ local SHOP_ALIASES = {
 	storage = "storageupgrades",
 	convenience = "convenienceupgrades",
 	artifact = "artifactexchange",
+	achievement = "achievements",
 }
 
 local function resolveShopKey(rawName: any): string

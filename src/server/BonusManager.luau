@@ -5,7 +5,6 @@
 	Ensures that Prestige, Mewing, Upgrades, and other systems stack correctly.
 ]]
 
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local BonusManager = {}
 local Services = {}
 
@@ -58,22 +57,15 @@ function BonusManager.GetTotalLuckMultiplier(player: Player): number
 	
 	-- 1. Convenience Upgrades (LuckyChance/CriticalChance)
 	local ConvenienceUpgradesManager = rawget(Services, "ConvenienceUpgradesManager")
-	if ConvenienceUpgradesManager and ConvenienceUpgradesManager.GetPlayerUpgrades then
+	if ConvenienceUpgradesManager and ConvenienceUpgradesManager.CalculateLuckyChance and ConvenienceUpgradesManager.GetPlayerUpgrades then
 		local upgs = ConvenienceUpgradesManager.GetPlayerUpgrades(player)
-		-- Summing additive luck bonuses
-		local conf = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("ConvenienceUpgradesConfig"))
-		for _, name in ipairs(upgs) do
-			local c = conf.GetConfig(name)
-			if c and c.EffectType == "LuckyChance" then
-				bonus += c.EffectValue
-			end
-		end
+		bonus += ConvenienceUpgradesManager.CalculateLuckyChance(upgs)
 	end
 	
 	return 1 + bonus
 end
 
-function BonusManager.GetTotalStorageMultiplier(player: Player): number
+function BonusManager.GetTotalStorageMultiplier(_player: Player): number
 	local multi = 1.0
 	
 	-- Future: Add storage multipliers from Prestige or Special Items here

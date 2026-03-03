@@ -628,7 +628,7 @@ end
 	@param volume number - How many items were traded
 	@param isBuy boolean - true if player bought, false if player sold
 ]]
-function StockMarketManager.ApplyLocalShock(itemId: string, volume: number, isBuy: boolean)
+function StockMarketManager.ApplyLocalShock(player: Player?, itemId: string, volume: number, isBuy: boolean)
 	if not itemId or not volume or volume <= 0 then return end
 
 	local currentLocal = localItemRates[itemId] or itemRates[itemId] or 1.0
@@ -649,7 +649,17 @@ function StockMarketManager.ApplyLocalShock(itemId: string, volume: number, isBu
 		newRate = currentLocal * (1 - math.min(shockMagnitude, 0.6)) -- Cap at 60% crash
 	end
 
+	local preShockRate = currentLocal
 	localItemRates[itemId] = math.clamp(newRate, CONFIG.MIN_RATE * 0.5, CONFIG.MAX_RATE * 2)
+	if player and (not isBuy) and preShockRate > 0 then
+		local dropPct = (preShockRate - localItemRates[itemId]) / preShockRate
+		if dropPct >= 0.20 then
+			local achievementManager = rawget(_Services, "AchievementsManager")
+			if achievementManager and achievementManager.RecordProgress then
+				achievementManager.RecordProgress(player, "local_market_crash_20", 1)
+			end
+		end
+	end
 
 	-- Immediately replicate the shock to clients
 	local localRatesJson = serializeLocalItemRates()

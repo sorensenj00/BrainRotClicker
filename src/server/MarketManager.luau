@@ -221,10 +221,10 @@ local function adjustAMMPool(itemId, deltaItems, deltaCash)
 	end
 end
 
-local function applyLocalShock(itemId, volume, isBuy)
+local function applyLocalShock(player, itemId, volume, isBuy)
 	local SM = rawget(Services, "StockMarketManager")
 	if SM and SM.ApplyLocalShock then
-		SM.ApplyLocalShock(itemId, volume, isBuy)
+		SM.ApplyLocalShock(player, itemId, volume, isBuy)
 	end
 end
 
@@ -281,6 +281,29 @@ local function getMarketEffectOrigin()
 	end
 
 	return Vector3.new(0, 32, 0)
+end
+
+local function recordAchievements(player, goalType, amount)
+	local AchievementMgr = rawget(Services, "AchievementsManager")
+	if AchievementMgr and AchievementMgr.RecordProgress then
+		AchievementMgr.RecordProgress(player, goalType, amount)
+	end
+end
+
+local function setAchievementProgress(player, goalType, absoluteValue)
+	local AchievementMgr = rawget(Services, "AchievementsManager")
+	if AchievementMgr and AchievementMgr.SetProgress then
+		AchievementMgr.SetProgress(player, goalType, absoluteValue)
+	else
+		recordAchievements(player, goalType, absoluteValue)
+	end
+end
+
+local function recordCashBalanceAchievements(player)
+	local dataService = rawget(Services, "DataService")
+	if dataService and dataService.GetMoney then
+		setAchievementProgress(player, "cash_balance_reached", dataService.GetMoney(player))
+	end
 end
 
 local function broadcastToTheMoon(player, totalEarned)
@@ -364,6 +387,7 @@ function MarketManager.BuyItem(player, itemId, count)
 	-- Get buy price (raw market rate, no welfare floor)
 	local unitPrice = getBuyPrice(player, itemId)
 	if unitPrice <= 0 then return 0, 0 end
+	local sellPriceNow = getPlayerSellPrice(player, itemId)
 	
 	-- Verify and deduct cash
 	local DataService = rawget(Services, "DataService")
@@ -409,10 +433,13 @@ function MarketManager.BuyItem(player, itemId, count)
 	adjustAMMPool(itemId, -(actualAdded * 0.9), totalCost)
 	
 	-- Apply local shock: buying spikes local price
-	applyLocalShock(itemId, actualAdded, true)
+	applyLocalShock(player, itemId, actualAdded, true)
 	
 	-- Notify client
 	ItemBoughtEvent:FireClient(player, itemId, actualAdded, totalCost)
+	if sellPriceNow > unitPrice then
+		recordAchievements(player, "profitable_arbitrage", 1)
+	end
 	
 	return actualAdded, totalCost
 end
@@ -424,6 +451,7 @@ end
 function MarketManager.SellCartContents(player, cartInventory)
 	if not cartInventory then return 0, 0 end
 	local sold, earned = 0, 0
+	local currentRate = stockMarketFolder:GetAttribute("CurrentRate") or 1.0
 	
 	for itemId, count in pairs(cartInventory) do
 		if count > 0 then
@@ -442,8 +470,16 @@ function MarketManager.SellCartContents(player, cartInventory)
 		local DataService = rawget(Services, "DataService")
 		if DataService then
 			DataService.AddMoney(player, earned)
+			recordCashBalanceAchievements(player)
 		else
 			warn("MarketManager: DataService unavailable during SellCartContents payout for", player.Name)
+		end
+		recordAchievements(player, "first_cart_sale", 1)
+		if currentRate >= 2.5 then
+			recordAchievements(player, "cart_sold_hyper_inflation", 1)
+		end
+		if currentRate <= 0.5 then
+			recordAchievements(player, "sold_during_crash", 1)
 		end
 		
 		-- Fire a single aggregate event for the cart instead of per-item spam
@@ -511,7 +547,7 @@ function MarketManager.ExecuteShortfallBuy(shortfallPerItem)
 			adjustAMMPool(itemId, -(data.missing * 0.9), data.rawCost)
 			
 			-- Spike local prices as if a massive buy order happened
-			applyLocalShock(itemId, data.missing, true)
+			applyLocalShock(nil, itemId, data.missing, true)
 		end
 	end
 end
@@ -588,7 +624,7 @@ function MarketManager.BuyToCart(player, itemId, count)
 	
 	-- Adjust AMM pool: items leave pool, cash enters pool
 	adjustAMMPool(itemId, -(actualLoaded * 0.9), totalCost)
-	applyLocalShock(itemId, actualLoaded, true)
+	applyLocalShock(player, itemId, actualLoaded, true)
 	
 	-- Notify client
 	ItemBoughtEvent:FireClient(player, itemId, actualLoaded, totalCost)
@@ -638,11 +674,20 @@ function MarketManager.SellFromCart(player, itemId, count)
 	local DataService = rawget(Services, "DataService")
 	if DataService then
 		DataService.AddMoney(player, total)
+		recordCashBalanceAchievements(player)
+	end
+	recordAchievements(player, "first_cart_sale", 1)
+	local localRate = getPlayerSellRate(player, itemId)
+	if localRate >= 2.5 and isFullBefore then
+		recordAchievements(player, "cart_sold_hyper_inflation", 1)
+	end
+	if localRate <= 0.5 then
+		recordAchievements(player, "sold_during_crash", 1)
 	end
 	
 	-- Adjust AMM pool: items enter pool, cash leaves pool
 	adjustAMMPool(itemId, removed, -(total * 0.9))
-	applyLocalShock(itemId, removed, false)
+	applyLocalShock(player, itemId, removed, false)
 
 	-- To The Moon: full cart -> empty cart quickly during a high-rate cycle.
 	local now = os.clock()

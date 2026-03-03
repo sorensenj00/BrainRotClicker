@@ -42,6 +42,13 @@ UnloadCartRemote.Parent = RemoteFunctions
 local CartManager = {}
 local Services = {}
 
+local function recordAchievement(player, goalType, amount)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.RecordProgress then
+		achievementManager.RecordProgress(player, goalType, amount)
+	end
+end
+
 -- State
 local PlayerCarts = {} -- [Player] = { Model, State, Inventory, Capacity }
 local CartRemoteCooldowns = {} -- [Player] = last remote toggle timestamp
@@ -247,6 +254,7 @@ local function moveCart(player, targetState)
 	end
 	
 	local dist = (data.EndPos - data.StartPos).Magnitude
+	recordAchievement(player, "cart_distance_traveled", math.floor(dist))
 	
 	data.State = targetState
 	updateCartVisuals(data)
@@ -254,6 +262,10 @@ local function moveCart(player, targetState)
 	
 	-- Calculate time (distance already computed above or defaults)
 	local speed = data.Speed or CONFIG.ROLL_SPEED
+	local DroneOpsManager = rawget(Services, "DroneOpsManager")
+	if DroneOpsManager and DroneOpsManager.GetCartSpeedMultiplier then
+		speed = speed * math.max(0.05, DroneOpsManager.GetCartSpeedMultiplier(player))
+	end
 	local travelTime = dist / speed
 	print("CartManager: Starting transport, time:", travelTime, "dist:", dist)
 	
@@ -445,6 +457,13 @@ function CartManager.HandlePrompt(player)
 	print("CartManager: Current State:", data.State)
 	if data.State == "idle" then
 		-- Pushing to market (allow even if empty for testing)
+		local currentLoad = 0
+		for _, c in pairs(data.Inventory) do
+			currentLoad += c
+		end
+		if data.Capacity > 0 and currentLoad >= data.Capacity then
+			recordAchievement(player, "cart_fully_loaded", 1)
+		end
 		moveCart(player, "rolling_to_market")
 	elseif data.State == "at_market" then
 		moveCart(player, "rolling_to_plot")

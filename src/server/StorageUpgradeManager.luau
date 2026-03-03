@@ -51,6 +51,13 @@ local STORAGE_TIERS = {
 local StorageUpgradeManager = {}
 local Services = {}
 
+local function setAchievementProgress(player, goalType, absoluteValue)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.SetProgress then
+		achievementManager.SetProgress(player, goalType, absoluteValue)
+	end
+end
+
 -- Admin bypass (mirrors AdminService)
 local ADMIN_USER_IDS = { [1340966465] = true }
 local IS_STUDIO = RunService:IsStudio()
@@ -277,6 +284,7 @@ local function handleUpgradeStorage(player)
 	money.Value -= price
 	local nextLvl = lvl + 1
 	setCapacityUpgradeLevel(player, nextLvl)
+	setAchievementProgress(player, "storage_tier_level", nextLvl)
 	
 	local newBaseCap = getCapacityValue(tier, nextLvl)
 	player:SetAttribute("BaseStorageCapacity", newBaseCap)

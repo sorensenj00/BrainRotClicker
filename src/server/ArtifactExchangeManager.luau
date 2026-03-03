@@ -74,6 +74,13 @@ local ExchangeMap -- MemoryStoreSortedMap, initialized in Init()
 local ArtifactExchangeManager = {}
 local Services = {}
 
+local function recordAchievement(player, goalType, amount)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.RecordProgress then
+		achievementManager.RecordProgress(player, goalType, amount)
+	end
+end
+
 -- Server-side listing cache (all clients read from this, never from MemoryStore directly)
 local MarketCache = {} -- Array of {key, value, sortKey} entries from GetRangeAsync
 
@@ -446,6 +453,7 @@ function ArtifactExchangeManager.CreateListing(player, artifactGUID, price)
 	escrow[listingGUID] = artifact -- Store full artifact data in escrow
 
 	print("ArtifactExchange:", player.Name, "listed", artifact.Name, "for $" .. price, "(Listing:", listingGUID, ")")
+	recordAchievement(player, "artifact_listed", 1)
 
 	-- Force a cache refresh so this listing appears immediately on this server
 	task.spawn(refreshCache)

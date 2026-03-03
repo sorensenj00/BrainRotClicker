@@ -165,10 +165,10 @@ local function createMoneyHUD(): ScreenGui
 	padding.PaddingBottom = UDim.new(0, 16)
 	padding.Parent = hudPanel
 
-	-- Money icon and label container
+	-- Money and premium currency container
 	local moneyContainer = Instance.new("Frame")
 	moneyContainer.Name = "MoneyContainer"
-	moneyContainer.Size = UDim2.new(1, 0, 0, 32)
+	moneyContainer.Size = UDim2.new(1, 0, 0, 58)
 	moneyContainer.Position = UDim2.new(0, 0, 0, 0)
 	moneyContainer.BackgroundTransparency = 1
 	moneyContainer.Parent = hudPanel
@@ -195,11 +195,23 @@ local function createMoneyHUD(): ScreenGui
 	moneyLabel.TextXAlignment = Enum.TextXAlignment.Left
 	moneyLabel.Parent = moneyContainer
 
+	local braincellsLabel = Instance.new("TextLabel")
+	braincellsLabel.Name = "BraincellsLabel"
+	braincellsLabel.Size = UDim2.new(1, -40, 0, 20)
+	braincellsLabel.Position = UDim2.new(0, 40, 0, 34)
+	braincellsLabel.BackgroundTransparency = 1
+	braincellsLabel.Text = "🧠 0"
+	braincellsLabel.TextColor3 = Color3.fromRGB(145, 200, 255)
+	braincellsLabel.TextSize = 15
+	braincellsLabel.Font = Enum.Font.GothamBold
+	braincellsLabel.TextXAlignment = Enum.TextXAlignment.Left
+	braincellsLabel.Parent = moneyContainer
+
 	-- Storage Section
 	local storageContainer = Instance.new("Frame")
 	storageContainer.Name = "ItemsContainer"
 	storageContainer.Size = UDim2.new(1, -20, 0, 50)
-	storageContainer.Position = UDim2.new(0, 15, 0, 60)
+	storageContainer.Position = UDim2.new(0, 15, 0, 86)
 	storageContainer.BackgroundTransparency = 1
 	storageContainer.Parent = hudPanel
 
@@ -234,7 +246,7 @@ local function createMoneyHUD(): ScreenGui
 	----------------------------------------------------------------------
 	-- YOUR TOP HOLDINGS SECTION
 	----------------------------------------------------------------------
-	local holdingsY = 105
+	local holdingsY = 131
 
 	-- Thin divider
 	local div = Instance.new("Frame")
@@ -291,11 +303,11 @@ local function createMoneyHUD(): ScreenGui
 	emptyLabel.Parent = holdingsList
 
 	----------------------------------------------------------------------
-	-- BOTTOM CENTER ACTION BAR (3 buttons)
+	-- BOTTOM CENTER ACTION BAR
 	----------------------------------------------------------------------
 	local btnSize = UI_CONFIG.BOTTOM_BAR_BTN_SIZE
 	local btnPad = UI_CONFIG.BOTTOM_BAR_PADDING
-	local totalBarWidth = 4 * btnSize + 3 * btnPad + 24
+	local totalBarWidth = 5 * btnSize + 4 * btnPad + 24
 
 	local bottomBar = Instance.new("Frame")
 	bottomBar.Name = "BottomBar"
@@ -351,6 +363,7 @@ local function createMoneyHUD(): ScreenGui
 	createBarButton("BackpackButton", "I", UI_CONFIG.THEME_ACCENT_BLUE, 2)
 	createBarButton("StockButton", "M", Color3.fromRGB(80, 200, 100), 3)
 	createBarButton("SynergyButton", "S", Color3.fromRGB(160, 90, 255), 4)
+	createBarButton("AchievementsButton", "A", Color3.fromRGB(245, 185, 70), 5)
 
 	return screenGui
 end
@@ -361,6 +374,7 @@ end
 
 local MoneyHUDGui: ScreenGui
 local MoneyLabel: TextLabel
+local BraincellsLabel: TextLabel
 local ItemsBarFill: Frame
 local ItemsAmountLabel: TextLabel
 
@@ -484,6 +498,13 @@ local function updateMoneyDisplay(newMoney: number)
 	end
 
 	previousMoney = newMoney
+end
+
+local function updateBraincellsDisplay(newBraincells: number)
+	if not BraincellsLabel then
+		return
+	end
+	BraincellsLabel.Text = string.format("🧠 %s", FormatUtils.formatMoney(newBraincells))
 end
 
 local function updateItemsDisplay(currentItems: number, maxItems: number)
@@ -704,6 +725,7 @@ local function initialize()
 		local moneyContainer = hudPanel:FindFirstChild("MoneyContainer")
 		if moneyContainer then
 			MoneyLabel = moneyContainer:FindFirstChild("MoneyLabel")
+			BraincellsLabel = moneyContainer:FindFirstChild("BraincellsLabel")
 		end
 
 		local itemsContainer = hudPanel:FindFirstChild("ItemsContainer")
@@ -780,6 +802,13 @@ local function initialize()
 		)
 		setupBtn("StockButton", "StockToggleEvent", nil, Color3.fromRGB(80, 200, 100), Color3.fromRGB(100, 230, 130))
 		setupBtn("SynergyButton", "SynergyToggleEvent", nil, Color3.fromRGB(160, 90, 255), Color3.fromRGB(185, 120, 255))
+		setupBtn(
+			"AchievementsButton",
+			"AchievementsToggleEvent",
+			nil,
+			Color3.fromRGB(245, 185, 70),
+			Color3.fromRGB(255, 210, 110)
+		)
 	end
 
 	----------------------------------------------------------------------
@@ -815,6 +844,16 @@ local function initialize()
 			print("MoneyHUD: Connected to money value")
 		else
 			warn("MoneyHUD: Could not find Money value")
+		end
+
+		local braincells = leaderstats:FindFirstChild("Braincells")
+		if braincells then
+			updateBraincellsDisplay(braincells.Value)
+			braincells:GetPropertyChangedSignal("Value"):Connect(function()
+				updateBraincellsDisplay(braincells.Value)
+			end)
+		else
+			warn("MoneyHUD: Could not find Braincells value")
 		end
 	else
 		warn("MoneyHUD: Could not find leaderstats")

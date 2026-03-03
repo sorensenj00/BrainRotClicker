@@ -50,6 +50,22 @@ local Services = {}
 -- Cache State (V3: keyed by slot index instead of unit type)
 local PlayerCache = {}
 
+local function recordAchievement(player, goalType, amount)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.RecordProgress then
+		achievementManager.RecordProgress(player, goalType, amount)
+	end
+end
+
+local function setAchievementProgress(player, goalType, absoluteValue)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.SetProgress then
+		achievementManager.SetProgress(player, goalType, absoluteValue)
+	else
+		recordAchievement(player, goalType, absoluteValue)
+	end
+end
+
 --------------------------------------------------------------------------------
 -- CACHE MANAGEMENT
 --------------------------------------------------------------------------------
@@ -224,6 +240,12 @@ local function produceItems(player)
 			-- Apply tile/artifact bonuses
 			local bonuses = calculateUnitBonuses(player, unitModel)
 			local adjustedRate = math.max(0.1, outputRate * bonuses.speedMult)
+			local DroneOpsManager = rawget(Services, "DroneOpsManager")
+			if DroneOpsManager and DroneOpsManager.GetProductionIntervalMultiplier then
+				-- Drone buffs/nerfs are applied as interval multipliers.
+				adjustedRate = adjustedRate * DroneOpsManager.GetProductionIntervalMultiplier(player, outputItemId)
+				adjustedRate = math.max(0.1, adjustedRate)
+			end
 			
 			-- Production timing (keyed by slot)
 			if not cache.SlotProduction[slotIndex] then
@@ -278,6 +300,7 @@ local function produceItems(player)
 	-- BATCH FIRE: Send exactly ONE remote event per second for all production
 	if totalAdded > 0 then
 		ItemProducedEvent:FireClient(player, itemsProducedThisTick)
+		recordAchievement(player, "items_produced_total", totalAdded)
 
 		local currentTotal = 0
 		for _, c in pairs(storageItems) do currentTotal += c end
@@ -414,6 +437,26 @@ function ItemProductionManager.RefreshUnitAttributes(player: Player)
 			unitModel:SetAttribute("Level", level)
 		end
 	end
+
+	local activeSynergySet = {}
+	for slotKey, slotData in pairs(gridPositions) do
+		local slotIndex = tonumber(slotKey)
+		if slotIndex and slotData.Unit and slotData.Unit.unitType then
+			local synergy = checkClusterSynergy(gridPositions, slotIndex, slotData.Unit.unitType)
+			if synergy and synergy.synergyItem then
+				activeSynergySet[synergy.synergyItem] = true
+			end
+		end
+	end
+
+	local uniqueSynergyCount = 0
+	for _ in pairs(activeSynergySet) do
+		uniqueSynergyCount += 1
+	end
+	if uniqueSynergyCount > 0 then
+		recordAchievement(player, "synergy_activated", 1)
+	end
+	setAchievementProgress(player, "synergy_unique_active", uniqueSynergyCount)
 end
 
 return ItemProductionManager

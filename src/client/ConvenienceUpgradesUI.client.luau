@@ -53,6 +53,14 @@ local UI_CONFIG = {
 -- State
 local shopOpen = false
 local ownedUpgrades: {string} = {}
+local currentMoney = 0
+
+local CATEGORY_LABELS = {
+	Mobility = "Mobility & Travel",
+	Economy = "Income & Payouts",
+	Automation = "Automation Systems",
+	Utility = "Utility Unlocks",
+}
 
 --------------------------------------------------------------------------------
 -- UI CREATION
@@ -91,7 +99,7 @@ local function createShopUI()
 	-- Main container
 	local mainFrame = Instance.new("Frame")
 	mainFrame.Name = "MainFrame"
-	mainFrame.Size = UDim2.new(0, 550, 0, 500)
+	mainFrame.Size = UDim2.fromOffset(550, 500)
 	mainFrame.Position = UDim2.new(0.5, -275, 0.5, -250)
 	mainFrame.BackgroundColor3 = UI_CONFIG.COLORS.Header
 	mainFrame.BorderSizePixel = 0
@@ -117,8 +125,8 @@ local function createShopUI()
 
 	local titleChip = Instance.new("Frame")
 	titleChip.Name = "TitleChip"
-	titleChip.Size = UDim2.new(0, 360, 0, 44)
-	titleChip.Position = UDim2.new(0, 12, 0, 8)
+	titleChip.Size = UDim2.fromOffset(360, 44)
+	titleChip.Position = UDim2.fromOffset(12, 8)
 	titleChip.BackgroundColor3 = UI_CONFIG.COLORS.TitleChip
 	titleChip.BorderSizePixel = 0
 	titleChip.Parent = header
@@ -128,7 +136,7 @@ local function createShopUI()
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Name = "Title"
 	titleLabel.Size = UDim2.new(1, -16, 1, 0)
-	titleLabel.Position = UDim2.new(0, 10, 0, 0)
+	titleLabel.Position = UDim2.fromOffset(10, 0)
 	titleLabel.BackgroundTransparency = 1
 	titleLabel.Text = "CONVENIENCE UPGRADES"
 	titleLabel.TextColor3 = UI_CONFIG.COLORS.Text
@@ -140,7 +148,7 @@ local function createShopUI()
 	-- Close button
 	local closeButton = Instance.new("TextButton")
 	closeButton.Name = "CloseButton"
-	closeButton.Size = UDim2.new(0, 40, 0, 40)
+	closeButton.Size = UDim2.fromOffset(40, 40)
 	closeButton.Position = UDim2.new(1, -50, 0, 10)
 	closeButton.BackgroundColor3 = UI_CONFIG.COLORS.Red
 	closeButton.Text = "X"
@@ -154,9 +162,9 @@ local function createShopUI()
 	local subtitle = Instance.new("TextLabel")
 	subtitle.Name = "Subtitle"
 	subtitle.Size = UDim2.new(1, -40, 0, 20)
-	subtitle.Position = UDim2.new(0, 20, 0, 66)
+	subtitle.Position = UDim2.fromOffset(20, 66)
 	subtitle.BackgroundTransparency = 1
-	subtitle.Text = "All upgrades in one list"
+	subtitle.Text = "Modern progression upgrades for every stage"
 	subtitle.TextColor3 = UI_CONFIG.COLORS.TextMuted
 	subtitle.TextSize = 13
 	subtitle.Font = Enum.Font.Gotham
@@ -167,7 +175,7 @@ local function createShopUI()
 	local contentFrame = Instance.new("ScrollingFrame")
 	contentFrame.Name = "ContentFrame"
 	contentFrame.Size = UDim2.new(1, -40, 1, -130)
-	contentFrame.Position = UDim2.new(0, 20, 0, 90)
+	contentFrame.Position = UDim2.fromOffset(20, 90)
 	contentFrame.BackgroundColor3 = UI_CONFIG.COLORS.CardInner
 	contentFrame.BorderSizePixel = 0
 	contentFrame.ScrollBarThickness = 6
@@ -220,7 +228,7 @@ local function createCategoryHeader(category: string)
 	header.Name = "Category_" .. category
 	header.Size = UDim2.new(1, -12, 0, 28)
 	header.BackgroundColor3 = UI_CONFIG.COLORS.TitleChip
-	header.Text = string.upper(category)
+	header.Text = string.upper(CATEGORY_LABELS[category] or category)
 	header.TextColor3 = UI_CONFIG.COLORS.Text
 	header.TextSize = 14
 	header.Font = Enum.Font.GothamBold
@@ -238,10 +246,12 @@ end
 
 local function createUpgradeCard(upgradeName: string, config)
 	local owned = isOwned(upgradeName)
-	local canPurchase, reason = ConvenienceUpgradesConfig.CanPurchase(upgradeName, ownedUpgrades)
+	local canPurchaseByState, reason = ConvenienceUpgradesConfig.CanPurchase(upgradeName, ownedUpgrades)
+	local canAfford = currentMoney >= config.Price
+	local canPurchase = canPurchaseByState and canAfford
 	
 	local cardColor = owned and UI_CONFIG.COLORS.CardOwned 
-		or (canPurchase and UI_CONFIG.COLORS.Card or UI_CONFIG.COLORS.CardLocked)
+		or ((canPurchaseByState and canAfford) and UI_CONFIG.COLORS.Card or UI_CONFIG.COLORS.CardLocked)
 	
 	local card = Instance.new("Frame")
 	card.Name = "Card_" .. upgradeName
@@ -254,7 +264,7 @@ local function createUpgradeCard(upgradeName: string, config)
 	
 	-- Icon
 	local iconLabel = Instance.new("TextLabel")
-	iconLabel.Size = UDim2.new(0, 50, 0, 50)
+	iconLabel.Size = UDim2.fromOffset(50, 50)
 	iconLabel.Position = UDim2.new(0, 15, 0.5, -25)
 	iconLabel.BackgroundTransparency = 1
 	iconLabel.Text = config.Icon
@@ -263,8 +273,8 @@ local function createUpgradeCard(upgradeName: string, config)
 	
 	-- Name
 	local nameLabel = Instance.new("TextLabel")
-	nameLabel.Size = UDim2.new(0, 250, 0, 25)
-	nameLabel.Position = UDim2.new(0, 75, 0, 10)
+	nameLabel.Size = UDim2.fromOffset(250, 25)
+	nameLabel.Position = UDim2.fromOffset(75, 10)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Text = upgradeName
 	nameLabel.TextColor3 = UI_CONFIG.COLORS.Text
@@ -275,8 +285,8 @@ local function createUpgradeCard(upgradeName: string, config)
 	
 	-- Description
 	local descLabel = Instance.new("TextLabel")
-	descLabel.Size = UDim2.new(0, 300, 0, 40)
-	descLabel.Position = UDim2.new(0, 75, 0, 35)
+	descLabel.Size = UDim2.fromOffset(300, 40)
+	descLabel.Position = UDim2.fromOffset(75, 35)
 	descLabel.BackgroundTransparency = 1
 	descLabel.Text = config.Description
 	descLabel.TextColor3 = UI_CONFIG.COLORS.TextMuted
@@ -289,7 +299,7 @@ local function createUpgradeCard(upgradeName: string, config)
 	-- Status/Button
 	if owned then
 		local ownedLabel = Instance.new("TextLabel")
-		ownedLabel.Size = UDim2.new(0, 100, 0, 30)
+		ownedLabel.Size = UDim2.fromOffset(100, 30)
 		ownedLabel.Position = UDim2.new(1, -115, 0.5, -15)
 		ownedLabel.BackgroundColor3 = UI_CONFIG.COLORS.Green
 		ownedLabel.Text = "OWNED"
@@ -304,7 +314,7 @@ local function createUpgradeCard(upgradeName: string, config)
 	else
 		local buyButton = Instance.new("TextButton")
 		buyButton.Name = "BuyButton"
-		buyButton.Size = UDim2.new(0, 100, 0, 40)
+		buyButton.Size = UDim2.fromOffset(100, 40)
 		buyButton.Position = UDim2.new(1, -115, 0.5, -20)
 		buyButton.BackgroundColor3 = canPurchase and UI_CONFIG.COLORS.Accent or UI_CONFIG.COLORS.CardLocked
 		buyButton.Text = "$" .. formatPrice(config.Price)
@@ -317,12 +327,16 @@ local function createUpgradeCard(upgradeName: string, config)
 		buyCorner.CornerRadius = UDim.new(0, 6)
 		buyCorner.Parent = buyButton
 		
-		if not canPurchase and reason then
+		if not canPurchase then
 			local reasonLabel = Instance.new("TextLabel")
-			reasonLabel.Size = UDim2.new(0, 100, 0, 15)
+			reasonLabel.Size = UDim2.fromOffset(100, 15)
 			reasonLabel.Position = UDim2.new(1, -115, 1, -20)
 			reasonLabel.BackgroundTransparency = 1
-			reasonLabel.Text = reason
+			if not canPurchaseByState and reason then
+				reasonLabel.Text = reason
+			else
+				reasonLabel.Text = "Need $" .. formatPrice(config.Price)
+			end
 			reasonLabel.TextColor3 = UI_CONFIG.COLORS.Red
 			reasonLabel.TextSize = 10
 			reasonLabel.Font = Enum.Font.Gotham
@@ -367,7 +381,7 @@ function refreshShop()
 	-- Update canvas size
 	local layout = contentFrame:FindFirstChild("UIListLayout")
 	if layout then
-		contentFrame.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 10)
+		contentFrame.CanvasSize = UDim2.fromOffset(0, layout.AbsoluteContentSize.Y + 10)
 	end
 end
 
@@ -375,6 +389,7 @@ local function loadUpgradesInfo()
 	local info = GetUpgradesInfoEvent:InvokeServer()
 	if info then
 		ownedUpgrades = info.OwnedUpgrades or {}
+		currentMoney = info.CurrentMoney or 0
 	end
 end
 
@@ -384,10 +399,10 @@ local function openShop()
 	
 	mainFrame.Visible = true
 	mainFrame.Size = UDim2.new(0, 0, 0, 0)
-	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+	mainFrame.Position = UDim2.fromScale(0.5, 0.5)
 	
 	local tween = TweenService:Create(mainFrame, TweenInfo.new(UI_CONFIG.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, 550, 0, 500),
+		Size = UDim2.fromOffset(550, 500),
 		Position = UDim2.new(0.5, -275, 0.5, -250),
 	})
 	tween:Play()
@@ -405,7 +420,7 @@ local function closeShop()
 	
 	local tween = TweenService:Create(mainFrame, TweenInfo.new(UI_CONFIG.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
 		Size = UDim2.new(0, 0, 0, 0),
-		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Position = UDim2.fromScale(0.5, 0.5),
 	})
 	tween:Play()
 	tween.Completed:Connect(function()
@@ -470,7 +485,11 @@ end)
 
 local UIManager = require(script.Parent:WaitForChild("Managers"):WaitForChild("UIManager"))
 UIManager.RegisterShop("ConvenienceUpgrades", function()
-	if shopOpen then closeShop() else openShop() end
+	if shopOpen then
+		closeShop()
+	else
+		openShop()
+	end
 end)
 
 print("ConvenienceUpgradesUI initialized")

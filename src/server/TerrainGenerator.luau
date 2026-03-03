@@ -21,6 +21,7 @@ local BridgeTemplate
 local MainIslandTemplate
 local HFTTerminalTemplate -- [NEW] Reference for the terminal
 local FulfillmentKioskTemplate
+local DroneKioskTemplate
 
 --------------------------------------------------------------------------------
 -- INITIALIZATION
@@ -36,6 +37,7 @@ function TerrainGenerator.Init()
 	-- [NEW] Load the HFT Terminal from ReplicatedStorage.Models
 	HFTTerminalTemplate = models and models:FindFirstChild("Plot_HFT_Terminal")
 	FulfillmentKioskTemplate = models and models:FindFirstChild("Fulfillment_Kiosk")
+	DroneKioskTemplate = models and models:FindFirstChild("Drone_kiosk")
 	
 	-- Placeholders if missing
 	if not MainIslandTemplate then
@@ -303,6 +305,35 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 		for _, desc in kiosk:GetDescendants() do
 			if desc:IsA("ProximityPrompt") and not CollectionService:HasTag(desc, "TransportCartPrompt") then
 				CollectionService:AddTag(desc, "TransportCartPrompt")
+			end
+		end
+	end
+
+	-- 10. Spawn Drone Kiosk on starter plot opposite bridge side from storage kiosk
+	if isStarterPlot and DroneKioskTemplate then
+		local droneKiosk = DroneKioskTemplate:Clone()
+
+		-- Fulfillment kiosk uses Z=-7 near bridge entrance.
+		-- Drone kiosk is mirrored to Z=+7, i.e. opposite side of the bridge lane.
+		local kioskX = 50
+		local kioskZ = 7
+		local kioskY = topY + 1.3
+
+		droneKiosk:PivotTo(CFrame.new(kioskX, kioskY, kioskZ) * CFrame.Angles(0, math.rad(-90), 0))
+		droneKiosk.Parent = model
+
+		local attachPart = droneKiosk.PrimaryPart or droneKiosk:FindFirstChildWhichIsA("BasePart", true)
+		if attachPart then
+			local prompt = attachPart:FindFirstChild("DroneKioskPrompt")
+			if not prompt then
+				prompt = Instance.new("ProximityPrompt")
+				prompt.Name = "DroneKioskPrompt"
+				prompt.ActionText = "Open Drone Ops"
+				prompt.ObjectText = "Drone Kiosk"
+				prompt.KeyboardKeyCode = Enum.KeyCode.E
+				prompt.RequiresLineOfSight = false
+				prompt.MaxActivationDistance = 12
+				prompt.Parent = attachPart
 			end
 		end
 	end

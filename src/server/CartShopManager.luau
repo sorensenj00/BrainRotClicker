@@ -45,6 +45,13 @@ local CONFIG = {
 	VENDOR_DISTANCE = 20,
 }
 
+local function setAchievementProgress(player, goalType, absoluteValue)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.SetProgress then
+		achievementManager.SetProgress(player, goalType, absoluteValue)
+	end
+end
+
 -- Admin bypass (mirrors other managers)
 local ADMIN_USER_IDS = { [1340966465] = true }
 local IS_STUDIO = RunService:IsStudio()
@@ -238,6 +245,7 @@ local function handleUpgradePurchase(player, upgradeType)
 		
 		if upgradeType == "Model" then
 			currentData["Capacity"] = 1 -- Reset Capacity on Model upgrade
+			setAchievementProgress(player, "cart_tier_unlocked", currentData[upgradeType])
 		end
 		
 		DataService.SetCartUpgrades(player, currentData)

@@ -33,6 +33,20 @@ local IslandShopManager = {}
 local Services = {}
 local DataService
 
+local function recordAchievement(player, goalType, amount)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.RecordProgress then
+		achievementManager.RecordProgress(player, goalType, amount)
+	end
+end
+
+local function setAchievementProgress(player, goalType, absoluteValue)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.SetProgress then
+		achievementManager.SetProgress(player, goalType, absoluteValue)
+	end
+end
+
 --------------------------------------------------------------------------------
 -- HELPERS
 --------------------------------------------------------------------------------
@@ -202,6 +216,7 @@ function IslandShopManager.HandleTierPurchase(player)
 			refundMoney(player, nextPrice)
 			return false, "Spawn failed"
 		end
+		recordAchievement(player, "islands_purchased", 1)
 	end
 
 	local ds = getDataService()
@@ -217,6 +232,7 @@ function IslandShopManager.HandleTierPurchase(player)
 	end
 
 	data.unlockedGridSlots = math.min(maxSlots, currentSlots + 4)
+	setAchievementProgress(player, "grid_slots_unlocked", data.unlockedGridSlots)
 
 	return true, "Grid Expanded!"
 end

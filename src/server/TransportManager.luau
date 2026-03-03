@@ -68,6 +68,13 @@ CartLoadVisual.Parent = RemoteEvents
 local TransportManager = {}
 local Services = {}
 
+local function recordAchievement(player, goalType, amount)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.RecordProgress then
+		achievementManager.RecordProgress(player, goalType, amount)
+	end
+end
+
 -- State
 local PlayerTransport = {}
 
@@ -261,6 +268,7 @@ function TransportManager.LoadMaxFromStorage(player)
 	
 	if totalLoaded > 0 then
 		CartLoadVisual:FireAllClients(player, totalLoaded)
+		recordAchievement(player, "load_max_used", 1)
 	end
 
 	return loaded

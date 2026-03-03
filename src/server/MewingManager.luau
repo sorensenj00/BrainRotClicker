@@ -29,13 +29,56 @@ local CONFIG = {
 local MewingManager = {}
 local Services = {}
 local PlayerMewingState = {}
+local COMPONENT_KEY = "Mewing"
+
+local function getDataService()
+	return rawget(Services, "DataService")
+end
+
+local function getAchievementManager()
+	return rawget(Services, "AchievementsManager")
+end
+
+local function getDefaultState()
+	return {
+		LastActivityTime = os.time(),
+		CurrentTier = 0,
+		HasCosmetic = false,
+		HasReachedLockedIn = false,
+		HasReachedGigaChad = false,
+	}
+end
+
+local function getOrInitState(player)
+	local state = PlayerMewingState[player]
+	if state then
+		return state
+	end
+	state = getDefaultState()
+	PlayerMewingState[player] = state
+	return state
+end
+
+local function persistState(player)
+	local state = PlayerMewingState[player]
+	local ds = getDataService()
+	if not state or not ds then
+		return
+	end
+	ds.SetComponentData(player, COMPONENT_KEY, {
+		LastActivityTime = state.LastActivityTime,
+		CurrentTier = state.CurrentTier,
+		HasReachedLockedIn = state.HasReachedLockedIn == true,
+		HasReachedGigaChad = state.HasReachedGigaChad == true,
+	})
+end
 
 --------------------------------------------------------------------------------
 -- LOGIC
 --------------------------------------------------------------------------------
 
 local function applyGigaChadCosmetic(player)
-	local state = PlayerMewingState[player]
+	local state = getOrInitState(player)
 	if not state or state.HasCosmetic then return end
 	local char = player.Character
 	if not char then return end
@@ -58,7 +101,7 @@ local function applyGigaChadCosmetic(player)
 end
 
 local function breakStreak(player, reason)
-	local state = PlayerMewingState[player]
+	local state = getOrInitState(player)
 	if not state then return end
 	local had = state.CurrentTier > 0
 	
@@ -76,6 +119,7 @@ local function breakStreak(player, reason)
 	
 	player:SetAttribute("MewingMultiplier", 1.0)
 	player:SetAttribute("MewingTier", 0)
+	persistState(player)
 	
 	if had then
 		MewingUpdateEvent:FireClient(player, { type = "break", reason = reason })
@@ -88,13 +132,22 @@ local function breakStreak(player, reason)
 	end
 end
 
+local function hasValidCharacter(player)
+	local char = player.Character
+	if not char then
+		return false
+	end
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+	return hrp ~= nil
+end
+
 local function checkMovement(player)
-	local state = PlayerMewingState[player]
+	local state = getOrInitState(player)
 	if not state then return false end
 	local char = player.Character
-	if not char then return false end
+	if not char then return true end
 	local hrp = char:FindFirstChild("HumanoidRootPart")
-	if not hrp then return false end
+	if not hrp then return true end
 	
 	local pos = hrp.Position
 	if hrp.AssemblyLinearVelocity.Magnitude > CONFIG.MOVEMENT_THRESHOLD then return true end
@@ -109,6 +162,16 @@ local function updateMewingStreaks()
 	
 	for player, state in pairs(PlayerMewingState) do
 		if not player.Parent then continue end
+
+		if not hasValidCharacter(player) then
+			if state.CurrentTier > 0 then
+				breakStreak(player, "Character invalid")
+			else
+				state.LastActivityTime = now
+				persistState(player)
+			end
+			continue
+		end
 		
 		if checkMovement(player) then
 			breakStreak(player, "Movement detected")
@@ -129,6 +192,20 @@ local function updateMewingStreaks()
 				player:SetAttribute("MewingMultiplier", tData.multiplier)
 				player:SetAttribute("MewingTier", newTier)
 				if tData.cosmetic then applyGigaChadCosmetic(player) end
+				if tData.time >= 300 then
+					state.HasReachedLockedIn = true
+					local achievementManager = getAchievementManager()
+					if achievementManager and achievementManager.RecordProgress then
+						achievementManager.RecordProgress(player, "mewing_locked_in", 1)
+					end
+				end
+				if tData.time >= 600 then
+					state.HasReachedGigaChad = true
+					local achievementManager = getAchievementManager()
+					if achievementManager and achievementManager.RecordProgress then
+						achievementManager.RecordProgress(player, "mewing_gigachad", 1)
+					end
+				end
 				
 				MewingUpdateEvent:FireClient(player, {
 					type = "tier_up", tier = newTier, name = tData.name, emoji = tData.emoji, multiplier = tData.multiplier
@@ -140,6 +217,7 @@ local function updateMewingStreaks()
 					BonusManager.RefreshAll(player)
 				end
 			end
+			persistState(player)
 		end
 	end
 end
@@ -151,9 +229,43 @@ end
 function MewingManager.Init(services)
 	print("   MewingManager (Module) - Initializing")
 	Services = services or {}
+
+	local ds = getDataService()
+	if ds then
+		ds.RegisterHandler(COMPONENT_KEY, {
+			DefaultData = getDefaultState(),
+			OnLoad = function(player, data)
+				local state = getOrInitState(player)
+				if type(data) == "table" then
+					state.LastActivityTime = tonumber(data.LastActivityTime) or os.time()
+					state.CurrentTier = tonumber(data.CurrentTier) or 0
+					state.HasReachedLockedIn = data.HasReachedLockedIn == true
+					state.HasReachedGigaChad = data.HasReachedGigaChad == true
+				end
+				player:SetAttribute("MewingTier", state.CurrentTier)
+				local tierData = CONFIG.TIERS[state.CurrentTier]
+				player:SetAttribute("MewingMultiplier", tierData and tierData.multiplier or 1.0)
+			end,
+			OnSave = function(player, _data)
+				local state = PlayerMewingState[player]
+				if not state then
+					return getDefaultState()
+				end
+				return {
+					LastActivityTime = state.LastActivityTime,
+					CurrentTier = state.CurrentTier,
+					HasReachedLockedIn = state.HasReachedLockedIn == true,
+					HasReachedGigaChad = state.HasReachedGigaChad == true,
+				}
+			end,
+			OnRelease = function(player)
+				PlayerMewingState[player] = nil
+			end,
+		})
+	end
 	
 	Players.PlayerAdded:Connect(function(player)
-		PlayerMewingState[player] = { LastActivityTime = os.time(), CurrentTier = 0, HasCosmetic = false }
+		PlayerMewingState[player] = getDefaultState()
 		player:SetAttribute("MewingMultiplier", 1.0)
 		player:SetAttribute("MewingTier", 0)
 	end)
@@ -163,7 +275,18 @@ function MewingManager.Init(services)
 	end)
 	
 	for _, p in Players:GetPlayers() do
-		PlayerMewingState[p] = { LastActivityTime = os.time(), CurrentTier = 0, HasCosmetic = false }
+		local loadedData = ds and ds.GetComponentData and ds.GetComponentData(p, COMPONENT_KEY) or nil
+		local state = getDefaultState()
+		if type(loadedData) == "table" then
+			state.LastActivityTime = tonumber(loadedData.LastActivityTime) or state.LastActivityTime
+			state.CurrentTier = tonumber(loadedData.CurrentTier) or state.CurrentTier
+			state.HasReachedLockedIn = loadedData.HasReachedLockedIn == true
+			state.HasReachedGigaChad = loadedData.HasReachedGigaChad == true
+		end
+		PlayerMewingState[p] = state
+		p:SetAttribute("MewingTier", state.CurrentTier)
+		local tierData = CONFIG.TIERS[state.CurrentTier]
+		p:SetAttribute("MewingMultiplier", tierData and tierData.multiplier or 1.0)
 	end
 	
 	-- Chat Detection
@@ -173,7 +296,11 @@ function MewingManager.Init(services)
 			local gc = tc:FindFirstChild("RBXGeneral")
 			if gc then
 				gc.MessageReceived:Connect(function(msg)
-					local p = Players:GetPlayerByUserId(msg.TextSource.UserId)
+					local source = msg.TextSource
+					if not source then
+						return
+					end
+					local p = Players:GetPlayerByUserId(source.UserId)
 					if p then breakStreak(p, "Chatted") end
 				end)
 			end

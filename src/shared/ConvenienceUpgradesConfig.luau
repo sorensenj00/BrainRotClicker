@@ -5,10 +5,10 @@
 	Located in ReplicatedStorage so both Server and Client can access it.
 	
 	Categories:
-	- Movement: Walkspeed, jump, bridge speed boosts
-	- Income: Global income multipliers
-	- Automation: Auto-collector bots, faster cycles
-	- Premium: High-tier quality of life upgrades
+	- Mobility: Walkspeed, jump, bridge speed boosts
+	- Economy: Global income and payout chance upgrades
+	- Automation: Collector bots and cycle speed upgrades
+	- Utility: Late-game quality of life upgrades
 ]]
 
 export type UpgradeConfig = {
@@ -22,163 +22,193 @@ export type UpgradeConfig = {
 }
 
 -- All convenience upgrades
+-- Pricing is aligned with the current game economy curve:
+-- early utility unlocks, midgame multipliers, and high-end sinks.
 local Upgrades: {[string]: UpgradeConfig} = {
-	-- ═══════════════════════════════════════════
-	-- TIER 1: Movement & Speed ($1,000 - $10,000)
-	-- ═══════════════════════════════════════════
-	
-	["Speed Treadmill Bridge"] = {
-		Price = 1000,
-		Description = "Bridges boost your speed 2x! Zoom between islands.",
-		Category = "Movement",
+	-- TIER 1: Mobility Foundation ($20k - $800k)
+	["Bridge Thrusters I"] = {
+		Price = 20000,
+		Description = "Bridge lanes grant 1.5x movement speed.",
+		Category = "Mobility",
 		EffectType = "BridgeSpeed",
-		EffectValue = 2, -- 2x speed on bridges
+		EffectValue = 1.5,
 		Icon = "🏃",
 	},
-	
-	["Walkspeed Boost I"] = {
-		Price = 2500,
-		Description = "Permanent +25% walkspeed everywhere.",
-		Category = "Movement",
+
+	["Runner Shoes I"] = {
+		Price = 50000,
+		Description = "Permanent +15% walkspeed everywhere.",
+		Category = "Mobility",
 		EffectType = "Walkspeed",
-		EffectValue = 0.25, -- +25%
+		EffectValue = 0.15,
 		Icon = "👟",
 	},
-	
-	["Jump Boost"] = {
-		Price = 5000,
-		Description = "Permanent +50% jump height. Leap tall buildings!",
-		Category = "Movement",
+
+	["Jump Spring Mod"] = {
+		Price = 120000,
+		Description = "Permanent +30% jump height.",
+		Category = "Mobility",
 		EffectType = "JumpPower",
-		EffectValue = 0.50, -- +50%
+		EffectValue = 0.30,
 		Icon = "🦘",
 	},
-	
-	["Walkspeed Boost II"] = {
-		Price = 10000,
-		Description = "Additional +25% walkspeed. Stacks with Boost I!",
-		Category = "Movement",
+
+	["Runner Shoes II"] = {
+		Price = 300000,
+		Description = "Additional +15% walkspeed. Stacks with Runner Shoes I.",
+		Category = "Mobility",
 		EffectType = "Walkspeed",
-		EffectValue = 0.25, -- +25% more
+		EffectValue = 0.15,
 		Icon = "⚡",
-		Prerequisite = "Walkspeed Boost I",
+		Prerequisite = "Runner Shoes I",
 	},
-	
-	-- ═══════════════════════════════════════════
-	-- TIER 2: Income Boosters ($50,000 - $500,000)
-	-- ═══════════════════════════════════════════
-	
-	["Global Income +10%"] = {
-		Price = 50000,
-		Description = "All brainrots produce +10% more income!",
-		Category = "Income",
+
+	["Bridge Thrusters II"] = {
+		Price = 800000,
+		Description = "Bridge lanes now grant 2x movement speed.",
+		Category = "Mobility",
+		EffectType = "BridgeSpeed",
+		EffectValue = 2.0,
+		Icon = "✨",
+		Prerequisite = "Bridge Thrusters I",
+	},
+
+	-- TIER 2: Economy + Automation Core ($2M - $60M)
+	["Profit Routing I"] = {
+		Price = 2000000,
+		Description = "All units generate +8% income.",
+		Category = "Economy",
 		EffectType = "IncomeMultiplier",
-		EffectValue = 0.10, -- +10%
+		EffectValue = 0.08,
 		Icon = "💵",
 	},
-	
-	["Auto-Collector Bot I"] = {
-		Price = 100000,
-		Description = "A cute bot collects from brainrots to storage for you!",
-		Category = "Automation",
-		EffectType = "AutoCollector",
-		EffectValue = 1, -- 1 bot
-		Icon = "🤖",
-	},
-	
-	["Global Income +25%"] = {
-		Price = 250000,
-		Description = "Even more productivity! +25% income (stacks).",
-		Category = "Income",
-		EffectType = "IncomeMultiplier",
-		EffectValue = 0.25, -- +25%
-		Icon = "💰",
-		Prerequisite = "Global Income +10%",
-	},
-	
-	["Faster Cycles I"] = {
-		Price = 500000,
-		Description = "All brainrots work 15% faster!",
+
+	["Cycle Overclock I"] = {
+		Price = 6000000,
+		Description = "All unit cycles run 8% faster.",
 		Category = "Automation",
 		EffectType = "CycleReduction",
-		EffectValue = 0.15, -- -15% cycle time
+		EffectValue = 0.08,
 		Icon = "⏱️",
 	},
-	
-	-- ═══════════════════════════════════════════
-	-- TIER 3: Automation ($1M - $10M)
-	-- ═══════════════════════════════════════════
-	
-	["Auto-Collector Bot II"] = {
-		Price = 1000000,
-		Description = "A second bot joins the collection crew!",
+
+	["Collector Drone I"] = {
+		Price = 15000000,
+		Description = "Deploys one auto-collector bot.",
 		Category = "Automation",
 		EffectType = "AutoCollector",
-		EffectValue = 1, -- +1 more bot
+		EffectValue = 1,
 		Icon = "🤖",
-		Prerequisite = "Auto-Collector Bot I",
 	},
-	
-	["Faster Cycles II"] = {
-		Price = 2500000,
-		Description = "Lightning speed! Additional -15% cycle time.",
+
+	["Profit Routing II"] = {
+		Price = 30000000,
+		Description = "All units generate an additional +12% income.",
+		Category = "Economy",
+		EffectType = "IncomeMultiplier",
+		EffectValue = 0.12,
+		Icon = "💰",
+		Prerequisite = "Profit Routing I",
+	},
+
+	["Cycle Overclock II"] = {
+		Price = 60000000,
+		Description = "All unit cycles run an additional 10% faster.",
 		Category = "Automation",
 		EffectType = "CycleReduction",
-		EffectValue = 0.15, -- -15% more
-		Icon = "⚡",
-		Prerequisite = "Faster Cycles I",
+		EffectValue = 0.10,
+		Icon = "⚙️",
+		Prerequisite = "Cycle Overclock I",
 	},
-	
-	["Lucky Bonus Chance"] = {
-		Price = 5000000,
-		Description = "10% chance for 2x payout on each cycle!",
-		Category = "Income",
+
+	-- TIER 3: Late Midgame ($150M - $2.5B)
+	["Collector Drone II"] = {
+		Price = 150000000,
+		Description = "Deploys a second auto-collector bot.",
+		Category = "Automation",
+		EffectType = "AutoCollector",
+		EffectValue = 1,
+		Icon = "🛰️",
+		Prerequisite = "Collector Drone I",
+	},
+
+	["Lucky Payout Matrix"] = {
+		Price = 350000000,
+		Description = "Adds +8% lucky payout chance.",
+		Category = "Economy",
 		EffectType = "LuckyChance",
-		EffectValue = 0.10, -- 10% chance
+		EffectValue = 0.08,
 		Icon = "🍀",
 	},
-	
-	["Instant Teleport Home"] = {
-		Price = 10000000,
-		Description = "Press H to teleport to your main island anytime!",
-		Category = "Movement",
+
+	["Profit Routing III"] = {
+		Price = 800000000,
+		Description = "All units generate an additional +18% income.",
+		Category = "Economy",
+		EffectType = "IncomeMultiplier",
+		EffectValue = 0.18,
+		Icon = "💎",
+		Prerequisite = "Profit Routing II",
+	},
+
+	["Cycle Overclock III"] = {
+		Price = 1600000000,
+		Description = "All unit cycles run an additional 12% faster.",
+		Category = "Automation",
+		EffectType = "CycleReduction",
+		EffectValue = 0.12,
+		Icon = "🚀",
+		Prerequisite = "Cycle Overclock II",
+	},
+
+	["Home Warp Beacon"] = {
+		Price = 2500000000,
+		Description = "Unlocks instant teleport back to your main island.",
+		Category = "Utility",
 		EffectType = "TeleportHome",
-		EffectValue = 1, -- enabled
+		EffectValue = 1,
 		Icon = "🏠",
 	},
-	
-	-- ═══════════════════════════════════════════
-	-- TIER 4: Premium Upgrades ($50M+)
-	-- ═══════════════════════════════════════════
-	
-	["Global Income +50%"] = {
-		Price = 50000000,
-		Description = "Massive profits! +50% income from all brainrots.",
-		Category = "Income",
-		EffectType = "IncomeMultiplier",
-		EffectValue = 0.50, -- +50%
-		Icon = "💎",
-		Prerequisite = "Global Income +25%",
+
+	-- TIER 4: Endgame Sinks ($6B - $70B)
+	["Collector Drone III"] = {
+		Price = 6000000000,
+		Description = "Deploys a third auto-collector bot.",
+		Category = "Automation",
+		EffectType = "AutoCollector",
+		EffectValue = 1,
+		Icon = "🤖",
+		Prerequisite = "Collector Drone II",
 	},
-	
-	["Critical Bonus Chance"] = {
-		Price = 100000000,
-		Description = "5% chance for JACKPOT 5x income payout!",
-		Category = "Income",
+
+	["Critical Payout Matrix"] = {
+		Price = 16000000000,
+		Description = "Adds +4% critical payout chance.",
+		Category = "Economy",
 		EffectType = "CriticalChance",
-		EffectValue = 0.05, -- 5% chance
+		EffectValue = 0.04,
 		Icon = "🎰",
-		Prerequisite = "Lucky Bonus Chance",
+		Prerequisite = "Lucky Payout Matrix",
 	},
-	
-	["Golden Speed Bridges"] = {
-		Price = 250000000,
-		Description = "Bridges boost speed 3x and shine golden!",
-		Category = "Movement",
+
+	["Bridge Thrusters III"] = {
+		Price = 32000000000,
+		Description = "Bridge lanes now grant 2.8x movement speed.",
+		Category = "Mobility",
 		EffectType = "BridgeSpeed",
-		EffectValue = 3, -- 3x speed (replaces 2x)
-		Icon = "✨",
-		Prerequisite = "Speed Treadmill Bridge",
+		EffectValue = 2.8,
+		Icon = "🌉",
+		Prerequisite = "Bridge Thrusters II",
+	},
+
+	["Profit Routing IV"] = {
+		Price = 70000000000,
+		Description = "All units generate an additional +25% income.",
+		Category = "Economy",
+		EffectType = "IncomeMultiplier",
+		EffectValue = 0.25,
+		Icon = "🏦",
+		Prerequisite = "Profit Routing III",
 	},
 }
 
@@ -263,7 +293,7 @@ local function GetCategories(): {string}
 	end
 	
 	-- Sort in logical order
-	local order = {Movement = 1, Income = 2, Automation = 3, Premium = 4}
+	local order = {Mobility = 1, Economy = 2, Automation = 3, Utility = 4}
 	table.sort(categories, function(a, b)
 		return (order[a] or 99) < (order[b] or 99)
 	end)

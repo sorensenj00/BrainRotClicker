@@ -50,6 +50,13 @@ local COMPONENT_KEY = "Artifacts"
 local ArtifactManager = {}
 local Services = {} 
 
+local function recordAchievement(player, goalType, amount)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.RecordProgress then
+		achievementManager.RecordProgress(player, goalType, amount)
+	end
+end
+
 -- Getter for DataService (to avoid circular require)
 local function getDataService()
 	if not DataService then
@@ -156,6 +163,10 @@ function ArtifactManager.AddArtifact(player, artifact)
 	local inv = getPlayerArtifacts(player)
 	inv[artifact.GUID] = artifact
 	ArtifactDroppedEvent:FireClient(player, artifact)
+	recordAchievement(player, "artifact_drop", 1)
+	if artifact.Rarity == "Legendary" then
+		recordAchievement(player, "legendary_artifact_drop", 1)
+	end
 	return true
 end
 
@@ -166,6 +177,16 @@ function ArtifactManager.RemoveArtifact(player, guid)
 		return true
 	end
 	return false
+end
+
+function ArtifactManager.RestoreArtifact(player, artifact)
+	if not artifact or not artifact.GUID then
+		return false
+	end
+
+	local inv = getPlayerArtifacts(player)
+	inv[artifact.GUID] = artifact
+	return true
 end
 
 function ArtifactManager.EquipArtifact(player, unitGUID, artifactGUID, slot)
@@ -193,6 +214,16 @@ function ArtifactManager.EquipArtifact(player, unitGUID, artifactGUID, slot)
 	local ItemProductionManager = rawget(Services, "ItemProductionManager")
 	if ItemProductionManager and ItemProductionManager.RefreshUnitAttributes then
 		ItemProductionManager.RefreshUnitAttributes(player)
+	end
+
+	local equippedCount = 0
+	for _, equippedArtifact in pairs(inv) do
+		if equippedArtifact.EquippedTo == unitGUID then
+			equippedCount += 1
+		end
+	end
+	if equippedCount >= 3 then
+		recordAchievement(player, "unit_fully_equipped", 1)
 	end
 	
 	return true

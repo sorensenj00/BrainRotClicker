@@ -87,6 +87,22 @@ local function getDataService()
 	return DataService
 end
 
+local function recordAchievement(player, goalType, amount)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.RecordProgress then
+		achievementManager.RecordProgress(player, goalType, amount)
+	end
+end
+
+local function setAchievementProgress(player, goalType, absoluteValue)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.SetProgress then
+		achievementManager.SetProgress(player, goalType, absoluteValue)
+	else
+		recordAchievement(player, goalType, absoluteValue)
+	end
+end
+
 --------------------------------------------------------------------------------
 -- HELPERS
 --------------------------------------------------------------------------------
@@ -139,6 +155,39 @@ local function _isNearOwnStorage(player)
 	end
 
 	return false
+end
+
+local function evaluateStorageAchievements(player, storage)
+	if not storage then
+		return
+	end
+
+	local total = getTotalItemCount(storage.items)
+	if storage.capacity > 0 and total == storage.capacity then
+		recordAchievement(player, "storage_full_exact", 1)
+	end
+
+	if not _ItemConfig or not _ItemConfig.GetSectorByItemId then
+		return
+	end
+
+	local sectorTotals = {}
+	for itemId, count in pairs(storage.items) do
+		local sector = _ItemConfig.GetSectorByItemId(itemId)
+		if sector then
+			sectorTotals[sector] = (sectorTotals[sector] or 0) + count
+		end
+	end
+
+	local qualifyingSectors = 0
+	for _, count in pairs(sectorTotals) do
+		if count >= 500 then
+			qualifyingSectors += 1
+		end
+	end
+	if qualifyingSectors >= 6 then
+		setAchievementProgress(player, "diversified_storage_sectors", 1)
+	end
 end
 
 --------------------------------------------------------------------------------
@@ -233,6 +282,7 @@ function ItemStorageManager.AddToStorage(player: Player, itemId: string, count: 
 	if not silent then
 		StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), current + toAdd, storage.capacity)
 	end
+	evaluateStorageAchievements(player, storage)
 	return toAdd
 end
 
@@ -257,6 +307,7 @@ function ItemStorageManager.RemoveFromStorage(player, itemId, count)
 	if storage.items[itemId] <= 0 then storage.items[itemId] = nil end
 
 	StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), getTotalItemCount(storage.items), storage.capacity)
+	evaluateStorageAchievements(player, storage)
 	return toRemove
 end
 
@@ -299,6 +350,7 @@ function ItemStorageManager.RefreshCapacity(player)
 	end
 
 	StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), getTotalItemCount(storage.items), newCap)
+	evaluateStorageAchievements(player, storage)
 end
 
 function ItemStorageManager.ResetPlayerStorage(player)

@@ -442,6 +442,9 @@ local CartSoldEvent = RemoteEvents:WaitForChild("CartSold")
 local BackpackLoadedEvent = RemoteEvents:WaitForChild("BackpackLoaded")
 local ArtifactDroppedEvent = RemoteEvents:WaitForChild("ArtifactDropped")
 local ToTheMoonCelebrationEvent = RemoteEvents:WaitForChild("ToTheMoonCelebration")
+local DroneOpsNotifyEvent = RemoteEvents:WaitForChild("DroneOpsNotify")
+local ContractEventRemote = RemoteEvents:WaitForChild("ContractEvent")
+local AchievementNotifyEvent = RemoteEvents:WaitForChild("AchievementNotify")
 local StockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket")
 
 StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
@@ -527,6 +530,55 @@ ToTheMoonCelebrationEvent.OnClientEvent:Connect(function(payload)
 	playScreenShake(0.6, 0.28)
 	spawnConfetti(originPosition)
 	launchRocket(originPosition)
+end)
+
+DroneOpsNotifyEvent.OnClientEvent:Connect(function(payload)
+	if type(payload) ~= "table" then return end
+	local message = payload.message or payload.Message
+	if type(message) ~= "string" or message == "" then return end
+	local typeKey = payload.type or payload.Type or "info"
+	local duration = tonumber(payload.duration or payload.Duration) or 4
+	ShowToast(message, typeKey, duration)
+end)
+
+ContractEventRemote.OnClientEvent:Connect(function(payload)
+	if type(payload) ~= "table" then return end
+	local action = payload.Action
+	if action == "Spawned" then
+		local contract = payload.Contract
+		local title = (type(contract) == "table" and contract.Name) or "New Contract"
+		ShowBanner("CONTRACT SPAWNED: " .. tostring(title), THEME.gold, 6)
+	elseif action == "Completed" then
+		local contract = payload.Contract
+		local title = (type(contract) == "table" and contract.Name) or "Contract"
+		ShowToast("Contract completed: " .. tostring(title), "success", 4)
+	elseif action == "Expired" then
+		local contract = payload.Contract
+		local title = (type(contract) == "table" and contract.Name) or "Contract"
+		ShowToast("Contract expired: " .. tostring(title), "warning", 4)
+	end
+end)
+
+AchievementNotifyEvent.OnClientEvent:Connect(function(payload)
+	if type(payload) ~= "table" then return end
+	local action = payload.Action
+	local title = tostring(payload.Title or "Achievement")
+	if action == "Unlocked" then
+		ShowBanner("ACHIEVEMENT UNLOCKED: " .. title, THEME.gold, 4.5)
+	elseif action == "Claimed" then
+		local rewards = payload.Rewards
+		local rewardText = ""
+		if type(rewards) == "table" then
+			for _, reward in ipairs(rewards) do
+				if type(reward) == "table" and reward.Type == "money" then
+					rewardText = rewardText .. " +" .. formatMoneyShort(tonumber(reward.Amount) or 0)
+				elseif type(reward) == "table" and reward.Type == "braincells" then
+					rewardText = rewardText .. " +" .. tostring(math.floor(tonumber(reward.Amount) or 0)) .. " Braincells"
+				end
+			end
+		end
+		ShowToast("Achievement reward claimed: " .. title .. rewardText, "success", 4)
+	end
 end)
 
 local lastRate = 1.0

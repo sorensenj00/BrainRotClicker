@@ -29,6 +29,9 @@ local GetStorageFunction = RemoteFunctions:WaitForChild("GetStorage")
 local GetMarketPricesFunction = RemoteFunctions:WaitForChild("GetMarketPrices")
 local BuyToCartFunction = RemoteFunctions:WaitForChild("BuyToCart")
 local SellFromCartFunction = RemoteFunctions:WaitForChild("SellFromCart")
+local GetActiveContractsFunction = RemoteFunctions:WaitForChild("GetActiveContracts")
+local DeliverToContractFunction = RemoteFunctions:WaitForChild("DeliverToContract")
+local ContractEvent = RemoteEvents:WaitForChild("ContractEvent")
 
 local stockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket")
 
@@ -36,6 +39,7 @@ local stockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 local MarketConfig = require(Shared:WaitForChild("MarketConfig"))
+local ContractConfig = require(Shared:WaitForChild("ContractConfig"))
 local SparklineRenderer = require(Shared:WaitForChild("SparklineRenderer"))
 local CartController = require(script.Parent:WaitForChild("Controllers"):WaitForChild("CartController"))
 
@@ -91,6 +95,11 @@ local inspectedItem = nil       -- Currently selected item for trading
 local selectedQty = 1           -- Current quantity multiplier
 local assetSearchQuery = ""
 local assetSearchBox
+local activeTab = "TRADING"
+local contractsById = {}        -- {[instanceId] = ActiveContract-like payload}
+local selectedContractId = nil
+local contractDeliverMode = "MAX" -- "MAX" | "X10"
+local contractRowPool = {}      -- {[number] = TextButton}
 local rowDefaultColors = {}     -- {[rowName] = Color3}
 local rowFlashDebounce = {}     -- {[rowName] = boolean}
 local prevLocalPrices = {}      -- {[itemId] = number}
@@ -100,6 +109,153 @@ local screenGui, mainFrame
 local leftScroll, _rightPanel
 local stoCapFill, stoCapText
 local cartStatusBanner
+local inspectorFrame
+local tabTradingBtn, tabContractsBtn
+local contractsPanel, contractsList, contractsDetail
+local refreshContractsList
+
+local function getContractTemplate(templateId)
+	for _, t in ipairs(ContractConfig.FlashOrderTemplates) do
+		if t.Id == templateId then return t end
+	end
+	for _, t in ipairs(ContractConfig.MegaProjectTemplates) do
+		if t.Id == templateId then return t end
+	end
+	return nil
+end
+
+local function formatDuration(secondsLeft: number): string
+	local s = math.max(0, math.floor(secondsLeft))
+	local m = math.floor(s / 60)
+	local sec = s % 60
+	return string.format("%02d:%02d", m, sec)
+end
+
+local function setTab(tabName: string)
+	activeTab = tabName
+	if tabTradingBtn then
+		local isTrading = tabName == "TRADING"
+		tabTradingBtn.BackgroundColor3 = isTrading and C.gold or C.card
+		tabTradingBtn.TextColor3 = isTrading and C.bg or C_WHITE
+	end
+	if tabContractsBtn then
+		local isContracts = tabName == "CONTRACTS"
+		tabContractsBtn.BackgroundColor3 = isContracts and C.gold or C.card
+		tabContractsBtn.TextColor3 = isContracts and C.bg or C_WHITE
+	end
+	if inspectorFrame then
+		inspectorFrame.Visible = tabName == "TRADING"
+	end
+	if contractsPanel then
+		contractsPanel.Visible = tabName == "CONTRACTS"
+	end
+end
+
+local function getContractItemDisplay(itemId: string): (string, string)
+	local info = ItemConfig.Items[itemId]
+	if not info then
+		return "?", itemId
+	end
+	return info.icon or "?", info.displayName or itemId
+end
+
+local function updateContractsDetail()
+	if not contractsDetail or not contractsDetail.Title then return end
+	local contract = selectedContractId and contractsById[selectedContractId] or nil
+	local deliverBtn = contractsDetail.DeliverBtn
+	local modeX10 = contractsDetail.ModeX10
+	local modeMax = contractsDetail.ModeMax
+	if not contract then
+		contractsDetail.Title.Text = "No contract selected"
+		contractsDetail.Body.Text = "Select a contract from the list."
+		if deliverBtn then
+			deliverBtn.Text = "DELIVER"
+			deliverBtn.Active = false
+			deliverBtn.AutoButtonColor = false
+			deliverBtn.BackgroundColor3 = Color3.fromRGB(95, 50, 55)
+		end
+		return
+	end
+
+	if modeX10 and modeX10:IsA("TextButton") then
+		local active = contractDeliverMode == "X10"
+		modeX10.BackgroundColor3 = active and C.gold or C.card
+		modeX10.TextColor3 = active and C.bg or C_WHITE
+	end
+	if modeMax and modeMax:IsA("TextButton") then
+		local active = contractDeliverMode == "MAX"
+		modeMax.BackgroundColor3 = active and C.gold or C.card
+		modeMax.TextColor3 = active and C.bg or C_WHITE
+	end
+
+	local icon, itemName = getContractItemDisplay(contract.TargetItemId)
+	local nowTs = os.time()
+	local timeLeft = math.max(0, (contract.EndTime or nowTs) - nowTs)
+	local progress = 0
+	if (contract.RequiredAmount or 0) > 0 then
+		progress = (contract.CurrentAmount or 0) / contract.RequiredAmount
+	end
+	local multiplierText = contract.Type == "FlashOrder"
+		and string.format("Multiplier: x%.2f", contract.Multiplier or 1)
+		or "Multiplier: None (Co-op)"
+	local pct = progress * 100
+	local lines = {
+		string.format("%s %s", icon, itemName),
+		string.format("%s", multiplierText),
+		string.format("Time Left: %s", formatDuration(timeLeft)),
+		string.format("Progress: %d / %d (%.1f%%)", contract.CurrentAmount or 0, contract.RequiredAmount or 0, pct),
+	}
+	if contract.Type == "MegaProject" then
+		local myContribution = 0
+		if contract.Contributions then
+			myContribution = contract.Contributions[Player.UserId] or 0
+		end
+		local myPct = ((contract.RequiredAmount or 1) > 0) and ((myContribution / contract.RequiredAmount) * 100) or 0
+		local minPct = 2.0
+		local template = getContractTemplate(contract.TemplateId)
+		if template and template.MinContributionPct then
+			minPct = template.MinContributionPct * 100
+		end
+		local missing = math.max(0, minPct - myPct)
+		table.insert(lines, string.format("Dit bidrag: %.2f%% - Du mangler %.2f%%", myPct, missing))
+	end
+
+	contractsDetail.Title.Text = contract.Name or "Contract"
+	contractsDetail.Body.Text = table.concat(lines, "\n")
+
+	local canDeliver = cartState == "at_market"
+	local inCart = tonumber(cartInventory[contract.TargetItemId]) or 0
+	local amountText = contractDeliverMode == "X10" and "x10" or "MAX"
+	if deliverBtn then
+		deliverBtn.Active = canDeliver
+		deliverBtn.AutoButtonColor = canDeliver
+		deliverBtn.BackgroundColor3 = canDeliver and C.green or Color3.fromRGB(95, 50, 55)
+		deliverBtn.TextColor3 = canDeliver and Color3.new(0, 0, 0) or C_WHITE
+		deliverBtn.Text = canDeliver
+			and string.format("DELIVER %s (IN CART: %d)", amountText, inCart)
+			or "CART NOT AT MARKET"
+	end
+end
+
+local function deliverSelectedContract(maxAmount: number?)
+	if cartState ~= "at_market" then return end
+	if not selectedContractId then return end
+	local response = DeliverToContractFunction:InvokeServer(selectedContractId, maxAmount)
+	if type(response) == "table" and response.Success then
+		local contract = contractsById[selectedContractId]
+		if contract then
+			local delivered = tonumber(response.AmountDelivered) or 0
+			contract.CurrentAmount = (contract.CurrentAmount or 0) + delivered
+			contract.Contributions = contract.Contributions or {}
+			contract.Contributions[Player.UserId] = (contract.Contributions[Player.UserId] or 0) + delivered
+			if contract.CurrentAmount >= (contract.RequiredAmount or 0) then
+				contractsById[selectedContractId] = nil
+				selectedContractId = nil
+			end
+		end
+		refreshContractsList()
+	end
+end
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -127,6 +283,154 @@ local function makeLabel(parent, props)
 	if props.Position then l.Position = props.Position end
 	l.Parent = parent
 	return l
+end
+
+refreshContractsList = function()
+	if not contractsList then return end
+
+	local entries = {}
+	for id, contract in pairs(contractsById) do
+		table.insert(entries, { id = id, contract = contract })
+	end
+	table.sort(entries, function(a, b)
+		return (a.contract.EndTime or 0) < (b.contract.EndTime or 0)
+	end)
+
+	local function getOrCreateContractRow(index: number): TextButton
+		local row = contractRowPool[index]
+		if row then
+			return row
+		end
+
+		row = Instance.new("TextButton")
+		row.Name = "ContractRow_" .. index
+		row.Size = UDim2.new(1, -6, 0, 58)
+		row.BorderSizePixel = 0
+		row.Text = ""
+		row.AutoButtonColor = false
+		row.Parent = contractsList
+		addCorner(row, UDim.new(0, 8))
+		addStroke(row, C.border, 1)
+
+		local idValue = Instance.new("StringValue")
+		idValue.Name = "InstanceId"
+		idValue.Parent = row
+
+		makeLabel(row, {
+			Name = "Name",
+			Text = "",
+			Color = C_WHITE,
+			Font = FONT_BOLD,
+			Size = 12,
+			UDim2Size = UDim2.new(1, -8, 0, 18),
+			Position = UDim2.new(0, 8, 0, 3),
+		})
+		makeLabel(row, {
+			Name = "Meta",
+			Text = "",
+			Color = C_MUTED,
+			Font = FONT_MONO,
+			Size = 10,
+			UDim2Size = UDim2.new(1, -8, 0, 14),
+			Position = UDim2.new(0, 8, 0, 24),
+		})
+
+		local barBg = Instance.new("Frame")
+		barBg.Name = "ProgressBg"
+		barBg.Size = UDim2.new(1, -14, 0, 10)
+		barBg.Position = UDim2.new(0, 7, 1, -13)
+		barBg.BackgroundColor3 = C_DIM_BG
+		barBg.BorderSizePixel = 0
+		barBg.Parent = row
+		addCorner(barBg, UDim.new(0, 3))
+
+		local barFill = Instance.new("Frame")
+		barFill.Name = "ProgressFill"
+		barFill.Size = UDim2.new(0, 0, 1, 0)
+		barFill.BackgroundColor3 = C.green
+		barFill.BorderSizePixel = 0
+		barFill.Parent = barBg
+		addCorner(barFill, UDim.new(0, 3))
+
+		row.MouseButton1Click:Connect(function()
+			local idObj = row:FindFirstChild("InstanceId")
+			if not idObj or not idObj:IsA("StringValue") then return end
+			if idObj.Value == "" then return end
+			selectedContractId = idObj.Value
+			refreshContractsList()
+			updateContractsDetail()
+		end)
+
+		contractRowPool[index] = row
+		return row
+	end
+
+	for i, entry in ipairs(entries) do
+		local contract = entry.contract
+		local btn = getOrCreateContractRow(i)
+		btn.Position = UDim2.new(0, 3, 0, (i - 1) * 62)
+		btn.BackgroundColor3 = (selectedContractId == entry.id) and Color3.fromRGB(50, 42, 65) or C.card
+		btn.Visible = true
+
+		local icon, itemName = getContractItemDisplay(contract.TargetItemId)
+		local timeLeft = math.max(0, (contract.EndTime or os.time()) - os.time())
+		local multiplierText = (contract.Type == "FlashOrder") and string.format("x%.1f", contract.Multiplier or 1) or "CO-OP"
+		local progressText = string.format("%d / %d", contract.CurrentAmount or 0, contract.RequiredAmount or 0)
+		local idValue = btn:FindFirstChild("InstanceId")
+		if idValue and idValue:IsA("StringValue") then
+			idValue.Value = entry.id
+		end
+		local nameLabel = btn:FindFirstChild("Name")
+		if nameLabel and nameLabel:IsA("TextLabel") then
+			nameLabel.Text = string.format("%s %s  [%s]", icon, contract.Name or itemName, multiplierText)
+		end
+		local metaLabel = btn:FindFirstChild("Meta")
+		if metaLabel and metaLabel:IsA("TextLabel") then
+			metaLabel.Text = string.format("Time: %s   Progress: %s", formatDuration(timeLeft), progressText)
+		end
+
+		local ratio = 0
+		if (contract.RequiredAmount or 0) > 0 then
+			ratio = math.clamp((contract.CurrentAmount or 0) / contract.RequiredAmount, 0, 1)
+		end
+		local barBg = btn:FindFirstChild("ProgressBg")
+		if barBg and barBg:IsA("Frame") then
+			local barFill = barBg:FindFirstChild("ProgressFill")
+			if barFill and barFill:IsA("Frame") then
+				barFill.Size = UDim2.new(ratio, 0, 1, 0)
+			end
+		end
+	end
+
+	for i = #entries + 1, #contractRowPool do
+		local row = contractRowPool[i]
+		if row then
+			row.Visible = false
+		end
+	end
+
+	contractsList.CanvasSize = UDim2.new(0, 0, 0, #entries * 62)
+	if not selectedContractId and entries[1] then
+		selectedContractId = entries[1].id
+	end
+	updateContractsDetail()
+end
+
+local function fetchContracts()
+	local ok, data = pcall(function()
+		return GetActiveContractsFunction:InvokeServer()
+	end)
+	if not ok or type(data) ~= "table" then
+		contractsById = {}
+		selectedContractId = nil
+		refreshContractsList()
+		return
+	end
+	contractsById = data
+	if selectedContractId and not contractsById[selectedContractId] then
+		selectedContractId = nil
+	end
+	refreshContractsList()
 end
 
 local function matchesAssetSearch(itemId: string, displayName: string): boolean
@@ -331,6 +635,32 @@ local function createContainer()
 		Position = UDim2.new(1, -260, 0, 0),
 		XAlign = Enum.TextXAlignment.Right,
 	})
+
+	tabTradingBtn = Instance.new("TextButton")
+	tabTradingBtn.Name = "TabTrading"
+	tabTradingBtn.Size = UDim2.new(0, 90, 0, 26)
+	tabTradingBtn.Position = UDim2.new(0, 250, 0, 6)
+	tabTradingBtn.BackgroundColor3 = C.gold
+	tabTradingBtn.Text = "TRADING"
+	tabTradingBtn.TextColor3 = C.bg
+	tabTradingBtn.TextSize = 11
+	tabTradingBtn.Font = FONT_BOLD
+	tabTradingBtn.AutoButtonColor = false
+	tabTradingBtn.Parent = topBar
+	addCorner(tabTradingBtn, UDim.new(0, 6))
+
+	tabContractsBtn = Instance.new("TextButton")
+	tabContractsBtn.Name = "TabContracts"
+	tabContractsBtn.Size = UDim2.new(0, 100, 0, 26)
+	tabContractsBtn.Position = UDim2.new(0, 346, 0, 6)
+	tabContractsBtn.BackgroundColor3 = C.card
+	tabContractsBtn.Text = "CONTRACTS"
+	tabContractsBtn.TextColor3 = C_WHITE
+	tabContractsBtn.TextSize = 11
+	tabContractsBtn.Font = FONT_BOLD
+	tabContractsBtn.AutoButtonColor = false
+	tabContractsBtn.Parent = topBar
+	addCorner(tabContractsBtn, UDim.new(0, 6))
 
 	local closeBtn = Instance.new("TextButton")
 	closeBtn.Name = "Close"
@@ -627,7 +957,6 @@ end
 -- RIGHT COLUMN - INSPECTOR & TRADING
 --------------------------------------------------------------------------------
 
-local inspectorFrame
 local itemSparkline = nil
 
 local function wireHoverGrow(btn: TextButton, baseSize: UDim2, basePos: UDim2, growPx: number)
@@ -935,6 +1264,148 @@ local function createRightColumn(parent)
 		end
 	end)
 
+	local contractsRoot = Instance.new("Frame")
+	contractsRoot.Name = "ContractsPanel"
+	contractsRoot.Size = UDim2.new(1, -16, 1, -42)
+	contractsRoot.Position = UDim2.new(0, 8, 0, 38)
+	contractsRoot.BackgroundTransparency = 1
+	contractsRoot.Visible = false
+	contractsRoot.Parent = col
+	contractsPanel = contractsRoot
+
+	local contractsHeader = makeLabel(contractsRoot, {
+		Name = "Header",
+		Text = "ACTIVE CONTRACTS",
+		Color = C.gold,
+		Font = FONT_BOLD,
+		Size = 14,
+		UDim2Size = UDim2.new(1, 0, 0, 22),
+		Position = UDim2.new(0, 0, 0, 0),
+	})
+	contractsHeader.TextXAlignment = Enum.TextXAlignment.Left
+
+	local list = Instance.new("ScrollingFrame")
+	list.Name = "ContractsList"
+	list.Size = UDim2.new(1, 0, 0.52, -8)
+	list.Position = UDim2.new(0, 0, 0, 24)
+	list.BackgroundColor3 = C.panel
+	list.BorderSizePixel = 0
+	list.ScrollBarThickness = 4
+	list.ScrollBarImageColor3 = C.gold
+	list.CanvasSize = UDim2.new(0, 0, 0, 0)
+	list.Parent = contractsRoot
+	addCorner(list, UDim.new(0, 8))
+	addStroke(list, C.border, 1)
+	contractsList = list
+
+	local detail = Instance.new("Frame")
+	detail.Name = "ContractsDetail"
+	detail.Size = UDim2.new(1, 0, 0.48, -20)
+	detail.Position = UDim2.new(0, 0, 0.52, 4)
+	detail.BackgroundColor3 = C.card
+	detail.BorderSizePixel = 0
+	detail.Parent = contractsRoot
+	addCorner(detail, UDim.new(0, 8))
+	addStroke(detail, C.border, 1)
+
+	local detailTitle = makeLabel(detail, {
+		Name = "Title",
+		Text = "No contract selected",
+		Color = C_WHITE,
+		Font = FONT_BOLD,
+		Size = 14,
+		UDim2Size = UDim2.new(1, -10, 0, 22),
+		Position = UDim2.new(0, 8, 0, 6),
+	})
+	detailTitle.TextXAlignment = Enum.TextXAlignment.Left
+
+	local detailBody = makeLabel(detail, {
+		Name = "Body",
+		Text = "Select a contract from the list.",
+		Color = C_MUTED,
+		Font = FONT_MONO,
+		Size = 11,
+		UDim2Size = UDim2.new(1, -10, 1, -66),
+		Position = UDim2.new(0, 8, 0, 30),
+	})
+	detailBody.TextWrapped = true
+	detailBody.TextYAlignment = Enum.TextYAlignment.Top
+
+	local modeRow = Instance.new("Frame")
+	modeRow.Name = "DeliverModeRow"
+	modeRow.Size = UDim2.new(1, -16, 0, 26)
+	modeRow.Position = UDim2.new(0, 8, 1, -74)
+	modeRow.BackgroundTransparency = 1
+	modeRow.Parent = detail
+
+	local modeX10 = Instance.new("TextButton")
+	modeX10.Name = "ModeX10"
+	modeX10.Size = UDim2.new(0.48, 0, 1, 0)
+	modeX10.Position = UDim2.new(0, 0, 0, 0)
+	modeX10.BackgroundColor3 = C.card
+	modeX10.Text = "DELIVER x10"
+	modeX10.TextColor3 = C_WHITE
+	modeX10.TextSize = 11
+	modeX10.Font = FONT_BOLD
+	modeX10.AutoButtonColor = false
+	modeX10.Parent = modeRow
+	addCorner(modeX10, UDim.new(0, 6))
+	addStroke(modeX10, C.border, 1)
+
+	local modeMax = Instance.new("TextButton")
+	modeMax.Name = "ModeMax"
+	modeMax.Size = UDim2.new(0.48, 0, 1, 0)
+	modeMax.Position = UDim2.new(0.52, 0, 0, 0)
+	modeMax.BackgroundColor3 = C.gold
+	modeMax.Text = "DELIVER MAX"
+	modeMax.TextColor3 = C.bg
+	modeMax.TextSize = 11
+	modeMax.Font = FONT_BOLD
+	modeMax.AutoButtonColor = false
+	modeMax.Parent = modeRow
+	addCorner(modeMax, UDim.new(0, 6))
+	addStroke(modeMax, C.border, 1)
+
+	local deliverBtn = Instance.new("TextButton")
+	deliverBtn.Name = "DeliverBtn"
+	deliverBtn.Size = UDim2.new(1, -16, 0, 34)
+	deliverBtn.Position = UDim2.new(0, 8, 1, -42)
+	deliverBtn.BackgroundColor3 = Color3.fromRGB(95, 50, 55)
+	deliverBtn.Text = "DELIVER"
+	deliverBtn.TextColor3 = C_WHITE
+	deliverBtn.TextSize = 14
+	deliverBtn.Font = FONT_BOLD
+	deliverBtn.Active = false
+	deliverBtn.AutoButtonColor = false
+	deliverBtn.Parent = detail
+	addCorner(deliverBtn, UDim.new(0, 8))
+
+	modeX10.MouseButton1Click:Connect(function()
+		contractDeliverMode = "X10"
+		updateContractsDetail()
+	end)
+
+	modeMax.MouseButton1Click:Connect(function()
+		contractDeliverMode = "MAX"
+		updateContractsDetail()
+	end)
+
+	deliverBtn.MouseButton1Click:Connect(function()
+		if contractDeliverMode == "X10" then
+			deliverSelectedContract(10)
+		else
+			deliverSelectedContract(nil)
+		end
+	end)
+
+	contractsDetail = {
+		Title = detailTitle,
+		Body = detailBody,
+		ModeX10 = modeX10,
+		ModeMax = modeMax,
+		DeliverBtn = deliverBtn,
+	}
+
 	inspectorFrame = inspector
 	_rightPanel = col
 	return col
@@ -1159,9 +1630,10 @@ function updateLeftColumn()
 
 	-- Hide all existing (Object Pooling)
 	for _, child in leftScroll:GetChildren() do
-		if child:IsA("TextButton") and string.match(child.Name, "^AssetRow_") then
-			child.Visible = false
-		elseif child:IsA("TextLabel") and (child.Name == "SectionMarket" or child.Name == "SectionOwned" or child.Name == "SectionAll" or child.Name == "SectionEmpty") then
+		local isAssetRow = child:IsA("TextButton") and string.match(child.Name, "^AssetRow_")
+		local isSectionLabel = child:IsA("TextLabel")
+			and (child.Name == "SectionMarket" or child.Name == "SectionOwned" or child.Name == "SectionAll" or child.Name == "SectionEmpty")
+		if isAssetRow or isSectionLabel then
 			child.Visible = false
 		end
 	end
@@ -1358,10 +1830,13 @@ local function openUI()
 	isOpen = true
 
 	task.spawn(fetchData)
+	task.spawn(fetchContracts)
 	task.wait(0.1)
 
 	updateLeftColumn()
 	updateInspector()
+	refreshContractsList()
+	setTab(activeTab)
 
 	mainFrame.Visible = true
 	mainFrame.BackgroundTransparency = 1
@@ -1390,8 +1865,20 @@ local function initialize()
 	local content, closeBtn, statusLabel = createContainer()
 	createLeftColumn(content)
 	createRightColumn(content)
+	setTab("TRADING")
 
 	closeBtn.MouseButton1Click:Connect(closeUI)
+	if tabTradingBtn then
+		tabTradingBtn.MouseButton1Click:Connect(function()
+			setTab("TRADING")
+		end)
+	end
+	if tabContractsBtn then
+		tabContractsBtn.MouseButton1Click:Connect(function()
+			setTab("CONTRACTS")
+			refreshContractsList()
+		end)
+	end
 
 	-- EVENT HANDLERS
 	StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
@@ -1458,6 +1945,31 @@ local function initialize()
 		end
 	end)
 
+	ContractEvent.OnClientEvent:Connect(function(payload)
+		if type(payload) ~= "table" then return end
+		local action = payload.Action
+		if action == "Spawned" and payload.Contract and payload.Contract.InstanceId then
+			contractsById[payload.Contract.InstanceId] = payload.Contract
+		elseif action == "Updated" and payload.InstanceId then
+			local contract = contractsById[payload.InstanceId]
+			if contract and payload.NewCurrentAmount then
+				contract.CurrentAmount = payload.NewCurrentAmount
+			end
+		elseif (action == "Completed" or action == "Expired") then
+			local id = payload.InstanceId or (payload.Contract and payload.Contract.InstanceId)
+			if id then
+				contractsById[id] = nil
+				if selectedContractId == id then
+					selectedContractId = nil
+				end
+			end
+		end
+
+		if isOpen and activeTab == "CONTRACTS" then
+			refreshContractsList()
+		end
+	end)
+
 	-- HUD Button Toggle
 	local stockToggle = ReplicatedStorage:FindFirstChild("StockToggleEvent")
 	if not stockToggle then
@@ -1486,6 +1998,9 @@ local function initialize()
 			if statusLabel and isOpen then
 				statusLabel.Text = dot and (utf8.char(0x25CF) .. " MARKET LIVE") or (utf8.char(0x25CB) .. " MARKET LIVE")
 				statusLabel.TextColor3 = C.green
+			end
+			if isOpen and activeTab == "CONTRACTS" then
+				refreshContractsList()
 			end
 			dot = not dot
 			task.wait(1)

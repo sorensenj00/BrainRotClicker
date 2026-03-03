@@ -57,6 +57,7 @@ local ProfileStore = ProfileService.GetProfileStore(
 	{
 		-- V3 Clean Schema - No legacy migration needed
 		money = 0,
+		braincells = 0,
 		lifetimeEarnings = 0,
 		
 		-- Brainrot Inventory (owned but not placed)
@@ -87,6 +88,20 @@ local ProfileStore = ProfileService.GetProfileStore(
 			spentMeatballs = 0,
 			prestigeCount = 0,
 			meatballUpgrades = {}
+		},
+		
+		-- Achievements progression
+		Achievements = {
+			Progress = {},
+			Unlocked = {},
+			Claimed = {},
+			LastUpdated = 0,
+		},
+		Mewing = {
+			LastActivityTime = 0,
+			CurrentTier = 0,
+			HasReachedLockedIn = false,
+			HasReachedGigaChad = false,
 		},
 		
 		-- Upgrades & Progress
@@ -144,6 +159,49 @@ function DataService.DeductMoney(player: Player, amount: number): boolean
 			local m = ls and ls:FindFirstChild("Money")
 			if m then m.Value = profile.Data.money end
 			
+			return true
+		end
+	end
+	return false
+end
+
+function DataService.GetBraincells(player: Player): number
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		return profile.Data.braincells or 0
+	end
+	return 0
+end
+
+function DataService.AddBraincells(player: Player, amount: number)
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		profile.Data.braincells = (profile.Data.braincells or 0) + amount
+
+		local ls = player:FindFirstChild("leaderstats")
+		local b = ls and ls:FindFirstChild("Braincells")
+		if b then
+			b.Value = profile.Data.braincells
+		end
+
+		return true
+	end
+	return false
+end
+
+function DataService.DeductBraincells(player: Player, amount: number): boolean
+	local profile = Profiles[player]
+	if profile and profile.Data then
+		local current = profile.Data.braincells or 0
+		if current >= amount then
+			profile.Data.braincells = current - amount
+
+			local ls = player:FindFirstChild("leaderstats")
+			local b = ls and ls:FindFirstChild("Braincells")
+			if b then
+				b.Value = profile.Data.braincells
+			end
+
 			return true
 		end
 	end

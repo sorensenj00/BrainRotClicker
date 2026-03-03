@@ -13,12 +13,12 @@ local NetWorthStatueManager = {}
 local Services = {}
 
 local CONFIG = {
-	UPDATE_INTERVAL = 5,
+	UPDATE_INTERVAL = 20,
 	FALLBACK_CENTER = Vector3.new(0, 32, 0),
 	FALLBACK_Y_OFFSET = 0,
 	PEDESTAL_SIZE = Vector3.new(10, 2, 10),
 	PEDESTAL_LIFT = 2,
-	STATUE_SCALE = 4,
+	STATUE_SCALE = 3,
 	RAYCAST_HEIGHT = 300,
 	RAYCAST_DEPTH = 1200,
 	STATUE_VERSION = 3,
@@ -239,7 +239,7 @@ local function buildAvatarStatue(userId, pedestal, container, netWorth) -- BEMÆ
         local rootToFloor = (hrp.Size.Y / 2) + humanoid.HipHeight
         local topOfPedestal = pedestal.Position.Y + (pedestal.Size.Y / 2)
 
-		local minJusteringY = 12 -- Sæt til f.eks. -0.5 for at sænke ham lidt, eller 1 for at løfte ham.
+		local minJusteringY = 10 -- Sæt til f.eks. -0.5 for at sænke ham lidt, eller 1 for at løfte ham.
         
         local targetPosition = Vector3.new(pedestal.Position.X, topOfPedestal + rootToFloor + minJusteringY, pedestal.Position.Z)
         avatarModel:PivotTo(CFrame.new(targetPosition) * CFrame.Angles(0, math.rad(180), 0))
@@ -277,7 +277,7 @@ local function buildAvatarStatue(userId, pedestal, container, netWorth) -- BEMÆ
         gradient.Parent = txt
         
         -- Formater tallet så det ser pænt ud (f.eks. 1000000 -> 1,000,000)
-        local formattedWorth = tostring(netWorth):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")
+        local formattedWorth = tostring(netWorth):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
         txt.Text = "Highest Net Worth:\n$" .. formattedWorth
         txt.Parent = frameImage
     end
@@ -342,6 +342,17 @@ local function refreshLeaderAndStatue()
     local currentAvatar = container:FindFirstChild("AvatarStatue")
     local isCurrentValid = currentAvatar and (currentAvatar:GetAttribute("StatueVersion") == CONFIG.STATUE_VERSION)
     if currentLeaderUserId == leader.UserId and isCurrentValid then
+        local bg = currentAvatar:FindFirstChild("NetWorthTag")
+        if bg then
+            local frameImage = bg:FindFirstChild("GoldFrame")
+            if frameImage then
+                local txt = frameImage:FindFirstChildOfClass("TextLabel")
+                if txt then
+                    local formattedWorth = tostring(leaderWorth):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+                    txt.Text = "Highest Net Worth:\n$" .. formattedWorth
+                end
+            end
+        end
         return
     end
 

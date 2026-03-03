@@ -43,9 +43,113 @@ GetUpgradesInfoEvent.Parent = RemoteFunctions
 -- State
 local PlayerUpgrades = {} 
 local PlayerCollectorBots = {}
+local PurchaseLocks = {}
 
 local ConvenienceUpgradesManager = {}
 local Services = {}
+
+local LEGACY_UPGRADE_MAP: {[string]: string} = {
+	["Speed Treadmill Bridge"] = "Bridge Thrusters I",
+	["Walkspeed Boost I"] = "Runner Shoes I",
+	["Jump Boost"] = "Jump Spring Mod",
+	["Walkspeed Boost II"] = "Runner Shoes II",
+	["Global Income +10%"] = "Profit Routing I",
+	["Auto-Collector Bot I"] = "Collector Drone I",
+	["Global Income +25%"] = "Profit Routing II",
+	["Faster Cycles I"] = "Cycle Overclock I",
+	["Auto-Collector Bot II"] = "Collector Drone II",
+	["Faster Cycles II"] = "Cycle Overclock II",
+	["Lucky Bonus Chance"] = "Lucky Payout Matrix",
+	["Instant Teleport Home"] = "Home Warp Beacon",
+	["Global Income +50%"] = "Profit Routing III",
+	["Critical Bonus Chance"] = "Critical Payout Matrix",
+	["Golden Speed Bridges"] = "Bridge Thrusters III",
+}
+
+local function getDataService()
+	return rawget(Services, "DataService")
+end
+
+local function persistPlayerUpgrades(player: Player)
+	local ds = getDataService()
+	if ds and ds.SetComponentData then
+		ds.SetComponentData(player, "convenienceUpgrades", PlayerUpgrades[player.UserId] or {})
+	end
+end
+
+local function normalizeUpgradeList(upgrades: any): {string}
+	if type(upgrades) ~= "table" then
+		return {}
+	end
+
+	local seen = {}
+	local normalized = {}
+	for _, name in upgrades do
+		if type(name) == "string" then
+			local mapped = LEGACY_UPGRADE_MAP[name] or name
+			if ConvenienceUpgradesConfig.GetConfig(mapped) and not seen[mapped] then
+				seen[mapped] = true
+				table.insert(normalized, mapped)
+			end
+		end
+	end
+
+	local changed = true
+	while changed do
+		changed = false
+		for _, ownedName in normalized do
+			local conf = ConvenienceUpgradesConfig.GetConfig(ownedName)
+			local prereq = conf and conf.Prerequisite
+			if prereq and not seen[prereq] then
+				seen[prereq] = true
+				table.insert(normalized, prereq)
+				changed = true
+			end
+		end
+	end
+
+	table.sort(normalized, function(a, b)
+		local ca = ConvenienceUpgradesConfig.GetConfig(a)
+		local cb = ConvenienceUpgradesConfig.GetConfig(b)
+		local pa = ca and ca.Price or math.huge
+		local pb = cb and cb.Price or math.huge
+		if pa == pb then
+			return a < b
+		end
+		return pa < pb
+	end)
+
+	return normalized
+end
+
+local function sameUpgradeList(a: {string}, b: {string}): boolean
+	if #a ~= #b then
+		return false
+	end
+	for i = 1, #a do
+		if a[i] ~= b[i] then
+			return false
+		end
+	end
+	return true
+end
+
+local function loadPlayerUpgrades(player: Player): {string}
+	local ds = getDataService()
+	local raw = {}
+	if ds and ds.GetComponentData then
+		raw = ds.GetComponentData(player, "convenienceUpgrades") or {}
+	end
+
+	local normalized = normalizeUpgradeList(raw)
+	PlayerUpgrades[player.UserId] = normalized
+
+	if not sameUpgradeList(raw, normalized) then
+		persistPlayerUpgrades(player)
+	end
+
+	return normalized
+end
 
 --------------------------------------------------------------------------------
 -- CALCULATIONS
@@ -55,16 +159,20 @@ local function calculateIncomeMultiplier(upgrades)
 	local m = 1.0
 	for _, name in upgrades do
 		local c = ConvenienceUpgradesConfig.GetConfig(name)
-		if c and c.EffectType == "IncomeMultiplier" then m += c.EffectValue end
+		if c and c.EffectType == "IncomeMultiplier" then
+			m += c.EffectValue
+		end
 	end
-	return m
+	return math.max(0.1, m)
 end
 
 local function calculateCycleReduction(upgrades)
 	local r = 0.0
 	for _, name in upgrades do
 		local c = ConvenienceUpgradesConfig.GetConfig(name)
-		if c and c.EffectType == "CycleReduction" then r += c.EffectValue end
+		if c and c.EffectType == "CycleReduction" then
+			r += c.EffectValue
+		end
 	end
 	return math.min(r, 0.75)
 end
@@ -73,7 +181,9 @@ local function calculateWalkspeedMultiplier(upgrades)
 	local m = 1.0
 	for _, name in upgrades do
 		local c = ConvenienceUpgradesConfig.GetConfig(name)
-		if c and c.EffectType == "Walkspeed" then m += c.EffectValue end
+		if c and c.EffectType == "Walkspeed" then
+			m += c.EffectValue
+		end
 	end
 	return m
 end
@@ -82,7 +192,9 @@ local function getBridgeSpeedMultiplier(upgrades)
 	local h = 1
 	for _, name in upgrades do
 		local c = ConvenienceUpgradesConfig.GetConfig(name)
-		if c and c.EffectType == "BridgeSpeed" then h = math.max(h, c.EffectValue) end
+		if c and c.EffectType == "BridgeSpeed" then
+			h = math.max(h, c.EffectValue)
+		end
 	end
 	return h
 end
@@ -90,32 +202,42 @@ end
 local function hasEffect(upgrades, effectType)
 	for _, name in upgrades do
 		local c = ConvenienceUpgradesConfig.GetConfig(name)
-		if c and c.EffectType == effectType then return true end
+		if c and c.EffectType == effectType then
+			return true
+		end
 	end
 	return false
 end
 
 local function getLuckyChance(upgrades)
+	local chance = 0
 	for _, name in upgrades do
 		local c = ConvenienceUpgradesConfig.GetConfig(name)
-		if c and c.EffectType == "LuckyChance" then return c.EffectValue end
+		if c and c.EffectType == "LuckyChance" then
+			chance += c.EffectValue
+		end
 	end
-	return 0
+	return math.clamp(chance, 0, 0.75)
 end
 
 local function getCriticalChance(upgrades)
+	local chance = 0
 	for _, name in upgrades do
 		local c = ConvenienceUpgradesConfig.GetConfig(name)
-		if c and c.EffectType == "CriticalChance" then return c.EffectValue end
+		if c and c.EffectType == "CriticalChance" then
+			chance += c.EffectValue
+		end
 	end
-	return 0
+	return math.clamp(chance, 0, 0.5)
 end
 
 local function countAutoCollectorBots(upgrades)
 	local c = 0
 	for _, name in upgrades do
 		local conf = ConvenienceUpgradesConfig.GetConfig(name)
-		if conf and conf.EffectType == "AutoCollector" then c += conf.EffectValue end
+		if conf and conf.EffectType == "AutoCollector" then
+			c += conf.EffectValue
+		end
 	end
 	return c
 end
@@ -138,7 +260,9 @@ local function applyCharacterEffects(player)
 	local jm = 1.0
 	for _, name in upgrades do
 		local c = ConvenienceUpgradesConfig.GetConfig(name)
-		if c and c.EffectType == "JumpPower" then jm += c.EffectValue end
+		if c and c.EffectType == "JumpPower" then
+			jm += c.EffectValue
+		end
 	end
 	hum.JumpPower = 50 * jm
 end
@@ -183,26 +307,32 @@ local function createCollectorBot(player, index)
 	eye1.Material = Enum.Material.Neon
 	eye1.CanCollide = false
 	eye1.Parent = bot
-	local em1 = Instance.new("SpecialMesh"); em1.MeshType = Enum.MeshType.Sphere; em1.Parent = eye1
+	local em1 = Instance.new("SpecialMesh")
+	em1.MeshType = Enum.MeshType.Sphere
+	em1.Parent = eye1
 	
 	local eye2 = eye1:Clone()
 	eye2.Parent = bot
 	
 	local w1 = Instance.new("WeldConstraint")
-	w1.Part0 = body; w1.Part1 = eye1; w1.Parent = body
+	w1.Part0 = body
+	w1.Part1 = eye1
+	w1.Parent = body
 	eye1.CFrame = body.CFrame * CFrame.new(0.6, 0.5, -1.2)
 	
 	local w2 = Instance.new("WeldConstraint")
-	w2.Part0 = body; w2.Part1 = eye2; w2.Parent = body
+	w2.Part0 = body
+	w2.Part1 = eye2
+	w2.Parent = body
 	eye2.CFrame = body.CFrame * CFrame.new(-0.6, 0.5, -1.2)
 	
 	-- Billboard
 	local bb = Instance.new("BillboardGui")
-	bb.Size = UDim2.new(3,0,1,0)
+	bb.Size = UDim2.fromScale(3, 1)
 	bb.StudsOffset = Vector3.new(0, 2.5, 0)
 	bb.Parent = body
 	local lbl = Instance.new("TextLabel")
-	lbl.Size = UDim2.new(1,0,1,0)
+	lbl.Size = UDim2.fromScale(1, 1)
 	lbl.BackgroundTransparency = 1
 	lbl.Text = "🤖 Bot " .. index
 	lbl.TextColor3 = Color3.new(1,1,1)
@@ -230,14 +360,18 @@ local function updateCollectorBots(player)
 		local idx = #current + 1
 		local bot = createCollectorBot(player, idx)
 		local pp = plot:FindFirstChild("Island") or plot:FindFirstChildWhichIsA("BasePart")
-		if pp then bot:PivotTo(pp.CFrame * CFrame.new(0, 10, 0)) end
+		if pp then
+			bot:PivotTo(pp.CFrame * CFrame.new(0, 10, 0))
+		end
 		bot.Parent = plot
 		table.insert(current, bot)
 	end
 	
 	while #current > needed do
 		local bot = table.remove(current)
-		if bot then bot:Destroy() end
+		if bot then
+			bot:Destroy()
+		end
 	end
 	
 	PlayerCollectorBots[player.UserId] = current
@@ -278,22 +412,52 @@ end
 --------------------------------------------------------------------------------
 
 function ConvenienceUpgradesManager.HandleUpgradePurchase(player, upgradeName)
+	if type(upgradeName) ~= "string" or upgradeName == "" then
+		return false, "Invalid upgrade"
+	end
+
+	if PurchaseLocks[player.UserId] then
+		return false, "Purchase in progress"
+	end
+	PurchaseLocks[player.UserId] = true
+
 	local owned = PlayerUpgrades[player.UserId] or {}
 	local can, reason = ConvenienceUpgradesConfig.CanPurchase(upgradeName, owned)
-	
-	if not can then return false, reason or "Cannot purchase" end
+
+	if not can then
+		PurchaseLocks[player.UserId] = nil
+		return false, reason or "Cannot purchase"
+	end
 	
 	local conf = ConvenienceUpgradesConfig.GetConfig(upgradeName)
-	if not conf then return false, "Upgrade not found" end
-	
-	local ls = player:FindFirstChild("leaderstats")
-	local m = ls and ls:FindFirstChild("Money")
-	if not m or m.Value < conf.Price then return false, "Not enough money" end
-	
-	m.Value -= conf.Price
+	if not conf then
+		PurchaseLocks[player.UserId] = nil
+		return false, "Upgrade not found"
+	end
+
+	local ds = getDataService()
+	if ds and ds.GetMoney then
+		if ds.GetMoney(player) < conf.Price then
+			PurchaseLocks[player.UserId] = nil
+			return false, "Not enough money"
+		end
+		if not ds.DeductMoney(player, conf.Price) then
+			PurchaseLocks[player.UserId] = nil
+			return false, "Purchase failed"
+		end
+	else
+		local ls = player:FindFirstChild("leaderstats")
+		local m = ls and ls:FindFirstChild("Money")
+		if not m or m.Value < conf.Price then
+			PurchaseLocks[player.UserId] = nil
+			return false, "Not enough money"
+		end
+		m.Value -= conf.Price
+	end
 	
 	table.insert(owned, upgradeName)
-	PlayerUpgrades[player.UserId] = owned
+	PlayerUpgrades[player.UserId] = normalizeUpgradeList(owned)
+	persistPlayerUpgrades(player)
 	
 	applyCharacterEffects(player)
 	updateCollectorBots(player)
@@ -304,7 +468,8 @@ function ConvenienceUpgradesManager.HandleUpgradePurchase(player, upgradeName)
 	if BonusManager and BonusManager.RefreshAll then
 		BonusManager.RefreshAll(player)
 	end
-	
+
+	PurchaseLocks[player.UserId] = nil
 	return true, "Purchased!"
 end
 
@@ -317,24 +482,41 @@ function ConvenienceUpgradesManager.Init(services)
 	Services = services or {}
 	
 	Players.PlayerAdded:Connect(function(player)
-		if not PlayerUpgrades[player.UserId] then PlayerUpgrades[player.UserId] = {} end
+		if not PlayerUpgrades[player.UserId] then
+			loadPlayerUpgrades(player)
+		end
 		player.CharacterAdded:Connect(function()
 			task.wait(0.5)
 			applyCharacterEffects(player)
 		end)
-		if player.Character then applyCharacterEffects(player) end
+		if player.Character then
+			applyCharacterEffects(player)
+		end
+		updateCollectorBots(player)
+		ConvenienceUpgradesManager.ApplyBrainrotUpgrades(player)
 	end)
 	
 	Players.PlayerRemoving:Connect(function(player)
 		local bots = PlayerCollectorBots[player.UserId]
-		if bots then for _, b in bots do b:Destroy() end end
+		if bots then
+			for _, b in bots do
+				b:Destroy()
+			end
+		end
 		PlayerCollectorBots[player.UserId] = nil
 		PlayerUpgrades[player.UserId] = nil
+		PurchaseLocks[player.UserId] = nil
 	end)
 	
 	for _, p in Players:GetPlayers() do
-		if not PlayerUpgrades[p.UserId] then PlayerUpgrades[p.UserId] = {} end
-		if p.Character then applyCharacterEffects(p) end
+		if not PlayerUpgrades[p.UserId] then
+			loadPlayerUpgrades(p)
+		end
+		if p.Character then
+			applyCharacterEffects(p)
+		end
+		updateCollectorBots(p)
+		ConvenienceUpgradesManager.ApplyBrainrotUpgrades(p)
 	end
 	
 	task.spawn(setupConvenienceShopVendor)
@@ -345,10 +527,21 @@ function ConvenienceUpgradesManager.Init(services)
 	end)
 	
 	GetUpgradesInfoEvent.OnServerInvoke = function(player)
+		local ds = getDataService()
+		local currentMoney = 0
+		if ds and ds.GetMoney then
+			currentMoney = ds.GetMoney(player)
+		else
+			local ls = player:FindFirstChild("leaderstats")
+			local moneyValue = ls and ls:FindFirstChild("Money")
+			currentMoney = moneyValue and moneyValue.Value or 0
+		end
+
 		return {
 			OwnedUpgrades = PlayerUpgrades[player.UserId] or {},
 			AllUpgrades = ConvenienceUpgradesConfig.GetAllUpgradesSorted(),
-			Categories = ConvenienceUpgradesConfig.GetCategories()
+			Categories = ConvenienceUpgradesConfig.GetCategories(),
+			CurrentMoney = currentMoney,
 		}
 	end
 	
@@ -356,9 +549,12 @@ function ConvenienceUpgradesManager.Init(services)
 end
 
 -- Export API
-ConvenienceUpgradesManager.GetPlayerUpgrades = function(player) return PlayerUpgrades[player.UserId] or {} end
+ConvenienceUpgradesManager.GetPlayerUpgrades = function(player)
+	return PlayerUpgrades[player.UserId] or {}
+end
 ConvenienceUpgradesManager.SetPlayerUpgrades = function(player, upgs)
-	PlayerUpgrades[player.UserId] = upgs
+	PlayerUpgrades[player.UserId] = normalizeUpgradeList(upgs)
+	persistPlayerUpgrades(player)
 	applyCharacterEffects(player)
 	updateCollectorBots(player)
 	ConvenienceUpgradesManager.ApplyBrainrotUpgrades(player)
@@ -366,13 +562,22 @@ end
 
 ConvenienceUpgradesManager.CalculateIncomeMultiplier = calculateIncomeMultiplier
 ConvenienceUpgradesManager.CalculateCycleReduction = calculateCycleReduction
+ConvenienceUpgradesManager.CalculateLuckyChance = getLuckyChance
+ConvenienceUpgradesManager.CalculateCriticalChance = getCriticalChance
 ConvenienceUpgradesManager.GetBridgeSpeedMultiplier = getBridgeSpeedMultiplier
-ConvenienceUpgradesManager.HasTeleportHome = function(player) return hasEffect(PlayerUpgrades[player.UserId] or {}, "TeleportHome") end
+ConvenienceUpgradesManager.HasTeleportHome = function(player)
+	return hasEffect(PlayerUpgrades[player.UserId] or {}, "TeleportHome")
+end
 
 ConvenienceUpgradesManager.ResetPlayerUpgrades = function(player)
 	PlayerUpgrades[player.UserId] = {}
+	persistPlayerUpgrades(player)
 	local bots = PlayerCollectorBots[player.UserId]
-	if bots then for _, b in bots do b:Destroy() end end
+	if bots then
+		for _, b in bots do
+			b:Destroy()
+		end
+	end
 	PlayerCollectorBots[player.UserId] = nil
 	applyCharacterEffects(player)
 	player:SetAttribute("IncomeMultiplier", 1)

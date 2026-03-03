@@ -125,6 +125,13 @@ local function deductMoney(player, amount)
 	return false
 end
 
+local function recordAchievements(player, goalType, amount)
+	local AchievementMgr = rawget(Services, "AchievementsManager")
+	if AchievementMgr and AchievementMgr.RecordProgress then
+		AchievementMgr.RecordProgress(player, goalType, amount)
+	end
+end
+
 
 
 --------------------------------------------------------------------------------
@@ -254,6 +261,7 @@ function ShopManager.HandleBuyUnit(player, unitName)
 		return false, "Failed to grant unit (refunded)"
 	end
 	local newLevel = newData.level
+	recordAchievements(player, "units_purchased", 1)
 
 
 

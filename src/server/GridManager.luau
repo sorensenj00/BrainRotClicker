@@ -107,6 +107,13 @@ ModeChangedEvent.Parent = RemoteEvents
 local GridManager = {}
 local Services = {}
 
+local function recordAchievement(player, goalType, amount)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.RecordProgress then
+		achievementManager.RecordProgress(player, goalType, amount)
+	end
+end
+
 -- Getter for DataService (to avoid circular require)
 local function getDataService()
 	if not DataService then
@@ -450,6 +457,8 @@ function GridManager.PlaceUnit(player, brainrot, slotIndex)
 	if IPM and IPM.RefreshUnitAttributes then
 		IPM.RefreshUnitAttributes(player)
 	end
+
+	recordAchievement(player, "first_brainrot_placed", 1)
 
 	return true
 end

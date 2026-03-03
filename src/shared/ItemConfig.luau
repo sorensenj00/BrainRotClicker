@@ -497,6 +497,18 @@ ItemConfig.Items = {
     NukeCroc = { id = "NukeCroc", shortId = 303, displayName = "Nuclear Crocodile", icon = "☢️🐊", tier = 4, basePrice = 2500, volatility = 0.8 },
     BananaSplit = { id = "BananaSplit", shortId = 304, displayName = "Banana Split Deluxe", icon = "🍌🍨", tier = 3, basePrice = 300, volatility = 0.4 },
     GrandChoir = { id = "GrandChoir", shortId = 305, displayName = "Grand Tralala Choir", icon = "🎵🎶", tier = 4, basePrice = 1800, volatility = 0.8 },
+    DiscoSymphony = { id = "DiscoSymphony", shortId = 306, displayName = "Disco Symphony", icon = "🪩🎻", tier = 3, basePrice = 340, volatility = 0.4 },
+    LemonFondue = { id = "LemonFondue", shortId = 307, displayName = "Lemon Fondue", icon = "🍋🫕", tier = 3, basePrice = 330, volatility = 0.4 },
+    ArcticKiwiShake = { id = "ArcticKiwiShake", shortId = 308, displayName = "Arctic Kiwi Shake", icon = "🥝🧊", tier = 3, basePrice = 360, volatility = 0.4 },
+    CourierGumCycle = { id = "CourierGumCycle", shortId = 309, displayName = "Courier Gum Cycle", icon = "🚲🕊️", tier = 3, basePrice = 380, volatility = 0.4 },
+    EspressoIntel = { id = "EspressoIntel", shortId = 310, displayName = "Espresso Intel", icon = "☕🕶️", tier = 4, basePrice = 1200, volatility = 0.8 },
+    NeonRailCore = { id = "NeonRailCore", shortId = 311, displayName = "Neon Rail Core", icon = "⚡🚄", tier = 4, basePrice = 1500, volatility = 0.8 },
+    MoltenTunnelToast = { id = "MoltenTunnelToast", shortId = 312, displayName = "Molten Tunnel Toast", icon = "🌋🍞", tier = 4, basePrice = 1250, volatility = 0.8 },
+    RuneSparkRelic = { id = "RuneSparkRelic", shortId = 313, displayName = "Rune Spark Relic", icon = "🪨✨", tier = 4, basePrice = 1700, volatility = 0.8 },
+    SahurMegaMarch = { id = "SahurMegaMarch", shortId = 314, displayName = "Sahur Mega March", icon = "🥁🎺", tier = 4, basePrice = 2300, volatility = 0.8 },
+    BaconHonkWarhead = { id = "BaconHonkWarhead", shortId = 315, displayName = "Bacon Honk Warhead", icon = "🥓💣", tier = 4, basePrice = 2500, volatility = 0.8 },
+    QuantumDinoReactor = { id = "QuantumDinoReactor", shortId = 316, displayName = "Quantum Dino Reactor", icon = "☢️⚛️", tier = 4, basePrice = 2900, volatility = 0.8 },
+    JackpotSingularity = { id = "JackpotSingularity", shortId = 317, displayName = "Jackpot Singularity", icon = "🎰🌀", tier = 4, basePrice = 3200, volatility = 0.8 },
 }
 
 ItemConfig.ID_TO_SHORT = {}
@@ -616,6 +628,18 @@ ItemConfig.Synergies = {
     { unitA = "Bombardiro_Crocodilo",   unitB = "Nuclearo Dinossauro",   synergyItem = "NukeCroc",     bonus = 2.0 },
     { unitA = "Chimpanzini_Bananini",   unitB = "Bananita_Dolphinita",   synergyItem = "BananaSplit",  bonus = 1.4 },
     { unitA = "Tralalero_Tralala",      unitB = "Las Tralaleritas",      synergyItem = "GrandChoir",   bonus = 1.6 },
+    { unitA = "Ballerino Lololo",       unitB = "Lirilì_Larilà",         synergyItem = "DiscoSymphony", bonus = 1.3 },
+    { unitA = "Perochello_Lemonchello", unitB = "Tim_Cheese",            synergyItem = "LemonFondue", bonus = 1.28 },
+    { unitA = "Pipi_Kiwi",              unitB = "Salamino Penguino",     synergyItem = "ArcticKiwiShake", bonus = 1.32 },
+    { unitA = "Chicleteira Bicicleteira", unitB = "Piccione Macchina",   synergyItem = "CourierGumCycle", bonus = 1.35 },
+    { unitA = "Cappuccino_Assassino",   unitB = "Spioniro Golubiro",     synergyItem = "EspressoIntel", bonus = 1.5 },
+    { unitA = "Gattatino Neonino",      unitB = "Trenostruzzo_Turbo_3000", synergyItem = "NeonRailCore", bonus = 1.55 },
+    { unitA = "Talpa_Di_Fero",          unitB = "Rhino_Toasterino",      synergyItem = "MoltenTunnelToast", bonus = 1.45 },
+    { unitA = "Trulimero_Trulicina",    unitB = "Odin_Din_Din_Dun",      synergyItem = "RuneSparkRelic", bonus = 1.6 },
+    { unitA = "Tung_Tung_Tung_Sahur",   unitB = "Ta_Ta_Ta_Ta_Sahur",     synergyItem = "SahurMegaMarch", bonus = 1.75 },
+    { unitA = "Bombombini_Gusini",      unitB = "Svinina_Bombardino",    synergyItem = "BaconHonkWarhead", bonus = 1.8 },
+    { unitA = "La_Grande_Combinasion",  unitB = "Nuclearo Dinossauro",   synergyItem = "QuantumDinoReactor", bonus = 1.9 },
+    { unitA = "Brainrot God Lucky Block", unitB = "Mythic Lucky Block",  synergyItem = "JackpotSingularity", bonus = 1.85 },
 }
 
 -- Pre-build lookup for O(1) synergy checks

@@ -32,6 +32,7 @@ local CONFIG = {
 local function getDefaultData()
 	return {
 		money = CONFIG.DEFAULT_MONEY,
+		braincells = 0,
 		ownedUnits = {},
 		unlockProgress = 5,
 		purchasedTiers = 1,
@@ -49,11 +50,16 @@ end
 local function gatherPlayerData(player: Player): any
 	-- Get money from leaderstats
 	local money = CONFIG.DEFAULT_MONEY
+	local braincells = 0
 	local leaderstats = player:FindFirstChild("leaderstats")
 	if leaderstats then
 		local moneyValue = leaderstats:FindFirstChild("Money")
 		if moneyValue then
 			money = moneyValue.Value
+		end
+		local braincellsValue = leaderstats:FindFirstChild("Braincells")
+		if braincellsValue then
+			braincells = braincellsValue.Value
 		end
 	end
 	
@@ -138,6 +144,7 @@ local function gatherPlayerData(player: Player): any
 	
 	return {
 		money = money,
+		braincells = braincells,
 		lifetimeEarnings = 0,
 		unlockProgress = unlockProgress,
 		purchasedTiers = purchasedTiers,
@@ -165,11 +172,24 @@ local function applyLegacyData(player: Player, data: any)
 		money.Name = "Money"
 		money.Value = data.money or CONFIG.DEFAULT_MONEY
 		money.Parent = leaderstats
+
+		local braincells = Instance.new("IntValue")
+		braincells.Name = "Braincells"
+		braincells.Value = data.braincells or 0
+		braincells.Parent = leaderstats
 	else
 		local money = leaderstats:FindFirstChild("Money")
 		if money then
 			money.Value = data.money or CONFIG.DEFAULT_MONEY
 		end
+
+		local braincells = leaderstats:FindFirstChild("Braincells")
+		if not braincells then
+			braincells = Instance.new("IntValue")
+			braincells.Name = "Braincells"
+			braincells.Parent = leaderstats
+		end
+		braincells.Value = data.braincells or 0
 	end
 	
 	-- Early restore convenience upgrades

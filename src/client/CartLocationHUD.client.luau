@@ -27,7 +27,7 @@ local GetVehicleInfoFunction = RemoteFunctions:WaitForChild("GetVehicleInfo")
 
 -- Shared
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
+
 
 --------------------------------------------------------------------------------
 -- THEME
@@ -57,7 +57,7 @@ local C = {
 }
 
 local FONT_BOLD = Enum.Font.GothamBold
-local FONT_MONO = Enum.Font.RobotoMono
+
 local FONT_REG  = Enum.Font.Gotham
 
 --------------------------------------------------------------------------------
@@ -80,7 +80,7 @@ local statusLabel
 -- HELPERS
 --------------------------------------------------------------------------------
 
-local FormatUtils = require(Shared:WaitForChild("Utils"):WaitForChild("FormatUtils"))
+
 local UIUtils = require(Shared:WaitForChild("Utils"):WaitForChild("UIUtils"))
 
 local addCorner = UIUtils.addCorner
@@ -136,8 +136,8 @@ local function buildHUD()
 	-- Main container — appended to bottom of MoneyHUD
 	local main = Instance.new("Frame")
 	main.Name = "CartHUD"
-	main.Size = UDim2.new(1, 0, 0, 100)
-	main.Position = UDim2.new(0, 0, 1, -110)
+	main.Size = UDim2.new(1, 0, 0, 130)
+	main.Position = UDim2.new(0, 0, 1, -140)
 	main.BackgroundTransparency = 1
 	main.BorderSizePixel = 0
 	main.Parent = hudPanel
@@ -147,24 +147,24 @@ local function buildHUD()
 	-- Labels: Market (left) and Plot (right)
 	local marketLabel = Instance.new("TextLabel")
 	marketLabel.Name = "MarketLabel"
-	marketLabel.Size = UDim2.new(0, 60, 0, 14)
+	marketLabel.Size = UDim2.new(0, 80, 0, 16)
 	marketLabel.Position = UDim2.new(0, 0, 0, 0)
 	marketLabel.BackgroundTransparency = 1
 	marketLabel.Text = "MARKET"
 	marketLabel.TextColor3 = C.marketDot
-	marketLabel.TextSize = 9
+	marketLabel.TextSize = 11
 	marketLabel.Font = FONT_BOLD
 	marketLabel.TextXAlignment = Enum.TextXAlignment.Left
 	marketLabel.Parent = main
 
 	local plotLabel = Instance.new("TextLabel")
 	plotLabel.Name = "PlotLabel"
-	plotLabel.Size = UDim2.new(0, 60, 0, 14)
-	plotLabel.Position = UDim2.new(1, -60, 0, 0)
+	plotLabel.Size = UDim2.new(0, 80, 0, 16)
+	plotLabel.Position = UDim2.new(1, -80, 0, 0)
 	plotLabel.BackgroundTransparency = 1
 	plotLabel.Text = "YOUR PLOT"
 	plotLabel.TextColor3 = C.plotDot
-	plotLabel.TextSize = 9
+	plotLabel.TextSize = 11
 	plotLabel.Font = FONT_BOLD
 	plotLabel.TextXAlignment = Enum.TextXAlignment.Right
 	plotLabel.Parent = main
@@ -172,29 +172,29 @@ local function buildHUD()
 	-- Status label (center-ish)
 	statusLabel = Instance.new("TextLabel")
 	statusLabel.Name = "Status"
-	statusLabel.Size = UDim2.new(1, -120, 0, 14)
-	statusLabel.Position = UDim2.new(0, 60, 0, 0)
+	statusLabel.Size = UDim2.new(1, -160, 0, 16)
+	statusLabel.Position = UDim2.new(0, 80, 0, 0)
 	statusLabel.BackgroundTransparency = 1
 	statusLabel.Text = "AT PLOT"
 	statusLabel.TextColor3 = C.plotDot
-	statusLabel.TextSize = 9
-	statusLabel.Font = FONT_MONO
+	statusLabel.TextSize = 12
+	statusLabel.Font = FONT_BOLD
 	statusLabel.TextXAlignment = Enum.TextXAlignment.Center
 	statusLabel.Parent = main
 
 	-- Track line
 	trackFrame = Instance.new("Frame")
 	trackFrame.Name = "Track"
-	trackFrame.Size = UDim2.new(1, 0, 0, 16)
-	trackFrame.Position = UDim2.new(0, 0, 0, 18)
+	trackFrame.Size = UDim2.new(1, 0, 0, 20)
+	trackFrame.Position = UDim2.new(0, 0, 0, 20)
 	trackFrame.BackgroundTransparency = 1
 	trackFrame.Parent = main
 
 	-- Track background line
 	local trackLine = Instance.new("Frame")
 	trackLine.Name = "TrackLine"
-	trackLine.Size = UDim2.new(1, -16, 0, 3)
-	trackLine.Position = UDim2.new(0, 8, 0.5, -1)
+	trackLine.Size = UDim2.new(1, -20, 0, 4)
+	trackLine.Position = UDim2.new(0, 10, 0.5, -2)
 	trackLine.BackgroundColor3 = C.trackLine
 	trackLine.BorderSizePixel = 0
 	trackLine.Parent = trackFrame
@@ -203,8 +203,8 @@ local function buildHUD()
 	-- Market dot (left end of track)
 	local marketDot = Instance.new("Frame")
 	marketDot.Name = "MarketDot"
-	marketDot.Size = UDim2.new(0, 8, 0, 8)
-	marketDot.Position = UDim2.new(0, 4, 0.5, -4)
+	marketDot.Size = UDim2.new(0, 10, 0, 10)
+	marketDot.Position = UDim2.new(0, 5, 0.5, -5)
 	marketDot.BackgroundColor3 = C.marketDot
 	marketDot.BorderSizePixel = 0
 	marketDot.Parent = trackFrame
@@ -213,8 +213,8 @@ local function buildHUD()
 	-- Plot dot (right end of track)
 	local plotDot = Instance.new("Frame")
 	plotDot.Name = "PlotDot"
-	plotDot.Size = UDim2.new(0, 8, 0, 8)
-	plotDot.Position = UDim2.new(1, -12, 0.5, -4)
+	plotDot.Size = UDim2.new(0, 10, 0, 10)
+	plotDot.Position = UDim2.new(1, -15, 0.5, -5)
 	plotDot.BackgroundColor3 = C.plotDot
 	plotDot.BorderSizePixel = 0
 	plotDot.Parent = trackFrame
@@ -223,8 +223,8 @@ local function buildHUD()
 	-- Cart icon (moves along track)
 	cartIconFrame = Instance.new("Frame")
 	cartIconFrame.Name = "CartIcon"
-	cartIconFrame.Size = UDim2.new(0, 22, 0, 16)
-	cartIconFrame.Position = UDim2.new(1, -22, 0, 0) -- Default: at plot
+	cartIconFrame.Size = UDim2.new(0, 26, 0, 20)
+	cartIconFrame.Position = UDim2.new(1, -26, 0, 0) -- Default: at plot
 	cartIconFrame.BackgroundColor3 = C.panel
 	cartIconFrame.BorderSizePixel = 0
 	cartIconFrame.Parent = trackFrame
@@ -236,7 +236,7 @@ local function buildHUD()
 	cartEmoji.Size = UDim2.new(1, 0, 1, 0)
 	cartEmoji.BackgroundTransparency = 1
 	cartEmoji.Text = "🛒"
-	cartEmoji.TextSize = 11
+	cartEmoji.TextSize = 14
 	cartEmoji.Font = FONT_REG
 	cartEmoji.Parent = cartIconFrame
 
@@ -244,8 +244,8 @@ local function buildHUD()
 
 	local capBarBg = Instance.new("Frame")
 	capBarBg.Name = "CapBarBg"
-	capBarBg.Size = UDim2.new(1, 0, 0, 14)
-	capBarBg.Position = UDim2.new(0, 0, 0, 40)
+	capBarBg.Size = UDim2.new(1, 0, 0, 18)
+	capBarBg.Position = UDim2.new(0, 0, 0, 46)
 	capBarBg.BackgroundColor3 = C.dimBg
 	capBarBg.BorderSizePixel = 0
 	capBarBg.Parent = main
@@ -265,8 +265,8 @@ local function buildHUD()
 	capBarText.BackgroundTransparency = 1
 	capBarText.Text = "0 / 200"
 	capBarText.TextColor3 = C.white
-	capBarText.TextSize = 9
-	capBarText.Font = FONT_MONO
+	capBarText.TextSize = 12
+	capBarText.Font = FONT_BOLD
 	capBarText.ZIndex = 2
 	capBarText.Parent = capBarBg
 
@@ -274,20 +274,20 @@ local function buildHUD()
 
 	local buttonRowTop = Instance.new("Frame")
 	buttonRowTop.Name = "ButtonRowTop"
-	buttonRowTop.Size = UDim2.new(1, 0, 0, 24)
-	buttonRowTop.Position = UDim2.new(0, 0, 0, 60)
+	buttonRowTop.Size = UDim2.new(1, 0, 0, 26)
+	buttonRowTop.Position = UDim2.new(0, 0, 0, 72)
 	buttonRowTop.BackgroundTransparency = 1
 	buttonRowTop.Parent = main
 
 	-- Recall button (top-left)
 	recallBtn = Instance.new("TextButton")
 	recallBtn.Name = "RecallBtn"
-	recallBtn.Size = UDim2.new(0.47, 0, 1, 0)
+	recallBtn.Size = UDim2.new(0.48, 0, 1, 0)
 	recallBtn.Position = UDim2.new(0, 0, 0, 0)
 	recallBtn.BackgroundColor3 = C.redBg
 	recallBtn.Text = "◀ RECALL"
 	recallBtn.TextColor3 = C.red
-	recallBtn.TextSize = 10
+	recallBtn.TextSize = 11
 	recallBtn.Font = FONT_BOLD
 	recallBtn.AutoButtonColor = false
 	recallBtn.Parent = buttonRowTop
@@ -297,12 +297,12 @@ local function buildHUD()
 	-- Send button (top-right)
 	sendBtn = Instance.new("TextButton")
 	sendBtn.Name = "SendBtn"
-	sendBtn.Size = UDim2.new(0.47, 0, 1, 0)
-	sendBtn.Position = UDim2.new(0.53, 0, 0, 0)
+	sendBtn.Size = UDim2.new(0.48, 0, 1, 0)
+	sendBtn.Position = UDim2.new(0.52, 0, 0, 0)
 	sendBtn.BackgroundColor3 = C.greenBg
 	sendBtn.Text = "SEND ▶"
 	sendBtn.TextColor3 = C.green
-	sendBtn.TextSize = 10
+	sendBtn.TextSize = 11
 	sendBtn.Font = FONT_BOLD
 	sendBtn.AutoButtonColor = false
 	sendBtn.Parent = buttonRowTop
@@ -312,20 +312,20 @@ local function buildHUD()
 	-- ═══ BOTTOM: Storage & Market buttons ═══
 	local buttonRowBottom = Instance.new("Frame")
 	buttonRowBottom.Name = "ButtonRowBottom"
-	buttonRowBottom.Size = UDim2.new(1, 0, 0, 24)
-	buttonRowBottom.Position = UDim2.new(0, 0, 0, 88)
+	buttonRowBottom.Size = UDim2.new(1, 0, 0, 26)
+	buttonRowBottom.Position = UDim2.new(0, 0, 0, 104)
 	buttonRowBottom.BackgroundTransparency = 1
 	buttonRowBottom.Parent = main
 
 	-- Market button (bottom-left)
 	marketBtn = Instance.new("TextButton")
 	marketBtn.Name = "MarketBtn"
-	marketBtn.Size = UDim2.new(0.47, 0, 1, 0)
+	marketBtn.Size = UDim2.new(0.48, 0, 1, 0)
 	marketBtn.Position = UDim2.new(0, 0, 0, 0)
 	marketBtn.BackgroundColor3 = C.dimBg
 	marketBtn.Text = "🏛️ MARKET"
 	marketBtn.TextColor3 = C.marketDot
-	marketBtn.TextSize = 10
+	marketBtn.TextSize = 11
 	marketBtn.Font = FONT_BOLD
 	marketBtn.AutoButtonColor = false
 	marketBtn.Parent = buttonRowBottom
@@ -335,12 +335,12 @@ local function buildHUD()
 	-- Storage button (bottom-right)
 	storageBtn = Instance.new("TextButton")
 	storageBtn.Name = "StorageBtn"
-	storageBtn.Size = UDim2.new(0.47, 0, 1, 0)
-	storageBtn.Position = UDim2.new(0.53, 0, 0, 0)
+	storageBtn.Size = UDim2.new(0.48, 0, 1, 0)
+	storageBtn.Position = UDim2.new(0.52, 0, 0, 0)
 	storageBtn.BackgroundColor3 = C.dimBg
 	storageBtn.Text = "📦 MANAGE"
 	storageBtn.TextColor3 = C.amber
-	storageBtn.TextSize = 10
+	storageBtn.TextSize = 11
 	storageBtn.Font = FONT_BOLD
 	storageBtn.AutoButtonColor = false
 	storageBtn.Parent = buttonRowBottom
@@ -361,7 +361,7 @@ local function updateCartIcon()
 	-- Map 0..1 to track X position (with padding for dots)
 	-- Track usable area: from 8px to (width - 30px)
 	-- Using scale: 0 = left (market), 1 = right (plot)
-	local targetX = UDim2.new(pos, -11, 0, 0) -- Center the 22px icon
+	local targetX = UDim2.new(pos, -13, 0, 0) -- Center the 26px icon
 
 	TweenService:Create(cartIconFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 		Position = targetX,
@@ -393,30 +393,48 @@ local function updateCapacityBar()
 	capBarText.Text = string.format("%d / %d", cartItemCount, cartCapacity)
 end
 
+local function setButtonState(btn, isActive, activeBg, activeText, activeStroke)
+	btn.Active = isActive
+	btn.AutoButtonColor = isActive
+	
+	local stroke = btn:FindFirstChildWhichIsA("UIStroke")
+	
+	if isActive then
+		btn.BackgroundColor3 = activeBg
+		btn.TextColor3 = activeText
+		btn.TextTransparency = 0
+		btn.BackgroundTransparency = 0
+		if stroke then
+			stroke.Color = activeStroke
+			stroke.Transparency = 0
+		end
+	else
+		-- Inactive: keep the base hues but darker/more transparent
+		btn.BackgroundColor3 = C.panel
+		btn.TextColor3 = activeText
+		btn.TextTransparency = 0.4
+		btn.BackgroundTransparency = 0.3
+		if stroke then
+			stroke.Color = activeStroke
+			stroke.Transparency = 0.6
+		end
+	end
+end
+
 local function updateButtons()
 	if not recallBtn or not sendBtn or not storageBtn or not marketBtn then return end
 
 	-- Send and Storage: only available when cart is idle (at plot) 
 	local isAtPlot = (cartState == "idle")
 	
-	sendBtn.BackgroundColor3 = isAtPlot and C.greenBg or C.dimBg
-	sendBtn.TextColor3 = isAtPlot and C.green or C.muted
-	sendBtn.Active = isAtPlot
-	
-	storageBtn.BackgroundColor3 = isAtPlot and Color3.fromRGB(40, 30, 10) or C.dimBg
-	storageBtn.TextColor3 = isAtPlot and C.amber or C.muted
-	storageBtn.Active = isAtPlot
+	setButtonState(sendBtn, isAtPlot, C.greenBg, C.green, C.greenDim)
+	setButtonState(storageBtn, isAtPlot, Color3.fromRGB(40, 30, 10), C.amber, C.amberDim)
 
 	-- Recall and Market: only available when cart is at_market
 	local isAtMarket = (cartState == "at_market")
 	
-	recallBtn.BackgroundColor3 = isAtMarket and C.redBg or C.dimBg
-	recallBtn.TextColor3 = isAtMarket and C.red or C.muted
-	recallBtn.Active = isAtMarket
-	
-	marketBtn.BackgroundColor3 = isAtMarket and Color3.fromRGB(10, 30, 40) or C.dimBg
-	marketBtn.TextColor3 = isAtMarket and C.marketDot or C.muted
-	marketBtn.Active = isAtMarket
+	setButtonState(recallBtn, isAtMarket, C.redBg, C.red, C.redDim)
+	setButtonState(marketBtn, isAtMarket, Color3.fromRGB(10, 30, 40), C.marketDot, C.marketDot)
 end
 
 local function updateAll()
@@ -461,7 +479,7 @@ local function startRollingAnimation()
 		local pos = startPos + (endPos - startPos) * alpha
 
 		-- Directly set position for smooth animation
-		local targetX = UDim2.new(pos, -11, 0, 0)
+		local targetX = UDim2.new(pos, -13, 0, 0)
 		cartIconFrame.Position = targetX
 
 		if alpha >= 1 then
@@ -570,21 +588,7 @@ local function initialize()
 		recallBtn.Text = "◀ RECALL"
 	end)
 
-	-- Hover effects
-	for _, btn in {sendBtn, recallBtn, marketBtn, storageBtn} do
-		btn.MouseEnter:Connect(function()
-			if btn.TextColor3 ~= C.muted then -- Only if active
-				TweenService:Create(btn, TweenInfo.new(0.12), {
-					BackgroundTransparency = 0,
-				}):Play()
-			end
-		end)
-		btn.MouseLeave:Connect(function()
-			TweenService:Create(btn, TweenInfo.new(0.12), {
-				BackgroundTransparency = 0,
-			}):Play()
-		end)
-	end
+	-- Hover effects handled via AutoButtonColor
 
 	print("✓ CartLocationHUD initialized")
 end

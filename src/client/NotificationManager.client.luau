@@ -11,6 +11,8 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
+local Debris = game:GetService("Debris")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -306,6 +308,120 @@ local function ShowBanner(message: string, color: Color3, duration: number)
 	end)
 end
 
+local function formatMoneyShort(amount)
+	if amount >= 1000000000 then return string.format("$%.2fB", amount / 1000000000) end
+	if amount >= 1000000 then return string.format("$%.2fM", amount / 1000000) end
+	if amount >= 1000 then return string.format("$%.1fK", amount / 1000) end
+	return "$" .. tostring(math.floor(amount))
+end
+
+local function playScreenShake(duration, amplitude)
+	local camera = workspace.CurrentCamera
+	if not camera then return end
+
+	local startTime = tick()
+	local connection
+	connection = RunService.RenderStepped:Connect(function()
+		local elapsed = tick() - startTime
+		if elapsed >= duration then
+			if connection then connection:Disconnect() end
+			return
+		end
+
+		local fade = 1 - (elapsed / duration)
+		local offset = Vector3.new(
+			(math.random() - 0.5) * 2 * amplitude * fade,
+			(math.random() - 0.5) * 2 * amplitude * fade,
+			0
+		)
+		camera.CFrame = camera.CFrame * CFrame.new(offset)
+	end)
+end
+
+local function spawnConfetti(originPosition)
+	local source = Instance.new("Part")
+	source.Name = "ToTheMoonConfetti"
+	source.Size = Vector3.new(1, 1, 1)
+	source.Anchored = true
+	source.CanCollide = false
+	source.Transparency = 1
+	source.Position = originPosition + Vector3.new(0, 5, 0)
+	source.Parent = workspace
+
+	local emitter = Instance.new("ParticleEmitter")
+	emitter.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+	emitter.Rate = 0
+	emitter.Speed = NumberRange.new(20, 35)
+	emitter.Lifetime = NumberRange.new(1.5, 2.8)
+	emitter.SpreadAngle = Vector2.new(70, 70)
+	emitter.RotSpeed = NumberRange.new(-180, 180)
+	emitter.Size = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.3),
+		NumberSequenceKeypoint.new(1, 0.1),
+	})
+	emitter.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0.0, Color3.fromRGB(255, 80, 80)),
+		ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 210, 60)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(80, 220, 120)),
+		ColorSequenceKeypoint.new(0.75, Color3.fromRGB(80, 160, 255)),
+		ColorSequenceKeypoint.new(1.0, Color3.fromRGB(255, 255, 255)),
+	})
+	emitter.Parent = source
+	emitter:Emit(220)
+
+	Debris:AddItem(source, 4)
+end
+
+local function launchRocket(originPosition)
+	local rocket = Instance.new("Part")
+	rocket.Name = "ToTheMoonRocket"
+	rocket.Size = Vector3.new(1, 3, 1)
+	rocket.Material = Enum.Material.Metal
+	rocket.Color = Color3.fromRGB(235, 235, 235)
+	rocket.Anchored = true
+	rocket.CanCollide = false
+	rocket.CFrame = CFrame.new(originPosition + Vector3.new(0, 6, 0))
+	rocket.Parent = workspace
+
+	local top = Instance.new("Part")
+	top.Name = "RocketTop"
+	top.Shape = Enum.PartType.Ball
+	top.Size = Vector3.new(1.1, 1.1, 1.1)
+	top.Material = Enum.Material.Neon
+	top.Color = Color3.fromRGB(255, 100, 100)
+	top.Anchored = true
+	top.CanCollide = false
+	top.CFrame = rocket.CFrame * CFrame.new(0, 1.8, 0)
+	top.Parent = workspace
+
+	local bottomAttach = Instance.new("Attachment")
+	bottomAttach.Position = Vector3.new(0, -1.5, 0)
+	bottomAttach.Parent = rocket
+	local topAttach = Instance.new("Attachment")
+	topAttach.Position = Vector3.new(0, -3.5, 0)
+	topAttach.Parent = rocket
+
+	local trail = Instance.new("Trail")
+	trail.Attachment0 = bottomAttach
+	trail.Attachment1 = topAttach
+	trail.Color = ColorSequence.new(Color3.fromRGB(255, 170, 50), Color3.fromRGB(255, 70, 70))
+	trail.Lifetime = 0.3
+	trail.LightEmission = 1
+	trail.Parent = rocket
+
+	local upTween = TweenService:Create(rocket, TweenInfo.new(1.8, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+		CFrame = rocket.CFrame * CFrame.new(0, 140, 0),
+	})
+	local topTween = TweenService:Create(top, TweenInfo.new(1.8, Enum.EasingStyle.Exponential, Enum.EasingDirection.Out), {
+		CFrame = top.CFrame * CFrame.new(0, 140, 0),
+	})
+	upTween:Play()
+	topTween:Play()
+
+	Debris:AddItem(rocket, 3)
+	Debris:AddItem(top, 3)
+end
+
 --------------------------------------------------------------------------------
 -- API EXPORT
 --------------------------------------------------------------------------------
@@ -325,6 +441,7 @@ local ItemSoldEvent = RemoteEvents:WaitForChild("ItemSold")
 local CartSoldEvent = RemoteEvents:WaitForChild("CartSold")
 local BackpackLoadedEvent = RemoteEvents:WaitForChild("BackpackLoaded")
 local ArtifactDroppedEvent = RemoteEvents:WaitForChild("ArtifactDropped")
+local ToTheMoonCelebrationEvent = RemoteEvents:WaitForChild("ToTheMoonCelebration")
 local StockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket")
 
 StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
@@ -394,6 +511,22 @@ ArtifactDroppedEvent.OnClientEvent:Connect(function(artifact)
 		local typeKey = rarity == "Rare" and "gold" or "info"
 		ShowToast(msg, typeKey, 4)
 	end
+end)
+
+ToTheMoonCelebrationEvent.OnClientEvent:Connect(function(payload)
+	if type(payload) ~= "table" then return end
+	local sellerName = payload.sellerName or "Someone"
+	local totalEarned = tonumber(payload.totalEarned) or 0
+	local originPosition = payload.originPosition
+	if typeof(originPosition) ~= "Vector3" then
+		originPosition = Vector3.new(0, 32, 0)
+	end
+
+	local bannerMessage = string.format("TO THE MOON! %s just made bank! +%s", sellerName, formatMoneyShort(totalEarned))
+	ShowBanner(bannerMessage, THEME.gold, 6)
+	playScreenShake(0.6, 0.28)
+	spawnConfetti(originPosition)
+	launchRocket(originPosition)
 end)
 
 local lastRate = 1.0

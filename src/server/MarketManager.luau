@@ -7,6 +7,8 @@
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local TextChatService = game:GetService("TextChatService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 local MarketConfig = require(Shared:WaitForChild("MarketConfig"))
@@ -32,6 +34,10 @@ CartSoldEvent.Parent = RemoteEvents
 local ItemBoughtEvent = RemoteEvents:FindFirstChild("ItemBought") or Instance.new("RemoteEvent")
 ItemBoughtEvent.Name = "ItemBought"
 ItemBoughtEvent.Parent = RemoteEvents
+
+local ToTheMoonCelebrationEvent = RemoteEvents:FindFirstChild("ToTheMoonCelebration") or Instance.new("RemoteEvent")
+ToTheMoonCelebrationEvent.Name = "ToTheMoonCelebration"
+ToTheMoonCelebrationEvent.Parent = RemoteEvents
 
 local SellItemFunction = RemoteFunctions:FindFirstChild("SellItem") or Instance.new("RemoteFunction")
 SellItemFunction.Name = "SellItem"
@@ -63,9 +69,18 @@ local CONFIG = {
 	ENDGAME_EARNINGS_THRESHOLD = 1000000000, -- $1B total money to lose welfare protection
 }
 
+local TO_THE_MOON = {
+	MIN_RATE = 1.5,
+	MIN_EARNED = 250000,
+	WINDOW_SEC = 10,
+	COOLDOWN_SEC = 45,
+}
+
 local MarketManager = {}
 local Services = {}
 local ITEM_SECTOR_MAP = {}
+local MoonSaleState = {} -- [player] = { startedAt: number, accumulatedEarned: number, isActive: boolean }
+local MoonCooldownUntil = {} -- [player] = number
 
 for modelName, mapping in pairs(ItemConfig.BrainrotItems) do
 	local sector = ItemConfig.GetSector(modelName)
@@ -234,6 +249,59 @@ local function isNearMarket(player)
 	return distance <= 30
 end
 
+local function getCartItemTotal(inventory)
+	local total = 0
+	for _, count in pairs(inventory or {}) do
+		if type(count) == "number" and count > 0 then
+			total += count
+		end
+	end
+	return total
+end
+
+local function formatMoneyShort(amount)
+	if amount >= 1000000000 then return string.format("$%.2fB", amount / 1000000000) end
+	if amount >= 1000000 then return string.format("$%.2fM", amount / 1000000) end
+	if amount >= 1000 then return string.format("$%.1fK", amount / 1000) end
+	return "$" .. tostring(math.floor(amount))
+end
+
+local function getMarketEffectOrigin()
+	local mainIsland = workspace:FindFirstChild("MainIsland")
+	local shopsFolder = mainIsland and mainIsland:FindFirstChild("Shops")
+	local marketShop = shopsFolder and shopsFolder:FindFirstChild("MarketShop")
+
+	if marketShop then
+		if marketShop:IsA("Model") then
+			return marketShop:GetPivot().Position
+		end
+		if marketShop:IsA("BasePart") then
+			return marketShop.Position
+		end
+	end
+
+	return Vector3.new(0, 32, 0)
+end
+
+local function broadcastToTheMoon(player, totalEarned)
+	local chatMessage = string.format("%s just made bank! +%s", player.Name, formatMoneyShort(totalEarned))
+	ToTheMoonCelebrationEvent:FireAllClients({
+		sellerUserId = player.UserId,
+		sellerName = player.Name,
+		totalEarned = totalEarned,
+		originPosition = getMarketEffectOrigin(),
+		chatMessage = chatMessage,
+	})
+
+	pcall(function()
+		local channels = TextChatService:WaitForChild("TextChannels", 2)
+		local general = channels and channels:FindFirstChild("RBXGeneral")
+		if general and general.DisplaySystemMessage then
+			general:DisplaySystemMessage(chatMessage)
+		end
+	end)
+end
+
 --------------------------------------------------------------------------------
 -- API
 --------------------------------------------------------------------------------
@@ -247,6 +315,10 @@ function MarketManager.Init(services)
 	BuyToCartFunction.OnServerInvoke = function(p, id, c) return MarketManager.BuyToCart(p, id, c) end
 	SellFromCartFunction.OnServerInvoke = function(p, id, c) return MarketManager.SellFromCart(p, id, c) end
 	GetMarketPricesFunction.OnServerInvoke = function(p) return MarketManager.GetAllPrices(p), getMarketRate() end
+	Players.PlayerRemoving:Connect(function(player)
+		MoonSaleState[player] = nil
+		MoonCooldownUntil[player] = nil
+	end)
 
 	print("✓ MarketManager Initialized (Buy + Sell)")
 end
@@ -545,6 +617,10 @@ function MarketManager.SellFromCart(player, itemId, count)
 		warn(player.Name .. " attempted SellFromCart but cart is not at market")
 		return 0, 0
 	end
+
+	local cartTotalBefore = getCartItemTotal(cartData.Inventory)
+	local cartCapacity = cartData.Capacity or 0
+	local isFullBefore = (cartCapacity > 0) and (cartTotalBefore >= cartCapacity)
 	
 	-- Check how many are in cart
 	local inCart = cartData.Inventory[itemId] or 0
@@ -567,6 +643,39 @@ function MarketManager.SellFromCart(player, itemId, count)
 	-- Adjust AMM pool: items enter pool, cash leaves pool
 	adjustAMMPool(itemId, removed, -(total * 0.9))
 	applyLocalShock(itemId, removed, false)
+
+	-- To The Moon: full cart -> empty cart quickly during a high-rate cycle.
+	local now = os.clock()
+	local moonState = MoonSaleState[player]
+	if moonState and (now - moonState.startedAt > TO_THE_MOON.WINDOW_SEC) then
+		MoonSaleState[player] = nil
+		moonState = nil
+	end
+
+	local currentRate = stockMarketFolder:GetAttribute("CurrentRate") or 1.0
+	local cartTotalAfter = getCartItemTotal(cartData.Inventory)
+
+	if currentRate >= TO_THE_MOON.MIN_RATE then
+		if (not moonState) and isFullBefore then
+			moonState = {
+				startedAt = now,
+				accumulatedEarned = total,
+				isActive = true,
+			}
+			MoonSaleState[player] = moonState
+		elseif moonState and moonState.isActive then
+			moonState.accumulatedEarned += total
+		end
+
+		if moonState and moonState.isActive and cartTotalAfter <= 0 then
+			local cooldownUntil = MoonCooldownUntil[player] or 0
+			if moonState.accumulatedEarned >= TO_THE_MOON.MIN_EARNED and now >= cooldownUntil then
+				MoonCooldownUntil[player] = now + TO_THE_MOON.COOLDOWN_SEC
+				broadcastToTheMoon(player, moonState.accumulatedEarned)
+			end
+			MoonSaleState[player] = nil
+		end
+	end
 	
 	-- Notify client
 	ItemSoldEvent:FireClient(player, itemId, removed, total)

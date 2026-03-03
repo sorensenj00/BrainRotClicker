@@ -1,84 +1,63 @@
 --[[
 	CartShopConfig ModuleScript
 	
-	Configuration for Cart upgrades (Capacity and Speed).
+	Configuration for Cart upgrades using a tier and level system.
 ]]
-
-export type UpgradeTier = {
-	Price: number,
-	Value: number, -- The actual capacity or speed value
-}
-
-export type UpgradeTypeConfig = {
-	Name: string,
-	Description: string,
-	BaseValue: number,
-	Tiers: {UpgradeTier}
-}
 
 local CartShopConfig = {}
 
-CartShopConfig.Upgrades = {
-	Capacity = {
-		Name = "Cart Capacity",
-		Description = "Increase the amount of items your cart can carry.",
-		BaseValue = 200, -- Tier 0 (Default)
-		Tiers = {
-			{ Price = 10000, Value = 400 },   -- Tier 1
-			{ Price = 50000, Value = 800 },  -- Tier 2
-			{ Price = 250000, Value = 1500 }, -- Tier 3
-			{ Price = 1000000, Value = 3000 },-- Tier 4
-			{ Price = 5000000, Value = 6000 },-- Tier 5
-		}
-	},
-}
+CartShopConfig.MaxCapacityLevel = 5
 
 CartShopConfig.Carts = {
-		{ Name = "Wooden Cart", Price = 0, Model = "CartTier1" },
-		{ Name = "Iron Cart", Price = 50000, Model = "CartTier2" },
-		{ Name = "Golden Cart", Price = 500000, Model = "CartTier3" },
-		{ Name = "Diamond Cart", Price = 5000000, Model = "CartTier4" },
-		{ Name = "Netherite Cart", Price = 50000000, Model = "CartTier5" },
-	}
+	{ Name = "Wooden Cart", Price = 0, Model = "CartTier1", BaseCap = 100, BaseCost = 500 },
+	{ Name = "Iron Cart", Price = 50000, Model = "CartTier2", BaseCap = 1000, BaseCost = 15000 },
+	{ Name = "Golden Cart", Price = 5000000, Model = "CartTier3", BaseCap = 10000, BaseCost = 1000000 },
+	{ Name = "Diamond Cart", Price = 500000000, Model = "CartTier4", BaseCap = 1000000, BaseCost = 100000000 },
+	{ Name = "Cosmic Cart", Price = 50000000000, Model = "CartTier5", BaseCap = 100000000, BaseCost = 10000000000 },
+}
 
+function CartShopConfig.GetUpgradeInfo(upgradeType: string, currentLevel: number, currentModelTier: number)
+	currentModelTier = currentModelTier or 1
+	currentLevel = currentLevel or 1
+	local currentCart = CartShopConfig.Carts[currentModelTier]
+	if not currentCart then return nil end
 
-function CartShopConfig.GetUpgradeInfo(upgradeType: string, currentTier: number)
 	if upgradeType == "Model" then
-		local carts = CartShopConfig.Carts
-		local nextTier = currentTier + 1
-		local nextCart = carts[nextTier]
+		local nextTier = currentModelTier + 1
+		local nextCart = CartShopConfig.Carts[nextTier]
 		
 		return {
-			CurrentValue = currentTier, -- Just the tier number for models
+			CurrentValue = currentModelTier,
 			NextValue = nextTier,
 			Price = nextCart and nextCart.Price or nil,
 			IsMaxed = nextCart == nil,
-			Name = nextCart and nextCart.Name or "Maxed"
+			Name = nextCart and nextCart.Name or "Maxed out"
+		}
+	elseif upgradeType == "Capacity" then
+		local nextLevel = currentLevel + 1
+		local isMaxed = currentLevel >= CartShopConfig.MaxCapacityLevel
+		
+		return {
+			CurrentValue = currentCart.BaseCap * currentLevel,
+			NextValue = if isMaxed then nil else (currentCart.BaseCap * nextLevel),
+			Price = if isMaxed then nil else math.floor(currentCart.BaseCost * (2.5 ^ (currentLevel - 1))),
+			IsMaxed = isMaxed
 		}
 	end
-
-	local config = CartShopConfig.Upgrades[upgradeType]
-	if not config then return nil end
-	
-	local nextTier = currentTier + 1
-	local nextUpgrade = config.Tiers[nextTier]
-	
-	return {
-		CurrentValue = currentTier == 0 and config.BaseValue or config.Tiers[currentTier].Value,
-		NextValue = nextUpgrade and nextUpgrade.Value or nil,
-		Price = nextUpgrade and nextUpgrade.Price or nil,
-		IsMaxed = nextUpgrade == nil
-	}
+	return nil
 end
 
-function CartShopConfig.GetValue(upgradeType: string, tier: number)
-	local config = CartShopConfig.Upgrades[upgradeType]
-	if not config then return 0 end
-	if tier <= 0 then return config.BaseValue end
+function CartShopConfig.GetValue(upgradeType: string, level: number, modelTier: number)
+	modelTier = modelTier or 1
+	level = level or 1
+	local cart = CartShopConfig.Carts[modelTier]
+	if not cart then return 0 end
 	
-	-- Cap at max tier
-	tier = math.min(tier, #config.Tiers)
-	return config.Tiers[tier].Value
+	if upgradeType == "Capacity" then
+		level = math.clamp(level, 1, CartShopConfig.MaxCapacityLevel)
+		return cart.BaseCap * level
+	end
+	return 0
 end
 
 return CartShopConfig

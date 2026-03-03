@@ -253,7 +253,21 @@ local function openDetailPopup(item)
 		-- FALLBACK LOGIC
 		local displayIcon = item.Icon
 		if not displayIcon or displayIcon == "" then
-			displayIcon = "[Artifact]"
+			displayIcon = "🔮"
+			if item.Data and item.Data.Slot then
+				displayIcon = ArtifactConfig.SlotIcons[item.Data.Slot] or displayIcon
+				if item.Data.BaseId then
+					local bases = ArtifactConfig.BaseArtifacts[item.Data.Slot]
+					if bases then
+						for _, base in ipairs(bases) do
+							if base.Id == item.Data.BaseId then
+								displayIcon = base.Icon or displayIcon
+								break
+							end
+						end
+					end
+				end
+			end
 		end
 		
 		icon.Text = displayIcon
@@ -585,7 +599,27 @@ local function refreshGrid()
 			local icon = Instance.new("TextLabel")
 			icon.Size = UDim2.new(1, 0, 1, 0)
 			icon.BackgroundTransparency = 1
-			icon.Text = (item.Icon and item.Icon ~= "") and item.Icon or "[Artifact]"
+			
+			local displayIcon = item.Icon
+			if not displayIcon or displayIcon == "" then
+				displayIcon = "🔮"
+				if item.Data and item.Data.Slot then
+					displayIcon = ArtifactConfig.SlotIcons[item.Data.Slot] or displayIcon
+					if item.Data.BaseId then
+						local bases = ArtifactConfig.BaseArtifacts[item.Data.Slot]
+						if bases then
+							for _, base in ipairs(bases) do
+								if base.Id == item.Data.BaseId then
+									displayIcon = base.Icon or displayIcon
+									break
+								end
+							end
+						end
+					end
+				end
+			end
+			
+			icon.Text = displayIcon
 			icon.TextSize = 36
 			icon.Parent = iconFrame
 
@@ -725,7 +759,7 @@ local function createBackpackHUD()
 
 	local search = Instance.new("TextBox")
 	search.Name = "SearchBox"
-	search.Size = UDim2.new(0, 360, 0, 34)
+	search.Size = UDim2.new(0, 250, 0, 34)
 	search.Position = UDim2.new(0, 16, 0, 76)
 	search.BackgroundColor3 = UI_CONFIG.COLOR_SEARCH_BG
 	search.BorderSizePixel = 0
@@ -743,8 +777,8 @@ local function createBackpackHUD()
 
 	local tabsFrame = Instance.new("Frame")
 	tabsFrame.Name = "Tabs"
-	tabsFrame.Size = UDim2.new(0, 400, 0, 34)
-	tabsFrame.Position = UDim2.new(1, -416, 0, 76)
+	tabsFrame.Size = UDim2.new(0, 455, 0, 34)
+	tabsFrame.Position = UDim2.new(1, -471, 0, 76)
 	tabsFrame.BackgroundTransparency = 1
 	tabsFrame.Parent = panel
 

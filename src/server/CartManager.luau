@@ -206,7 +206,9 @@ local function spawnCart(player)
 	model.Parent = workspace
 	
 	local Config = require(ReplicatedStorage.Shared.CartShopConfig)
-	local capOverride = Config.GetValue("Capacity", upgrades.Capacity or 0)
+	local capLvl = upgrades.Capacity or 1
+	if capLvl == 0 then capLvl = 1 end
+	local capOverride = Config.GetValue("Capacity", capLvl, upgrades.Model or 1)
 	
 	local data = {
 		Model = model,
@@ -329,7 +331,9 @@ function CartManager.ApplyUpgrades(player, upgrades)
 	local Config = require(Shared:WaitForChild("CartShopConfig"))
 	
 	-- Capacity
-	local capVal = Config.GetValue("Capacity", upgrades.Capacity or 0)
+	local capLvl = upgrades.Capacity or 1
+	if capLvl == 0 then capLvl = 1 end
+	local capVal = Config.GetValue("Capacity", capLvl, upgrades.Model or 1)
 	if capVal > 0 then
 		data.Capacity = capVal
 	end

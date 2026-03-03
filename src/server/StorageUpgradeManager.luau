@@ -36,14 +36,16 @@ local GetStorageInfoEvent = getOrCreateRemote(RemoteFunctions, "GetStorageInfo",
 local StorageUpgradedEvent = getOrCreateRemote(RemoteEvents, "StorageUpgraded", "RemoteEvent")
 
 local CONFIG = {
-	BASE_STORAGE = 2000,
-	BASE_PRICE = 5000,
-	MULTIPLIER = 2,
-	BASE_TIER_PRICE = 25000,
-	TIER_PRICE_MULTIPLIER = 2.5,
-	TIER_CAPACITY_BONUS = 1.5,
-	MAX_TIER_FALLBACK = 5,
+	MAX_CAPACITY_LEVEL = 5,
 	VENDOR_DISTANCE = 20,
+}
+
+local STORAGE_TIERS = {
+	{ Name = "Box", Price = 0, BaseCap = 500, BaseCost = 750 },
+	{ Name = "Shed", Price = 75000, BaseCap = 5000, BaseCost = 20000 },
+	{ Name = "Warehouse", Price = 7500000, BaseCap = 50000, BaseCost = 1500000 },
+	{ Name = "Facility", Price = 750000000, BaseCap = 5000000, BaseCost = 150000000 },
+	{ Name = "Mega Silo", Price = 75000000000, BaseCap = 500000000, BaseCost = 15000000000 },
 }
 
 local StorageUpgradeManager = {}
@@ -63,22 +65,25 @@ end
 -- LOGIC
 --------------------------------------------------------------------------------
 
-local function getUpgradeLevel(max)
-	if max <= CONFIG.BASE_STORAGE then return 0 end
-	return math.floor(math.log(max / CONFIG.BASE_STORAGE) / math.log(2))
+local function getTierData(tier)
+	tier = math.clamp(tier, 1, #STORAGE_TIERS)
+	return STORAGE_TIERS[tier]
 end
 
-local function getUpgradePrice(lvl)
-	return CONFIG.BASE_PRICE * (CONFIG.MULTIPLIER ^ lvl)
+local function getCapacityValue(tier, level)
+	local tData = getTierData(tier)
+	level = math.clamp(level, 1, CONFIG.MAX_CAPACITY_LEVEL)
+	return tData.BaseCap * level
 end
 
-local function getNewMaxStorage(curr)
-	return curr * CONFIG.MULTIPLIER
+local function getUpgradePrice(tier, level)
+	local tData = getTierData(tier)
+	return math.floor(tData.BaseCost * (2.5 ^ (level - 1)))
 end
 
 local function getTierPrice(tier)
-	local idx = math.max(1, tier - 1)
-	return math.floor(CONFIG.BASE_TIER_PRICE * (CONFIG.TIER_PRICE_MULTIPLIER ^ (idx - 1)))
+	local tData = getTierData(tier)
+	return tData and tData.Price or 0
 end
 
 local function getPlayerPlot(player)
@@ -98,18 +103,7 @@ local function getStorageModelFolder()
 end
 
 local function getMaxStorageTier()
-	local folder = getStorageModelFolder()
-	if not folder then
-		return CONFIG.MAX_TIER_FALLBACK
-	end
-	local maxTier = 1
-	for _, child in ipairs(folder:GetChildren()) do
-		local tier = tonumber(string.match(child.Name, "^PlayerStorageTier(%d+)$"))
-		if tier and tier > maxTier then
-			maxTier = tier
-		end
-	end
-	return math.max(maxTier, 1)
+	return #STORAGE_TIERS
 end
 
 local function getStorageTier(player)
@@ -126,17 +120,16 @@ end
 
 local function getCapacityUpgradeLevel(player)
 	local lvl = tonumber(player:GetAttribute("StorageUpgradeLevel"))
-	if lvl and lvl >= 0 then
+	if lvl and lvl >= 1 then
 		return math.floor(lvl)
 	end
 
 	local ds = rawget(Services, "DataService")
 	local storedLevel = ds and tonumber(ds.GetComponentData(player, "storageUpgradeLevel"))
-	if storedLevel and storedLevel >= 0 then
+	if storedLevel and storedLevel >= 1 then
 		lvl = math.floor(storedLevel)
 	else
-		local baseCap = tonumber(player:GetAttribute("BaseStorageCapacity")) or CONFIG.BASE_STORAGE
-		lvl = math.max(0, getUpgradeLevel(baseCap))
+		lvl = 1
 	end
 
 	player:SetAttribute("StorageUpgradeLevel", lvl)
@@ -219,30 +212,31 @@ end
 
 local function buildStorageInfo(player)
 	local ISM = rawget(Services, "ItemStorageManager")
-	local baseCap = tonumber(player:GetAttribute("BaseStorageCapacity")) or CONFIG.BASE_STORAGE
-	local displayCap = ISM and ISM.GetStorageCapacity(player) or baseCap
+	local tier = getStorageTier(player)
 	local lvl = getCapacityUpgradeLevel(player)
 
-	local tier = getStorageTier(player)
-	local maxTier = getMaxStorageTier()
+	local maxTier = #STORAGE_TIERS
 	local canTierUp = tier < maxTier
 
-	local nextCap = getNewMaxStorage(baseCap)
-	local capPrice = getUpgradePrice(lvl)
+	local currentCap = getCapacityValue(tier, lvl)
+	local isCapMaxed = lvl >= CONFIG.MAX_CAPACITY_LEVEL
+
+	local nextCap = isCapMaxed and currentCap or getCapacityValue(tier, lvl + 1)
+	local capPrice = isCapMaxed and 0 or getUpgradePrice(tier, lvl) -- the price to upgrade to (lvl + 1)
+
 	local nextTier = math.min(tier + 1, maxTier)
 	local tierPrice = canTierUp and getTierPrice(nextTier) or nil
 
+	-- displayMax accommodates potential item multipliers from other modules
+	local displayCap = ISM and ISM.GetStorageCapacity(player) or currentCap
+
 	return {
-		currentMax = baseCap, -- legacy compatibility
-		upgradeLevel = lvl, -- legacy compatibility
-		nextPrice = capPrice, -- legacy compatibility
-		nextMaxStorage = nextCap, -- legacy compatibility
-		displayMax = displayCap,
 		capacity = {
 			level = lvl,
-			current = baseCap,
-			next = nextCap,
-			price = capPrice,
+			current = currentCap,
+			next = if isCapMaxed then nil else nextCap,
+			price = if isCapMaxed then nil else capPrice,
+			isMaxed = isCapMaxed,
 		},
 		tier = {
 			current = tier,
@@ -250,7 +244,15 @@ local function buildStorageInfo(player)
 			max = maxTier,
 			canUpgrade = canTierUp,
 			price = tierPrice,
-		}
+			name = STORAGE_TIERS[nextTier].Name,
+		},
+		displayMax = displayCap,
+
+		-- Legacy paths for fallback
+		currentMax = currentCap,
+		upgradeLevel = lvl,
+		nextPrice = if isCapMaxed then nil else capPrice,
+		nextMaxStorage = if isCapMaxed then nil else nextCap,
 	}
 end
 
@@ -262,17 +264,22 @@ local function handleUpgradeStorage(player)
 	local ISM = rawget(Services, "ItemStorageManager")
 	if not ISM then return false, "ItemStorageManager failed" end
 
-	local baseCap = player:GetAttribute("BaseStorageCapacity") or CONFIG.BASE_STORAGE
+	local tier = getStorageTier(player)
 	local lvl = getCapacityUpgradeLevel(player)
-	local price = getUpgradePrice(lvl)
+	if lvl >= CONFIG.MAX_CAPACITY_LEVEL then return false, "Capacity maxed for this tier" end
+
+	local price = getUpgradePrice(tier, lvl)
 
 	local ls = player:FindFirstChild("leaderstats")
 	local money = ls and ls:FindFirstChild("Money")
 	if not money or money.Value < price then return false, "Not enough money" end
 
 	money.Value -= price
-	local newBaseCap = getNewMaxStorage(baseCap)
-	setCapacityUpgradeLevel(player, lvl + 1)
+	local nextLvl = lvl + 1
+	setCapacityUpgradeLevel(player, nextLvl)
+	
+	local newBaseCap = getCapacityValue(tier, nextLvl)
+	player:SetAttribute("BaseStorageCapacity", newBaseCap)
 
 	-- Update the base capacity; RefreshCapacity will apply multipliers automatically
 	ISM.SetStorageCapacity(player, newBaseCap)
@@ -304,9 +311,12 @@ local function handleUpgradeStorageTier(player)
 
 	money.Value -= price
 	setStorageTier(player, nextTier)
+	
+	-- Reset capacity upgrade level to 1
+	setCapacityUpgradeLevel(player, 1)
 
-	local baseCap = tonumber(player:GetAttribute("BaseStorageCapacity")) or CONFIG.BASE_STORAGE
-	local newBaseCap = math.floor(baseCap * CONFIG.TIER_CAPACITY_BONUS)
+	local newBaseCap = getCapacityValue(nextTier, 1)
+	player:SetAttribute("BaseStorageCapacity", newBaseCap)
 	ISM.SetStorageCapacity(player, newBaseCap)
 
 	local ok, err = replaceStorageVisual(player, nextTier)
@@ -380,8 +390,8 @@ function StorageUpgradeManager.Init(services)
 end
 
 StorageUpgradeManager.CONFIG = CONFIG
-StorageUpgradeManager.GetUpgradeLevel = getUpgradeLevel
+StorageUpgradeManager.GetCapacityValue = getCapacityValue
 StorageUpgradeManager.GetUpgradePrice = getUpgradePrice
-StorageUpgradeManager.GetNewMaxStorage = getNewMaxStorage
+StorageUpgradeManager.GetTierData = getTierData
 
 return StorageUpgradeManager

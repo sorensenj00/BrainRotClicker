@@ -102,19 +102,22 @@ end
 
 local function buildUpgradeInfo(player)
 	local DataService = rawget(Services, "DataService")
-	local data = { Capacity = 0, Model = 1 }
+	local data = { Capacity = 1, Model = 1 }
 	if DataService then
 		data = DataService.GetCartUpgrades(player)
 	end
+	
+	local currentCapacityLvl = data.Capacity or 1
+	if currentCapacityLvl == 0 then currentCapacityLvl = 1 end
+	local currentTierLvl = data.Model or 1
 
-	local capacityInfo = CartShopConfig.GetUpgradeInfo("Capacity", data.Capacity or 0)
-	local tierInfo = CartShopConfig.GetUpgradeInfo("Model", data.Model or 1)
+	local capacityInfo = CartShopConfig.GetUpgradeInfo("Capacity", currentCapacityLvl, currentTierLvl)
+	local tierInfo = CartShopConfig.GetUpgradeInfo("Model", currentTierLvl, currentTierLvl)
 
-	local currentCapacity = CartShopConfig.GetValue("Capacity", data.Capacity or 0)
+	local currentCapacity = CartShopConfig.GetValue("Capacity", currentCapacityLvl, currentTierLvl)
 	local nextCapacity = capacityInfo and capacityInfo.NextValue or nil
 	local maxTier = #CartShopConfig.Carts
-	local currentTier = data.Model or 1
-	local nextTier = tierInfo and tierInfo.NextValue or math.min(currentTier + 1, maxTier)
+	local nextTier = tierInfo and tierInfo.NextValue or math.min(currentTierLvl + 1, maxTier)
 	local canTierUpgrade = tierInfo and (not tierInfo.IsMaxed) or false
 
 	return {
@@ -125,14 +128,14 @@ local function buildUpgradeInfo(player)
 
 		-- Structured fields
 		capacity = {
-			level = data.Capacity or 0,
+			level = currentCapacityLvl,
 			current = currentCapacity,
 			next = nextCapacity,
 			price = capacityInfo and capacityInfo.Price or nil,
 			canUpgrade = capacityInfo and (not capacityInfo.IsMaxed) or false,
 		},
 		tier = {
-			current = currentTier,
+			current = currentTierLvl,
 			next = math.min(nextTier, maxTier),
 			max = maxTier,
 			canUpgrade = canTierUpgrade,
@@ -209,13 +212,19 @@ local function handleUpgradePurchase(player, upgradeType)
 	if not DataService then return false, "System Offline" end
 	
 	local currentData = DataService.GetCartUpgrades(player)
-	local currentTier = currentData[upgradeType]
 	
-	-- Default Model to 1 if missing
-	if upgradeType == "Model" and not currentTier then currentTier = 1 end
-	if currentTier == nil then return false, "Invalid Upgrade Type" end
+	local currentCapacityLvl = currentData.Capacity or 1
+	if currentCapacityLvl == 0 then currentCapacityLvl = 1 end
+	local currentTierLvl = currentData.Model or 1
 	
-	local info = CartShopConfig.GetUpgradeInfo(upgradeType, currentTier)
+	local currentLevel = currentData[upgradeType]
+	if upgradeType == "Model" and not currentLevel then currentLevel = 1 end
+	if upgradeType == "Capacity" and not currentLevel then currentLevel = 1 end
+	if currentLevel == 0 then currentLevel = 1 end
+	
+	if currentLevel == nil then return false, "Invalid Upgrade Type" end
+	
+	local info = CartShopConfig.GetUpgradeInfo(upgradeType, currentLevel, currentTierLvl)
 	if not info or info.IsMaxed then return false, "Maxed Out" end
 	
 	local price = info.Price
@@ -225,7 +234,12 @@ local function handleUpgradePurchase(player, upgradeType)
 	
 	if DataService.DeductMoney(player, price) then
 		-- Update Data
-		currentData[upgradeType] = currentTier + 1
+		currentData[upgradeType] = currentLevel + 1
+		
+		if upgradeType == "Model" then
+			currentData["Capacity"] = 1 -- Reset Capacity on Model upgrade
+		end
+		
 		DataService.SetCartUpgrades(player, currentData)
 		
 		-- Apply changes immediately

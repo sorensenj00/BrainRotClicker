@@ -22,11 +22,26 @@ local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local PurchaseTierEvent = RemoteEvents:WaitForChild("PurchaseTier")
 local GetTierInfoEvent = RemoteEvents:WaitForChild("GetTierInfo")
 
--- Configuration
-local UI_CONFIG = {
-	INTERACTION_DISTANCE = 20,
-	TWEEN_TIME = 0.3,
-}
+-- Shared Modules
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local UIConfig = require(Shared:WaitForChild("UIConfig"))
+
+local Utils = Shared:WaitForChild("Utils")
+local UIUtils = require(Utils:WaitForChild("UIUtils"))
+local FormatUtils = require(Utils:WaitForChild("FormatUtils"))
+
+-- Defense for missing UIConfig keys
+UIConfig.PANEL_COLOR = UIConfig.PANEL_COLOR or Color3.fromRGB(35, 30, 45)
+UIConfig.BACKGROUND_COLOR = UIConfig.BACKGROUND_COLOR or Color3.fromRGB(20, 15, 25)
+UIConfig.ACCENT_COLOR = UIConfig.ACCENT_COLOR or Color3.fromRGB(150, 100, 255)
+UIConfig.TITLE_CHIP_COLOR = UIConfig.TITLE_CHIP_COLOR or Color3.fromRGB(50, 40, 65)
+UIConfig.TITLE_CHIP_STROKE = UIConfig.TITLE_CHIP_STROKE or Color3.fromRGB(100, 80, 130)
+UIConfig.TEXT_COLOR = UIConfig.TEXT_COLOR or Color3.fromRGB(255, 255, 255)
+UIConfig.SECONDARY_TEXT_COLOR = UIConfig.SECONDARY_TEXT_COLOR or Color3.fromRGB(200, 200, 200)
+UIConfig.GREEN_COLOR = UIConfig.GREEN_COLOR or Color3.fromRGB(100, 200, 100)
+UIConfig.INFO_BLUE_COLOR = UIConfig.INFO_BLUE_COLOR or Color3.fromRGB(60, 120, 200)
+UIConfig.BUTTON_DISABLED_COLOR = UIConfig.BUTTON_DISABLED_COLOR or Color3.fromRGB(60, 50, 70)
+UIConfig.TWEEN_TIME = UIConfig.TWEEN_TIME or 0.3
 
 -- State
 local shopOpen = false
@@ -35,6 +50,8 @@ local _nearVendor = false
 --------------------------------------------------------------------------------
 -- UI CREATION
 --------------------------------------------------------------------------------
+
+
 
 local function createShopUI()
 	-- Create ScreenGui
@@ -46,69 +63,65 @@ local function createShopUI()
 	-- Main container
 	local mainFrame = Instance.new("Frame")
 	mainFrame.Name = "MainFrame"
-	mainFrame.Size = UDim2.new(0, 400, 0, 350)
-	mainFrame.Position = UDim2.new(0.5, -200, 0.5, -175)
-	mainFrame.BackgroundColor3 = Color3.fromRGB(25, 15, 40)
+	mainFrame.Size = UDim2.new(0, 430, 0, 360)
+	mainFrame.Position = UDim2.new(0.5, -215, 0.5, -180)
+	mainFrame.BackgroundColor3 = UIConfig.PANEL_COLOR
 	mainFrame.BorderSizePixel = 0
 	mainFrame.Visible = false
 	mainFrame.Parent = screenGui
-	
-	local mainCorner = Instance.new("UICorner")
-	mainCorner.CornerRadius = UDim.new(0, 16)
-	mainCorner.Parent = mainFrame
-	
-	local mainStroke = Instance.new("UIStroke")
-	mainStroke.Color = Color3.fromRGB(150, 100, 200)
-	mainStroke.Thickness = 2
-	mainStroke.Parent = mainFrame
+	UIUtils.addCorner(mainFrame, 16)
+	UIUtils.addStroke(mainFrame, UIConfig.ACCENT_COLOR, 1.8, 0)
+
+	local panelGradient = Instance.new("UIGradient")
+	panelGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, UIConfig.PANEL_COLOR),
+		ColorSequenceKeypoint.new(1, UIConfig.BACKGROUND_COLOR),
+	})
+	panelGradient.Rotation = 90
+	panelGradient.Parent = mainFrame
 	
 	-- Header
 	local header = Instance.new("Frame")
 	header.Name = "Header"
 	header.Size = UDim2.new(1, 0, 0, 60)
-	header.BackgroundColor3 = Color3.fromRGB(60, 30, 90)
-	header.BorderSizePixel = 0
+	header.BackgroundTransparency = 1
 	header.Parent = mainFrame
-	
-	local headerCorner = Instance.new("UICorner")
-	headerCorner.CornerRadius = UDim.new(0, 16)
-	headerCorner.Parent = header
-	
-	-- Fix bottom corners of header
-	local headerFix = Instance.new("Frame")
-	headerFix.Size = UDim2.new(1, 0, 0, 16)
-	headerFix.Position = UDim2.new(0, 0, 1, -16)
-	headerFix.BackgroundColor3 = Color3.fromRGB(60, 30, 90)
-	headerFix.BorderSizePixel = 0
-	headerFix.Parent = header
+
+	local titleChip = Instance.new("Frame")
+	titleChip.Name = "TitleChip"
+	titleChip.Size = UDim2.new(0, 250, 0, 44)
+	titleChip.Position = UDim2.new(0, 12, 0, 8)
+	titleChip.BackgroundColor3 = UIConfig.TITLE_CHIP_COLOR
+	titleChip.BorderSizePixel = 0
+	titleChip.Parent = header
+	UIUtils.addCorner(titleChip, 9)
+	UIUtils.addStroke(titleChip, UIConfig.TITLE_CHIP_STROKE, 1.2, 0.1)
 	
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Name = "Title"
-	titleLabel.Size = UDim2.new(1, -60, 1, 0)
-	titleLabel.Position = UDim2.new(0, 20, 0, 0)
+	titleLabel.Size = UDim2.new(1, -16, 1, 0)
+	titleLabel.Position = UDim2.new(0, 10, 0, 0)
 	titleLabel.BackgroundTransparency = 1
-	titleLabel.Text = "🏝️ ISLAND SHOP"
-	titleLabel.TextColor3 = Color3.fromRGB(255, 200, 255)
-	titleLabel.TextSize = 28
-	titleLabel.Font = Enum.Font.GothamBold
+	titleLabel.Text = "ISLAND SHOP"
+	titleLabel.TextColor3 = UIConfig.TEXT_COLOR
+	titleLabel.TextSize = 24
+	titleLabel.Font = Enum.Font.GothamBlack
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-	titleLabel.Parent = header
+	titleLabel.Parent = titleChip
 	
 	-- Close button
 	local closeButton = Instance.new("TextButton")
 	closeButton.Name = "CloseButton"
 	closeButton.Size = UDim2.new(0, 40, 0, 40)
 	closeButton.Position = UDim2.new(1, -50, 0, 10)
-	closeButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-	closeButton.Text = "✕"
+	closeButton.BackgroundColor3 = UIConfig.RED_COLOR
+	closeButton.Text = "X"
 	closeButton.TextColor3 = Color3.new(1, 1, 1)
 	closeButton.TextSize = 20
-	closeButton.Font = Enum.Font.GothamBold
+	closeButton.Font = Enum.Font.GothamBlack
 	closeButton.Parent = header
-	
-	local closeCorner = Instance.new("UICorner")
-	closeCorner.CornerRadius = UDim.new(0.5, 0)
-	closeCorner.Parent = closeButton
+	UIUtils.addCorner(closeButton, 9)
+	UIUtils.addStroke(closeButton, Color3.fromRGB(120, 20, 30), 1.2, 0.1)
 	
 	-- Content area
 	local content = Instance.new("Frame")
@@ -121,22 +134,20 @@ local function createShopUI()
 	-- Status section
 	local statusFrame = Instance.new("Frame")
 	statusFrame.Name = "StatusFrame"
-	statusFrame.Size = UDim2.new(1, 0, 0, 100)
-	statusFrame.BackgroundColor3 = Color3.fromRGB(40, 25, 60)
+	statusFrame.Size = UDim2.new(1, 0, 0, 108)
+	statusFrame.BackgroundColor3 = UIConfig.CARD_COLOR
 	statusFrame.BorderSizePixel = 0
 	statusFrame.Parent = content
-	
-	local statusCorner = Instance.new("UICorner")
-	statusCorner.CornerRadius = UDim.new(0, 12)
-	statusCorner.Parent = statusFrame
+	UIUtils.addCorner(statusFrame, 12)
+	UIUtils.addStroke(statusFrame, UIConfig.CARD_COLORStrokeSoft, 1, 0.2)
 	
 	local tiersLabel = Instance.new("TextLabel")
 	tiersLabel.Name = "TiersLabel"
 	tiersLabel.Size = UDim2.new(1, -20, 0, 30)
 	tiersLabel.Position = UDim2.new(0, 10, 0, 10)
 	tiersLabel.BackgroundTransparency = 1
-	tiersLabel.Text = "Current Islands: 1 / 6"
-	tiersLabel.TextColor3 = Color3.fromRGB(200, 200, 255)
+	tiersLabel.Text = "Unlocked Slots: 4 / 96"
+	tiersLabel.TextColor3 = UIConfig.TEXT_COLOR
 	tiersLabel.TextSize = 18
 	tiersLabel.Font = Enum.Font.GothamBold
 	tiersLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -145,11 +156,11 @@ local function createShopUI()
 	local modelsLabel = Instance.new("TextLabel")
 	modelsLabel.Name = "ModelsLabel"
 	modelsLabel.Size = UDim2.new(1, -20, 0, 25)
-	modelsLabel.Position = UDim2.new(0, 10, 0, 40)
+	modelsLabel.Position = UDim2.new(0, 10, 0, 42)
 	modelsLabel.BackgroundTransparency = 1
-	modelsLabel.Text = "Total Models: 0"
-	modelsLabel.TextColor3 = Color3.fromRGB(180, 180, 200)
-	modelsLabel.TextSize = 16
+	modelsLabel.Text = "Next Upgrade: Expand Grid +4 Slots"
+	modelsLabel.TextColor3 = UIConfig.SECONDARY_TEXT_COLOR
+	modelsLabel.TextSize = 15
 	modelsLabel.Font = Enum.Font.Gotham
 	modelsLabel.TextXAlignment = Enum.TextXAlignment.Left
 	modelsLabel.Parent = statusFrame
@@ -157,11 +168,11 @@ local function createShopUI()
 	local fillLabel = Instance.new("TextLabel")
 	fillLabel.Name = "FillLabel"
 	fillLabel.Size = UDim2.new(1, -20, 0, 25)
-	fillLabel.Position = UDim2.new(0, 10, 0, 65)
+	fillLabel.Position = UDim2.new(0, 10, 0, 70)
 	fillLabel.BackgroundTransparency = 1
-	fillLabel.Text = "Models per island: 12"
-	fillLabel.TextColor3 = Color3.fromRGB(150, 150, 170)
-	fillLabel.TextSize = 14
+	fillLabel.Text = "Progression: +4 slots per purchase"
+	fillLabel.TextColor3 = UIConfig.SECONDARY_TEXT_COLOR
+	fillLabel.TextSize = 13
 	fillLabel.Font = Enum.Font.Gotham
 	fillLabel.TextXAlignment = Enum.TextXAlignment.Left
 	fillLabel.Parent = statusFrame
@@ -169,23 +180,21 @@ local function createShopUI()
 	-- Purchase section
 	local purchaseFrame = Instance.new("Frame")
 	purchaseFrame.Name = "PurchaseFrame"
-	purchaseFrame.Size = UDim2.new(1, 0, 0, 120)
-	purchaseFrame.Position = UDim2.new(0, 0, 0, 110)
-	purchaseFrame.BackgroundColor3 = Color3.fromRGB(40, 25, 60)
+	purchaseFrame.Size = UDim2.new(1, 0, 0, 128)
+	purchaseFrame.Position = UDim2.new(0, 0, 0, 118)
+	purchaseFrame.BackgroundColor3 = UIConfig.CARD_COLOR
 	purchaseFrame.BorderSizePixel = 0
 	purchaseFrame.Parent = content
-	
-	local purchaseCorner = Instance.new("UICorner")
-	purchaseCorner.CornerRadius = UDim.new(0, 12)
-	purchaseCorner.Parent = purchaseFrame
+	UIUtils.addCorner(purchaseFrame, 12)
+	UIUtils.addStroke(purchaseFrame, UIConfig.CARD_COLORStrokeSoft, 1, 0.2)
 	
 	local purchaseTitle = Instance.new("TextLabel")
 	purchaseTitle.Name = "PurchaseTitle"
 	purchaseTitle.Size = UDim2.new(1, -20, 0, 30)
 	purchaseTitle.Position = UDim2.new(0, 10, 0, 10)
 	purchaseTitle.BackgroundTransparency = 1
-	purchaseTitle.Text = "🛒 Purchase New Island"
-	purchaseTitle.TextColor3 = Color3.fromRGB(255, 220, 100)
+	purchaseTitle.Text = "Expand Grid (+4 Slots)"
+	purchaseTitle.TextColor3 = UIConfig.TEXT_COLOR
 	purchaseTitle.TextSize = 18
 	purchaseTitle.Font = Enum.Font.GothamBold
 	purchaseTitle.TextXAlignment = Enum.TextXAlignment.Left
@@ -194,10 +203,10 @@ local function createShopUI()
 	local priceLabel = Instance.new("TextLabel")
 	priceLabel.Name = "PriceLabel"
 	priceLabel.Size = UDim2.new(1, -20, 0, 25)
-	priceLabel.Position = UDim2.new(0, 10, 0, 40)
+	priceLabel.Position = UDim2.new(0, 10, 0, 42)
 	priceLabel.BackgroundTransparency = 1
 	priceLabel.Text = "Price: $5,000"
-	priceLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
+	priceLabel.TextColor3 = UIConfig.GREEN_COLOR
 	priceLabel.TextSize = 16
 	priceLabel.Font = Enum.Font.GothamBold
 	priceLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -206,17 +215,14 @@ local function createShopUI()
 	local purchaseButton = Instance.new("TextButton")
 	purchaseButton.Name = "PurchaseButton"
 	purchaseButton.Size = UDim2.new(1, -20, 0, 40)
-	purchaseButton.Position = UDim2.new(0, 10, 0, 70)
-	purchaseButton.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
-	purchaseButton.Text = "PURCHASE ISLAND"
+	purchaseButton.Position = UDim2.new(0, 10, 0, 76)
+	purchaseButton.BackgroundColor3 = UIConfig.INFO_BLUE_COLOR
+	purchaseButton.Text = "EXPAND GRID (+4 SLOTS)"
 	purchaseButton.TextColor3 = Color3.new(1, 1, 1)
-	purchaseButton.TextSize = 18
+	purchaseButton.TextSize = 17
 	purchaseButton.Font = Enum.Font.GothamBold
 	purchaseButton.Parent = purchaseFrame
-	
-	local purchaseButtonCorner = Instance.new("UICorner")
-	purchaseButtonCorner.CornerRadius = UDim.new(0, 8)
-	purchaseButtonCorner.Parent = purchaseButton
+	UIUtils.addCorner(purchaseButton, 8)
 	
 	-- Message label
 	local messageLabel = Instance.new("TextLabel")
@@ -245,30 +251,7 @@ local content = mainFrame:WaitForChild("Content")
 local statusFrame = content:WaitForChild("StatusFrame")
 local purchaseFrame = content:WaitForChild("PurchaseFrame")
 
-local function formatMoney(amount: number): string
-	local suffixes = {"K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"}
-	
-	if amount < 1000 then
-		return "$" .. tostring(math.floor(amount))
-	end
-	
-	-- Calculate the magnitude (power of 1000)
-	local magnitude = math.floor(math.log(amount, 1000))
-	
-	-- Cap at the largest suffix
-	if magnitude > #suffixes then
-		magnitude = #suffixes
-	end
-	
-	local value = amount / (1000 ^ magnitude)
-	
-	-- Format with 1 decimal place if < 100, otherwise no decimals
-	if value < 100 and value % 1 ~= 0 then
-		return string.format("$%.1f%s", value, suffixes[magnitude])
-	else
-		return string.format("$%.0f%s", value, suffixes[magnitude])
-	end
-end
+
 
 local function updateShopInfo()
 	local info = GetTierInfoEvent:InvokeServer()
@@ -286,19 +269,19 @@ local function updateShopInfo()
 
 	-- Update purchase section
 	if info.CanPurchase then
-		purchaseFrame.PriceLabel.Text = string.format("Price: %s", formatMoney(nextPrice))
+		purchaseFrame.PriceLabel.Text = string.format("Price: %s", FormatUtils.formatMoney(nextPrice))
 		if nextUpgradeType == "NewIsland" then
-			purchaseFrame.PurchaseButton.BackgroundColor3 = Color3.fromRGB(80, 180, 80)
-			purchaseFrame.PurchaseButton.Text = "🛒 PURCHASE NEW ISLAND"
-			purchaseFrame.PurchaseTitle.Text = "🛒 Purchase New Island"
+			purchaseFrame.PurchaseButton.BackgroundColor3 = UIConfig.GREEN_COLOR
+			purchaseFrame.PurchaseButton.Text = "PURCHASE NEW ISLAND"
+			purchaseFrame.PurchaseTitle.Text = "Purchase New Island"
 		else
-			purchaseFrame.PurchaseButton.BackgroundColor3 = Color3.fromRGB(70, 130, 255)
-			purchaseFrame.PurchaseButton.Text = "⛔ EXPAND GRID (+4 Slots)"
-			purchaseFrame.PurchaseTitle.Text = "⛔ Expand Grid (+4 Slots)"
+			purchaseFrame.PurchaseButton.BackgroundColor3 = UIConfig.INFO_BLUE_COLOR
+			purchaseFrame.PurchaseButton.Text = "EXPAND GRID (+4 SLOTS)"
+			purchaseFrame.PurchaseTitle.Text = "Expand Grid (+4 Slots)"
 		end
 	else
 		purchaseFrame.PriceLabel.Text = "Max slots reached!"
-		purchaseFrame.PurchaseButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+		purchaseFrame.PurchaseButton.BackgroundColor3 = UIConfig.BUTTON_DISABLED_COLOR
 		purchaseFrame.PurchaseButton.Text = "MAX SLOTS"
 		purchaseFrame.PurchaseTitle.Text = "Progression Complete"
 	end
@@ -314,9 +297,9 @@ local function openShop()
 	mainFrame.Size = UDim2.new(0, 0, 0, 0)
 	mainFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
 	
-	local tween = TweenService:Create(mainFrame, TweenInfo.new(UI_CONFIG.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-		Size = UDim2.new(0, 400, 0, 350),
-		Position = UDim2.new(0.5, -200, 0.5, -175),
+	local tween = TweenService:Create(mainFrame, TweenInfo.new(UIConfig.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, 430, 0, 360),
+		Position = UDim2.new(0.5, -215, 0.5, -180),
 	})
 	tween:Play()
 end
@@ -324,7 +307,7 @@ end
 local function closeShop()
 	if not shopOpen then return end
 	
-	local tween = TweenService:Create(mainFrame, TweenInfo.new(UI_CONFIG.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+	local tween = TweenService:Create(mainFrame, TweenInfo.new(UIConfig.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
 		Size = UDim2.new(0, 0, 0, 0),
 		Position = UDim2.new(0.5, 0, 0.5, 0),
 	})
@@ -360,7 +343,7 @@ mainFrame.Header.CloseButton.MouseButton1Click:Connect(closeShop)
 -- Purchase button
 purchaseFrame.PurchaseButton.MouseButton1Click:Connect(function()
 	purchaseFrame.PurchaseButton.Text = "Purchasing..."
-	purchaseFrame.PurchaseButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+	purchaseFrame.PurchaseButton.BackgroundColor3 = UIConfig.BUTTON_DISABLED_COLOR
 	
 	PurchaseTierEvent:FireServer()
 end)
@@ -385,7 +368,7 @@ local ShopInteraction = require(script.Parent:WaitForChild("ShopInteraction"))
 
 local _interaction = ShopInteraction.new({
 	PromptTag = "IslandShopVendor",
-	InteractionDist = UI_CONFIG.INTERACTION_DISTANCE,
+	InteractionDist = 20,
 	Keybind = Enum.KeyCode.E,
 	OnOpen = openShop,
 	OnClose = closeShop,
@@ -396,4 +379,6 @@ UIManager.RegisterShop("IslandShop", function()
 	if shopOpen then closeShop() else openShop() end
 end)
 
-print("✓ IslandShopUI initialized")
+print("IslandShopUI initialized")
+
+

@@ -17,8 +17,24 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 
 -- Modules
 local Shared = ReplicatedStorage:WaitForChild("Shared")
-local FormatUtils = require(Shared:WaitForChild("Utils"):WaitForChild("FormatUtils"))
 local ShopInteraction = require(script.Parent:WaitForChild("ShopInteraction"))
+local UIConfig = require(Shared:WaitForChild("UIConfig"))
+
+local Utils = Shared:WaitForChild("Utils")
+local UIUtils = require(Utils:WaitForChild("UIUtils"))
+local FormatUtils = require(Utils:WaitForChild("FormatUtils"))
+local ViewportPreview = require(Shared:WaitForChild("ViewportPreview"))
+
+local function formatPrice(price: number?): string
+	if not price then
+		return "MAX"
+	end
+	return FormatUtils.formatPrice(price)
+end
+
+local function formatStorage(amount: number?): string
+	return FormatUtils.formatNumber(amount or 0)
+end
 
 -- Wait for remotes
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
@@ -27,28 +43,6 @@ local UpgradeStorageEvent = RemoteEvents:WaitForChild("UpgradeStorageRequest")
 local UpgradeStorageTierEvent = RemoteEvents:WaitForChild("UpgradeStorageTierRequest")
 local GetStorageInfoEvent = RemoteFunctions:WaitForChild("GetStorageInfo")
 local StorageUpgradedEvent = RemoteEvents:WaitForChild("StorageUpgraded")
-
---------------------------------------------------------------------------------
--- UI CONFIGURATION
---------------------------------------------------------------------------------
-
-local UI_CONFIG = {
-	TWEEN_TIME = 0.3,
-	COLORS = {
-		Background = Color3.fromRGB(15, 15, 22),
-		Header = Color3.fromRGB(20, 20, 30),
-		Card = Color3.fromRGB(25, 25, 35),
-		CardMaxed = Color3.fromRGB(20, 35, 25),
-		Accent = Color3.fromRGB(250, 190, 60),
-		Text = Color3.fromRGB(240, 240, 255),
-		TextMuted = Color3.fromRGB(160, 160, 180),
-		Green = Color3.fromRGB(80, 230, 120),
-		Red = Color3.fromRGB(250, 70, 70),
-		Button = Color3.fromRGB(60, 160, 80),
-		ButtonDisabled = Color3.fromRGB(40, 40, 50),
-		Stroke = Color3.fromRGB(70, 70, 90),
-	},
-}
 
 --------------------------------------------------------------------------------
 -- SOUNDS
@@ -72,91 +66,6 @@ local ErrorSound = createSound("rbxassetid://138090596", 0.3) -- Error
 local shopOpen = false
 local CurrentStorageInfo = nil
 
---------------------------------------------------------------------------------
--- VIEWPORT HELPERS
---------------------------------------------------------------------------------
-
-local function createStaticViewport(model: Model, parent: GuiObject): ViewportFrame
-	local viewport = Instance.new("ViewportFrame")
-	viewport.Name = "ModelPreview"
-	viewport.Size = UDim2.new(1, 0, 1, 0)
-	viewport.BackgroundColor3 = UI_CONFIG.COLORS.Card
-	viewport.BackgroundTransparency = 1
-	viewport.BorderSizePixel = 0
-	viewport.Parent = parent
-
-	local previewModel = model:Clone()
-	local worldModel = Instance.new("WorldModel")
-	worldModel.Parent = viewport
-	previewModel.Parent = worldModel
-
-	local camera = Instance.new("Camera")
-	camera.Parent = viewport
-	viewport.CurrentCamera = camera
-
-	local cf, size = previewModel:GetBoundingBox()
-	local maxDimension = math.max(size.X, size.Y, size.Z)
-	local fovRad = math.rad(50 / 2)
-	local distance = (maxDimension / 2) / math.tan(fovRad) * 1.5
-
-	local cameraOffset = Vector3.new(distance * 0.6, distance * 0.6, distance * 0.6)
-	local targetPos = cf.Position + Vector3.new(0, size.Y * 0.1, 0)
-
-	camera.CFrame = CFrame.new(cf.Position + cameraOffset, targetPos)
-	camera.FieldOfView = 50
-
-	return viewport
-end
-
-local function createSilhouetteModel(model: Model): Model
-	local clone = model:Clone()
-
-	for _, desc in clone:GetDescendants() do
-		if desc:IsA("BasePart") then
-			desc.Color = Color3.new(0, 0, 0)
-			desc.Material = Enum.Material.Neon
-			desc.Transparency = 0
-			if desc:IsA("MeshPart") then
-				desc.TextureID = ""
-			end
-		elseif desc:IsA("SurfaceAppearance") or desc:IsA("Decal") or desc:IsA("Texture") then
-			desc:Destroy()
-		elseif desc:IsA("SpecialMesh") then
-			desc.TextureId = ""
-		elseif desc:IsA("ParticleEmitter") or desc:IsA("Fire") or desc:IsA("Smoke") or desc:IsA("Sparkles") then
-			desc:Destroy()
-		end
-	end
-
-	return clone
-end
-
---------------------------------------------------------------------------------
--- UI CREATION
---------------------------------------------------------------------------------
-
-local function formatPrice(price)
-	if not price then return "MAX" end
-	return FormatUtils.formatPrice(price)
-end
-
-local function formatStorage(amount: number): string
-	if amount >= 1000000 then
-		return string.format("%.1fM", amount / 1000000)
-	elseif amount >= 1000 then
-		return string.format("%.1fK", amount / 1000)
-	else
-		return tostring(math.floor(amount))
-	end
-end
-
-local function addCorner(parent: GuiObject, radius: number)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = parent
-	return corner
-end
-
 local function createShopUI()
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "StorageUpgradeUI"
@@ -167,24 +76,18 @@ local function createShopUI()
 	mainFrame.Name = "MainFrame"
 	mainFrame.Size = UDim2.new(0, 430, 0, 430)
 	mainFrame.Position = UDim2.new(0.5, -215, 0.5, -215)
-	mainFrame.BackgroundColor3 = Color3.new(1, 1, 1)
-	mainFrame.BackgroundTransparency = 0.2
+	mainFrame.BackgroundColor3 = UIConfig.PANEL_COLOR
 	mainFrame.BorderSizePixel = 0
 	mainFrame.Visible = false
 	mainFrame.Parent = screenGui
 
-	addCorner(mainFrame, 16)
-
-	local uiStroke = Instance.new("UIStroke")
-	uiStroke.Color = UI_CONFIG.COLORS.Stroke
-	uiStroke.Thickness = 1.5
-	uiStroke.Transparency = 0.5
-	uiStroke.Parent = mainFrame
+	UIUtils.addCorner(mainFrame, 16)
+	UIUtils.addStroke(mainFrame, UIConfig.STROKE_COLOR, 1.8, 0.15)
 
 	local gradient = Instance.new("UIGradient")
 	gradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, UI_CONFIG.COLORS.Header),
-		ColorSequenceKeypoint.new(1, UI_CONFIG.COLORS.Background)
+		ColorSequenceKeypoint.new(0, UIConfig.PANEL_COLOR),
+		ColorSequenceKeypoint.new(1, UIConfig.BACKGROUND_COLOR)
 	})
 	gradient.Rotation = 90
 	gradient.Parent = mainFrame
@@ -197,38 +100,52 @@ local function createShopUI()
 	header.BorderSizePixel = 0
 	header.Parent = mainFrame
 
+	local titleChip = Instance.new("Frame")
+	titleChip.Name = "TitleChip"
+	titleChip.Size = UDim2.new(0, 270, 0, 44)
+	titleChip.Position = UDim2.new(0, 12, 0, 8)
+	titleChip.BackgroundColor3 = UIConfig.TITLE_CHIP_COLOR
+	titleChip.BorderSizePixel = 0
+	titleChip.Parent = header
+	UIUtils.addCorner(titleChip, 9)
+	UIUtils.addStroke(titleChip, UIConfig.TITLE_CHIP_STROKE, 1.2, 0.1)
+
 	local title = Instance.new("TextLabel")
 	title.Text = "STORAGE SHOP"
-	title.Size = UDim2.new(1, -50, 1, 0)
-	title.Position = UDim2.new(0, 20, 0, 0)
+	title.Size = UDim2.new(1, -16, 1, 0)
+	title.Position = UDim2.new(0, 10, 0, 0)
 	title.BackgroundTransparency = 1
-	title.TextColor3 = UI_CONFIG.COLORS.Accent
-	title.Font = Enum.Font.GothamBold
-	title.TextSize = 24
+	title.TextColor3 = UIConfig.TEXT_COLOR
+	title.Font = Enum.Font.GothamBlack
+	title.TextSize = 23
 	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.Parent = header
+	title.Parent = titleChip
 
 	local closeBtn = Instance.new("TextButton")
 	closeBtn.Name = "CloseButton"
-	closeBtn.Text = "✕"
+	closeBtn.Text = "X"
 	closeBtn.Size = UDim2.new(0, 40, 0, 40)
 	closeBtn.Position = UDim2.new(1, -50, 0, 10)
-	closeBtn.BackgroundColor3 = UI_CONFIG.COLORS.Red
+	closeBtn.BackgroundColor3 = UIConfig.RED_COLOR
 	closeBtn.TextColor3 = Color3.new(1,1,1)
-	closeBtn.Font = Enum.Font.GothamBold
-	closeBtn.TextSize = 18
+	closeBtn.Font = Enum.Font.GothamBlack
+	closeBtn.TextSize = 20
 	closeBtn.Parent = header
-	addCorner(closeBtn, 20) -- 50% radius for circle
+	UIUtils.addCorner(closeBtn, 9)
+	UIUtils.addStroke(closeBtn, Color3.fromRGB(120, 20, 30), 1.2, 0.1)
 
 	-- Content
 	local content = Instance.new("ScrollingFrame")
 	content.Name = "Content"
 	content.Size = UDim2.new(1, -20, 1, -80)
 	content.Position = UDim2.new(0, 10, 0, 70)
-	content.BackgroundTransparency = 1
+	content.BackgroundColor3 = UIConfig.CARD_INNER_COLOR
 	content.BorderSizePixel = 0
 	content.ScrollBarThickness = 4
+	content.ScrollBarImageColor3 = UIConfig.ACCENT_COLOR
 	content.Parent = mainFrame
+	UIUtils.addCorner(content, 10)
+	UIUtils.addStroke(content, UIConfig.SOFT_STROKE_COLOR, 1, 0.25)
 
 	local layout = Instance.new("UIListLayout")
 	layout.Padding = UDim.new(0, 10)
@@ -259,9 +176,10 @@ local function createUpgradeCard(parent, id, title, data)
 	local card = Instance.new("Frame")
 	card.Name = id
 	card.Size = UDim2.new(1, -10, 0, 165)
-	card.BackgroundColor3 = UI_CONFIG.COLORS.Card
+	card.BackgroundColor3 = UIConfig.CARD_COLOR
 	card.Parent = parent
-	addCorner(card, 8)
+	UIUtils.addCorner(card, 10)
+	UIUtils.addStroke(card, UIConfig.SOFT_STROKE_COLOR, 1, 0.2)
 
 	-- Icon Container (Viewport)
 	local iconContainer = Instance.new("Frame")
@@ -269,16 +187,17 @@ local function createUpgradeCard(parent, id, title, data)
 	iconContainer.Size = UDim2.new(0, 60, 0, 60)
 	iconContainer.Position = UDim2.new(0, 10, 0, 10)
 	iconContainer.BackgroundTransparency = 0
-	iconContainer.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+	iconContainer.BackgroundColor3 = UIConfig.CARD_INNER_COLOR
 	iconContainer.Parent = card
-	addCorner(iconContainer, 6)
+	UIUtils.addCorner(iconContainer, 6)
 
 	if data.ViewportModel then
 		local targetModel = data.ViewportModel
 		if data.IsSilhouette then
-			targetModel = createSilhouetteModel(targetModel)
+			ViewportPreview.CreateSilhouette(targetModel, iconContainer)
+		else
+			ViewportPreview.CreateStatic(targetModel, iconContainer)
 		end
-		createStaticViewport(targetModel, iconContainer)
 	else
 		-- Fallback
 		local iconLbl = Instance.new("TextLabel")
@@ -295,7 +214,7 @@ local function createUpgradeCard(parent, id, title, data)
 	titleLbl.Size = UDim2.new(1, -80, 0, 25)
 	titleLbl.Position = UDim2.new(0, 80, 0, 10)
 	titleLbl.BackgroundTransparency = 1
-	titleLbl.TextColor3 = UI_CONFIG.COLORS.Text
+	titleLbl.TextColor3 = UIConfig.TEXT_COLOR
 	titleLbl.Font = Enum.Font.GothamBold
 	titleLbl.TextSize = 18
 	titleLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -307,7 +226,7 @@ local function createUpgradeCard(parent, id, title, data)
 	statsLbl.Size = UDim2.new(1, -80, 0, 40)
 	statsLbl.Position = UDim2.new(0, 80, 0, 35)
 	statsLbl.BackgroundTransparency = 1
-	statsLbl.TextColor3 = UI_CONFIG.COLORS.TextMuted
+	statsLbl.TextColor3 = UIConfig.SECONDARY_TEXT_COLOR
 	statsLbl.Font = Enum.Font.Gotham
 	statsLbl.TextSize = 14
 	statsLbl.TextXAlignment = Enum.TextXAlignment.Left
@@ -315,7 +234,7 @@ local function createUpgradeCard(parent, id, title, data)
 	statsLbl.Parent = card
 	statsLbl.Text = data.StatsText or ""
 	if data.IsMaxed then
-		card.BackgroundColor3 = UI_CONFIG.COLORS.CardMaxed
+		card.BackgroundColor3 = UIConfig.CARD_MAXED_COLOR
 	end
 
 	-- Button
@@ -326,17 +245,17 @@ local function createUpgradeCard(parent, id, title, data)
 	btn.Font = Enum.Font.GothamBold
 	btn.TextSize = 16
 	btn.Parent = card
-	addCorner(btn, 6)
+	UIUtils.addCorner(btn, 6)
 
 	local function updateAffordability()
 		if data.IsMaxed then return end
 		local affordable = canAfford(data.Price or 0)
-		btn.BackgroundColor3 = affordable and UI_CONFIG.COLORS.Button or UI_CONFIG.COLORS.ButtonDisabled
+		btn.BackgroundColor3 = affordable and UIConfig.BUTTON_COLOR or UIConfig.BUTTON_DISABLED_COLOR
 	end
 
 	if data.IsMaxed then
 		btn.Text = "MAXED"
-		btn.BackgroundColor3 = UI_CONFIG.COLORS.ButtonDisabled
+		btn.BackgroundColor3 = UIConfig.BUTTON_DISABLED_COLOR
 		btn.AutoButtonColor = false
 	else
 		btn.Text = data.ButtonText or ("BUY ($" .. formatPrice(data.Price) .. ")")
@@ -411,9 +330,8 @@ local function updateUI()
 			formatStorage(capInfo.next or 0)
 		),
 		Price = capInfo.price,
-		IsMaxed = false,
 		ViewportModel = currentTierModelRef or nextTierModelRef,
-		IsSilhouette = true,
+		IsSilhouette = false,
 		ButtonText = "UPGRADE CURRENT STORAGE ($" .. formatPrice(capInfo.price) .. ")",
 		OnPurchase = function()
 			UpgradeStorageEvent:FireServer()
@@ -454,7 +372,7 @@ local function openShop()
 	mainFrame.Visible = true
 
 	mainFrame.Size = UDim2.new(0,0,0,0)
-	TweenService:Create(mainFrame, TweenInfo.new(UI_CONFIG.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+	TweenService:Create(mainFrame, TweenInfo.new(UIConfig.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 		Size = UDim2.new(0, 430, 0, 430)
 	}):Play()
 
@@ -464,11 +382,11 @@ end
 local function closeShop()
 	if not shopOpen then return end
 
-	TweenService:Create(mainFrame, TweenInfo.new(UI_CONFIG.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+	TweenService:Create(mainFrame, TweenInfo.new(UIConfig.TWEEN_TIME, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
 		Size = UDim2.new(0,0,0,0)
 	}):Play()
 
-	task.wait(UI_CONFIG.TWEEN_TIME)
+	task.wait(UIConfig.TWEEN_TIME)
 	mainFrame.Visible = false
 	shopOpen = false
 end
@@ -519,4 +437,5 @@ UIManager.RegisterShop("StorageUpgrades", function()
 	if shopOpen then closeShop() else openShop() end
 end)
 
-print("✓ StorageUpgradeUI initialized")
+print("StorageUpgradeUI initialized")
+

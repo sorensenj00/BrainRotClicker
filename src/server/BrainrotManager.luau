@@ -35,12 +35,24 @@ local CONFIG = {
 local BRAINROT_TAG = "ActiveBrainrot"
 
 -- References
-local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents")
+local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
+
+local function getOrCreateRemoteEvent(name: string): RemoteEvent
+	local existing = RemoteEvents:FindFirstChild(name)
+	if existing and existing:IsA("RemoteEvent") then
+		return existing
+	end
+
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = name
+	remote.Parent = RemoteEvents
+	return remote
+end
 
 -- Events
-local InventoryChangedEvent = RemoteEvents:FindFirstChild("InventoryChanged") or Instance.new("RemoteEvent")
-InventoryChangedEvent.Name = "InventoryChanged"
-InventoryChangedEvent.Parent = RemoteEvents
+local InventoryChangedEvent = getOrCreateRemoteEvent("InventoryChanged")
+-- Legacy name kept for old clients still waiting on this remote.
+local InventoryUpdatedEvent = getOrCreateRemoteEvent("InventoryUpdated")
 
 local BuyBrainrotRemote = RemoteEvents:FindFirstChild("BuyBrainrot") or Instance.new("RemoteEvent")
 BuyBrainrotRemote.Name = "BuyBrainrot"
@@ -304,6 +316,7 @@ function BrainrotManager.StashBrainrot(player: Player, brainrot: Model)
 	brainrot:PivotTo(CFrame.new(currentCF.Position.X, -100, currentCF.Position.Z))
 	
 	InventoryChangedEvent:FireClient(player)
+	InventoryUpdatedEvent:FireClient(player)
 end
 
 function BrainrotManager.GetPlacementData(player: Player)

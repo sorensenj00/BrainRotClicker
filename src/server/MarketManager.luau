@@ -243,8 +243,6 @@ function MarketManager.Init(services)
 	Services = services or {}
 	
 	
-	SellItemFunction.OnServerInvoke = function(p, id, c) return MarketManager.SellItem(p, id, c) end
-	SellAllFunction.OnServerInvoke = function(p) return MarketManager.SellAll(p) end
 	BuyItemFunction.OnServerInvoke = function(p, id, c) return MarketManager.BuyItem(p, id, c) end
 	BuyToCartFunction.OnServerInvoke = function(p, id, c) return MarketManager.BuyToCart(p, id, c) end
 	SellFromCartFunction.OnServerInvoke = function(p, id, c) return MarketManager.SellFromCart(p, id, c) end
@@ -253,65 +251,7 @@ function MarketManager.Init(services)
 	print("✓ MarketManager Initialized (Buy + Sell)")
 end
 
---[[
-	SellItem: Sells items from player's backpack for money.
-	Adjusts AMM pool: items enter pool (+), cash leaves pool (-).
-]]
-function MarketManager.SellItem(player, itemId, count)
-	if not isNearMarket(player) then
-		warn(player.Name .. " attempted to sell while far away from the market!")
-		return 0, 0
-	end
 
-	local ISM = rawget(Services, "ItemStorageManager")
-	if not ISM then return 0, 0 end
-	
-	local bp = ISM.GetBackpackContents(player)
-	local avail = bp[itemId] or 0
-	if avail <= 0 then return 0,0 end
-	
-	local toSell = math.min(count or 1, avail)
-	local price = getPlayerSellPrice(player, itemId) -- Welfare-aware sell price
-	local total = toSell * price
-	
-	local removed = ISM.RemoveFromBackpack(player, itemId, toSell)
-	if removed <= 0 then return 0,0 end
-	
-	local DataService = rawget(Services, "DataService")
-	if DataService then
-		DataService.AddMoney(player, total)
-	end
-	
-	-- Adjust AMM pool: items enter pool, cash leaves pool
-	adjustAMMPool(itemId, removed, -(total * 0.9))
-	
-	-- Apply local shock: selling crashes local price
-	applyLocalShock(itemId, removed, false)
-	
-	ItemSoldEvent:FireClient(player, itemId, removed, total)
-	return removed, total
-end
-
-function MarketManager.SellAll(player)
-	if not isNearMarket(player) then
-		warn(player.Name .. " attempted to SellAll while far away from the market!")
-		return 0, 0
-	end
-
-	local ISM = rawget(Services, "ItemStorageManager")
-	if not ISM then return 0,0 end
-	
-	local bp = ISM.GetBackpackContents(player)
-	local sold, earned = 0, 0
-	
-	for id, c in pairs(bp) do
-		if c > 0 then
-			local s, e = MarketManager.SellItem(player, id, c)
-			sold += s; earned += e
-		end
-	end
-	return sold, earned
-end
 
 --[[
 	BuyItem: Buys items from the AMM and places them in the player's storage silo.

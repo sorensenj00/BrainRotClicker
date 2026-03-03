@@ -21,7 +21,14 @@ local ItemConfig = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local GetGrid = RemoteFunctions:WaitForChild("GetGrid")
-local GetInventoryRemote = RemoteEvents:WaitForChild("GetInventory")
+-- Canonical location is RemoteFunctions.GetInventory; keep legacy fallback.
+local GetInventoryRemote = RemoteFunctions:FindFirstChild("GetInventory")
+if not GetInventoryRemote then
+	GetInventoryRemote = RemoteEvents:FindFirstChild("GetInventory")
+end
+if not GetInventoryRemote then
+	GetInventoryRemote = RemoteFunctions:WaitForChild("GetInventory", 10)
+end
 local PlaceBrainrotRemote = RemoteEvents:WaitForChild("PlaceBrainrot")
 local MoveUnitRemote = RemoteFunctions:WaitForChild("MoveUnit")
 local StashUnitRemote = RemoteFunctions:WaitForChild("StashUnit")
@@ -134,6 +141,11 @@ local function refreshInventory()
 		end
 		
 		-- Fetch inventory
+		if not GetInventoryRemote then
+			warn("BuildModeUI: GetInventory remote is missing")
+			isRefreshingInventory = false
+			return
+		end
 		local success, inv = pcall(function() return GetInventoryRemote:InvokeServer() end)
 		if success and inv and inv.units then
 			for unitName, unitData in pairs(inv.units) do
@@ -412,15 +424,6 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	end
 
 	if processed then return end
-	
-	if input.KeyCode == Enum.KeyCode.Tab or input.KeyCode == Enum.KeyCode.G then
-		if isInBuildMode then exitBuildMode() else enterBuildMode() end
-	end
-	
-	if input.KeyCode == Enum.KeyCode.R and isInBuildMode and BuildInteractionService.IsDragging() then
-		-- Tell the Interaction Service to rotate
-		BuildInteractionService.RotateGhost()
-	end
 	
 	if isInBuildMode then
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then

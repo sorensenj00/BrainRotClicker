@@ -13,7 +13,6 @@
 -- Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
 
 -- Player reference
@@ -34,22 +33,25 @@ local UI_CONFIG = {
 	INTERACTION_DISTANCE = 20,
 	TWEEN_TIME = 0.3,
 	COLORS = {
-		Background = Color3.fromRGB(25, 20, 35),
-		Header = Color3.fromRGB(80, 50, 30),
-		Card = Color3.fromRGB(40, 30, 50),
-		CardOwned = Color3.fromRGB(30, 60, 40),
-		CardLocked = Color3.fromRGB(50, 40, 50),
-		Accent = Color3.fromRGB(255, 180, 80),
-		Text = Color3.fromRGB(255, 255, 255),
-		TextMuted = Color3.fromRGB(150, 150, 150),
-		Green = Color3.fromRGB(100, 255, 100),
-		Red = Color3.fromRGB(255, 100, 100),
+		Background = Color3.fromRGB(12, 12, 20),
+		Header = Color3.fromRGB(20, 20, 34),
+		Card = Color3.fromRGB(31, 31, 52),
+		CardOwned = Color3.fromRGB(22, 49, 41),
+		CardLocked = Color3.fromRGB(39, 34, 57),
+		CardInner = Color3.fromRGB(18, 18, 34),
+		Accent = Color3.fromRGB(140, 80, 255),
+		TitleChip = Color3.fromRGB(98, 26, 184),
+		TitleChipStroke = Color3.fromRGB(175, 120, 255),
+		Text = Color3.fromRGB(240, 240, 245),
+		TextMuted = Color3.fromRGB(160, 160, 180),
+		Green = Color3.fromRGB(80, 230, 120),
+		Red = Color3.fromRGB(210, 55, 65),
+		PanelStrokeSoft = Color3.fromRGB(70, 55, 120),
 	},
 }
 
 -- State
 local shopOpen = false
-local currentCategory = "Movement"
 local ownedUpgrades: {string} = {}
 
 --------------------------------------------------------------------------------
@@ -61,6 +63,22 @@ local FormatUtils = require(Shared:WaitForChild("Utils"):WaitForChild("FormatUti
 
 local function formatPrice(price: number): string
 	return FormatUtils.formatPrice(price)
+end
+
+local function addCorner(parent: GuiObject, radius: number)
+	local corner = Instance.new("UICorner")
+	corner.CornerRadius = UDim.new(0, radius)
+	corner.Parent = parent
+	return corner
+end
+
+local function addStroke(parent: GuiObject, color: Color3, thickness: number, transparency: number?)
+	local stroke = Instance.new("UIStroke")
+	stroke.Color = color
+	stroke.Thickness = thickness
+	stroke.Transparency = transparency or 0
+	stroke.Parent = parent
+	return stroke
 end
 
 local function createShopUI()
@@ -75,90 +93,89 @@ local function createShopUI()
 	mainFrame.Name = "MainFrame"
 	mainFrame.Size = UDim2.new(0, 550, 0, 500)
 	mainFrame.Position = UDim2.new(0.5, -275, 0.5, -250)
-	mainFrame.BackgroundColor3 = UI_CONFIG.COLORS.Background
+	mainFrame.BackgroundColor3 = UI_CONFIG.COLORS.Header
 	mainFrame.BorderSizePixel = 0
 	mainFrame.Visible = false
 	mainFrame.Parent = screenGui
-	
-	local mainCorner = Instance.new("UICorner")
-	mainCorner.CornerRadius = UDim.new(0, 16)
-	mainCorner.Parent = mainFrame
-	
-	local mainStroke = Instance.new("UIStroke")
-	mainStroke.Color = UI_CONFIG.COLORS.Accent
-	mainStroke.Thickness = 2
-	mainStroke.Parent = mainFrame
+	addCorner(mainFrame, 16)
+	addStroke(mainFrame, UI_CONFIG.COLORS.Accent, 1.8, 0.15)
+
+	local panelGradient = Instance.new("UIGradient")
+	panelGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, UI_CONFIG.COLORS.Header),
+		ColorSequenceKeypoint.new(1, UI_CONFIG.COLORS.Background),
+	})
+	panelGradient.Rotation = 90
+	panelGradient.Parent = mainFrame
 	
 	-- Header
 	local header = Instance.new("Frame")
 	header.Name = "Header"
 	header.Size = UDim2.new(1, 0, 0, 60)
-	header.BackgroundColor3 = UI_CONFIG.COLORS.Header
-	header.BorderSizePixel = 0
+	header.BackgroundTransparency = 1
 	header.Parent = mainFrame
-	
-	local headerCorner = Instance.new("UICorner")
-	headerCorner.CornerRadius = UDim.new(0, 16)
-	headerCorner.Parent = header
-	
-	local headerFix = Instance.new("Frame")
-	headerFix.Size = UDim2.new(1, 0, 0, 16)
-	headerFix.Position = UDim2.new(0, 0, 1, -16)
-	headerFix.BackgroundColor3 = UI_CONFIG.COLORS.Header
-	headerFix.BorderSizePixel = 0
-	headerFix.Parent = header
+
+	local titleChip = Instance.new("Frame")
+	titleChip.Name = "TitleChip"
+	titleChip.Size = UDim2.new(0, 360, 0, 44)
+	titleChip.Position = UDim2.new(0, 12, 0, 8)
+	titleChip.BackgroundColor3 = UI_CONFIG.COLORS.TitleChip
+	titleChip.BorderSizePixel = 0
+	titleChip.Parent = header
+	addCorner(titleChip, 9)
+	addStroke(titleChip, UI_CONFIG.COLORS.TitleChipStroke, 1.2, 0.1)
 	
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Name = "Title"
-	titleLabel.Size = UDim2.new(1, -60, 1, 0)
-	titleLabel.Position = UDim2.new(0, 20, 0, 0)
+	titleLabel.Size = UDim2.new(1, -16, 1, 0)
+	titleLabel.Position = UDim2.new(0, 10, 0, 0)
 	titleLabel.BackgroundTransparency = 1
-	titleLabel.Text = "⚡ CONVENIENCE UPGRADES"
-	titleLabel.TextColor3 = UI_CONFIG.COLORS.Accent
-	titleLabel.TextSize = 24
-	titleLabel.Font = Enum.Font.GothamBold
+	titleLabel.Text = "CONVENIENCE UPGRADES"
+	titleLabel.TextColor3 = UI_CONFIG.COLORS.Text
+	titleLabel.TextSize = 23
+	titleLabel.Font = Enum.Font.GothamBlack
 	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-	titleLabel.Parent = header
+	titleLabel.Parent = titleChip
 	
 	-- Close button
 	local closeButton = Instance.new("TextButton")
 	closeButton.Name = "CloseButton"
 	closeButton.Size = UDim2.new(0, 40, 0, 40)
 	closeButton.Position = UDim2.new(1, -50, 0, 10)
-	closeButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-	closeButton.Text = "✕"
+	closeButton.BackgroundColor3 = UI_CONFIG.COLORS.Red
+	closeButton.Text = "X"
 	closeButton.TextColor3 = Color3.new(1, 1, 1)
 	closeButton.TextSize = 20
-	closeButton.Font = Enum.Font.GothamBold
+	closeButton.Font = Enum.Font.GothamBlack
 	closeButton.Parent = header
-	
-	local closeCorner = Instance.new("UICorner")
-	closeCorner.CornerRadius = UDim.new(0.5, 0)
-	closeCorner.Parent = closeButton
-	
-	-- Category tabs
-	local tabsFrame = Instance.new("Frame")
-	tabsFrame.Name = "TabsFrame"
-	tabsFrame.Size = UDim2.new(1, -40, 0, 40)
-	tabsFrame.Position = UDim2.new(0, 20, 0, 70)
-	tabsFrame.BackgroundTransparency = 1
-	tabsFrame.Parent = mainFrame
-	
-	local tabsLayout = Instance.new("UIListLayout")
-	tabsLayout.FillDirection = Enum.FillDirection.Horizontal
-	tabsLayout.Padding = UDim.new(0, 10)
-	tabsLayout.Parent = tabsFrame
+	addCorner(closeButton, 9)
+	addStroke(closeButton, Color3.fromRGB(120, 20, 30), 1.2, 0.1)
+
+	local subtitle = Instance.new("TextLabel")
+	subtitle.Name = "Subtitle"
+	subtitle.Size = UDim2.new(1, -40, 0, 20)
+	subtitle.Position = UDim2.new(0, 20, 0, 66)
+	subtitle.BackgroundTransparency = 1
+	subtitle.Text = "All upgrades in one list"
+	subtitle.TextColor3 = UI_CONFIG.COLORS.TextMuted
+	subtitle.TextSize = 13
+	subtitle.Font = Enum.Font.Gotham
+	subtitle.TextXAlignment = Enum.TextXAlignment.Left
+	subtitle.Parent = mainFrame
 	
 	-- Content area (scrolling)
 	local contentFrame = Instance.new("ScrollingFrame")
 	contentFrame.Name = "ContentFrame"
-	contentFrame.Size = UDim2.new(1, -40, 1, -140)
-	contentFrame.Position = UDim2.new(0, 20, 0, 120)
-	contentFrame.BackgroundTransparency = 1
+	contentFrame.Size = UDim2.new(1, -40, 1, -130)
+	contentFrame.Position = UDim2.new(0, 20, 0, 90)
+	contentFrame.BackgroundColor3 = UI_CONFIG.COLORS.CardInner
+	contentFrame.BorderSizePixel = 0
 	contentFrame.ScrollBarThickness = 6
 	contentFrame.ScrollBarImageColor3 = UI_CONFIG.COLORS.Accent
 	contentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 	contentFrame.Parent = mainFrame
+	addCorner(contentFrame, 10)
+	addStroke(contentFrame, UI_CONFIG.COLORS.PanelStrokeSoft, 1, 0.25)
 	
 	local contentLayout = Instance.new("UIListLayout")
 	contentLayout.Padding = UDim.new(0, 10)
@@ -186,7 +203,6 @@ end
 
 local screenGui = createShopUI()
 local mainFrame = screenGui:WaitForChild("MainFrame")
-local tabsFrame = mainFrame:WaitForChild("TabsFrame")
 local contentFrame = mainFrame:WaitForChild("ContentFrame")
 local messageLabel = mainFrame:WaitForChild("MessageLabel")
 
@@ -199,33 +215,25 @@ local function isOwned(upgradeName: string): boolean
 	return false
 end
 
-local function createCategoryTab(category: string, index: number)
-	local icons = {
-		Movement = "🏃",
-		Income = "💰",
-		Automation = "🤖",
-	}
-	
-	local tab = Instance.new("TextButton")
-	tab.Name = "Tab_" .. category
-	tab.Size = UDim2.new(0, 120, 1, 0)
-	tab.BackgroundColor3 = currentCategory == category and UI_CONFIG.COLORS.Accent or UI_CONFIG.COLORS.Card
-	tab.Text = (icons[category] or "📦") .. " " .. category
-	tab.TextColor3 = UI_CONFIG.COLORS.Text
-	tab.TextSize = 14
-	tab.Font = Enum.Font.GothamBold
-	tab.Parent = tabsFrame
-	
-	local tabCorner = Instance.new("UICorner")
-	tabCorner.CornerRadius = UDim.new(0, 8)
-	tabCorner.Parent = tab
-	
-	tab.MouseButton1Click:Connect(function()
-		currentCategory = category
-		refreshShop()
-	end)
-	
-	return tab
+local function createCategoryHeader(category: string)
+	local header = Instance.new("TextLabel")
+	header.Name = "Category_" .. category
+	header.Size = UDim2.new(1, -12, 0, 28)
+	header.BackgroundColor3 = UI_CONFIG.COLORS.TitleChip
+	header.Text = string.upper(category)
+	header.TextColor3 = UI_CONFIG.COLORS.Text
+	header.TextSize = 14
+	header.Font = Enum.Font.GothamBold
+	header.TextXAlignment = Enum.TextXAlignment.Left
+	header.Parent = contentFrame
+	addCorner(header, 8)
+	addStroke(header, UI_CONFIG.COLORS.TitleChipStroke, 1, 0.2)
+
+	local padding = Instance.new("UIPadding")
+	padding.PaddingLeft = UDim.new(0, 10)
+	padding.Parent = header
+
+	return header
 end
 
 local function createUpgradeCard(upgradeName: string, config)
@@ -241,9 +249,8 @@ local function createUpgradeCard(upgradeName: string, config)
 	card.BackgroundColor3 = cardColor
 	card.Parent = contentFrame
 	
-	local cardCorner = Instance.new("UICorner")
-	cardCorner.CornerRadius = UDim.new(0, 10)
-	cardCorner.Parent = card
+	addCorner(card, 10)
+	addStroke(card, UI_CONFIG.COLORS.PanelStrokeSoft, 1, 0.2)
 	
 	-- Icon
 	local iconLabel = Instance.new("TextLabel")
@@ -285,7 +292,7 @@ local function createUpgradeCard(upgradeName: string, config)
 		ownedLabel.Size = UDim2.new(0, 100, 0, 30)
 		ownedLabel.Position = UDim2.new(1, -115, 0.5, -15)
 		ownedLabel.BackgroundColor3 = UI_CONFIG.COLORS.Green
-		ownedLabel.Text = "✓ OWNED"
+		ownedLabel.Text = "OWNED"
 		ownedLabel.TextColor3 = Color3.new(0, 0, 0)
 		ownedLabel.TextSize = 14
 		ownedLabel.Font = Enum.Font.GothamBold
@@ -301,7 +308,7 @@ local function createUpgradeCard(upgradeName: string, config)
 		buyButton.Position = UDim2.new(1, -115, 0.5, -20)
 		buyButton.BackgroundColor3 = canPurchase and UI_CONFIG.COLORS.Accent or UI_CONFIG.COLORS.CardLocked
 		buyButton.Text = "$" .. formatPrice(config.Price)
-		buyButton.TextColor3 = Color3.new(0, 0, 0)
+		buyButton.TextColor3 = Color3.new(1, 1, 1)
 		buyButton.TextSize = 14
 		buyButton.Font = Enum.Font.GothamBold
 		buyButton.Parent = card
@@ -341,25 +348,20 @@ end
 function refreshShop()
 	-- Clear existing content
 	for _, child in contentFrame:GetChildren() do
-		if child:IsA("Frame") then
+		if not child:IsA("UIListLayout") then
 			child:Destroy()
 		end
 	end
-	
-	-- Update tabs
-	for _, child in tabsFrame:GetChildren() do
-		if child:IsA("TextButton") then
-			child.BackgroundColor3 = child.Name == "Tab_" .. currentCategory 
-				and UI_CONFIG.COLORS.Accent or UI_CONFIG.COLORS.Card
+
+	local categories = ConvenienceUpgradesConfig.GetCategories()
+	for _, category in categories do
+		local categoryUpgrades = ConvenienceUpgradesConfig.GetUpgradesByCategory(category)
+		if #categoryUpgrades > 0 then
+			createCategoryHeader(category)
+			for _, item in categoryUpgrades do
+				createUpgradeCard(item.name, item.config)
+			end
 		end
-	end
-	
-	-- Get upgrades for current category
-	local categoryUpgrades = ConvenienceUpgradesConfig.GetUpgradesByCategory(currentCategory)
-	
-	-- Create cards
-	for _, item in categoryUpgrades do
-		createUpgradeCard(item.name, item.config)
 	end
 	
 	-- Update canvas size
@@ -373,17 +375,6 @@ local function loadUpgradesInfo()
 	local info = GetUpgradesInfoEvent:InvokeServer()
 	if info then
 		ownedUpgrades = info.OwnedUpgrades or {}
-		
-		-- Create category tabs
-		for _, child in tabsFrame:GetChildren() do
-			if child:IsA("TextButton") then
-				child:Destroy()
-			end
-		end
-		
-		for i, category in info.Categories or {"Movement", "Income", "Automation"} do
-			createCategoryTab(category, i)
-		end
 	end
 end
 
@@ -477,28 +468,12 @@ mainFrame.Header.CloseButton.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Handle H key for teleport home separately as it's not part of the standard shop interaction
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	
-	if input.KeyCode == Enum.KeyCode.H then
-		-- Teleport home if player has the upgrade
-		if _G.ConvenienceUpgrades and _G.ConvenienceUpgrades.HasTeleportHome and _G.ConvenienceUpgrades.HasTeleportHome(player) then
-			-- Teleport to main island
-			local mainIsland = workspace:FindFirstChild("MainIsland")
-			if mainIsland then
-				local spawnPoint = mainIsland:FindFirstChild("Island") or mainIsland:FindFirstChildWhichIsA("BasePart")
-				if spawnPoint and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-					player.Character.HumanoidRootPart.CFrame = spawnPoint.CFrame * CFrame.new(0, 10, 0)
-				end
-			end
-		end
-	end
-end)
-
 local UIManager = require(script.Parent:WaitForChild("Managers"):WaitForChild("UIManager"))
 UIManager.RegisterShop("ConvenienceUpgrades", function()
 	if shopOpen then closeShop() else openShop() end
 end)
 
-print("✓ ConvenienceUpgradesUI initialized")
+print("ConvenienceUpgradesUI initialized")
+
+
+

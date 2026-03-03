@@ -31,7 +31,7 @@ local function getOrCreateRemote(parent, remoteName, className)
 	return remote
 end
 
-local PurchaseCartUpgradeEvent = getOrCreateRemote(RemoteEvents, "PurchaseCartUpgrade", "RemoteEvent") -- Legacy
+
 local UpgradeCartCapacityEvent = getOrCreateRemote(RemoteEvents, "UpgradeCartCapacity", "RemoteEvent")
 local UpgradeCartTierEvent = getOrCreateRemote(RemoteEvents, "UpgradeCartTier", "RemoteEvent")
 local GetCartUpgradeInfoEvent = getOrCreateRemote(RemoteFunctions, "GetCartUpgradeInfo", "RemoteFunction")
@@ -175,18 +175,7 @@ function CartShopManager.Init(services)
 		setupCartShopVendor()
 	end)
 	
-	-- Legacy event support
-	PurchaseCartUpgradeEvent.OnServerEvent:Connect(function(player, upgradeType)
-		local s, msg
-		if upgradeType == "Capacity" then
-			s, msg = CartShopManager.HandleCapacityUpgrade(player)
-		elseif upgradeType == "Model" then
-			s, msg = CartShopManager.HandleTierUpgrade(player)
-		else
-			s, msg = false, "Invalid Upgrade Type"
-		end
-		PurchaseCartUpgradeEvent:FireClient(player, s, msg)
-	end)
+
 
 	UpgradeCartCapacityEvent.OnServerEvent:Connect(function(player)
 		local s, msg = CartShopManager.HandleCapacityUpgrade(player)
@@ -209,14 +198,7 @@ function CartShopManager.GetUpgradeInfo(player)
 	return buildUpgradeInfo(player)
 end
 
-function CartShopManager.HandleUpgradePurchase(player, upgradeType) -- Legacy entrypoint
-	if upgradeType == "Capacity" then
-		return CartShopManager.HandleCapacityUpgrade(player)
-	elseif upgradeType == "Model" then
-		return CartShopManager.HandleTierUpgrade(player)
-	end
-	return false, "Invalid Upgrade Type"
-end
+
 
 local function handleUpgradePurchase(player, upgradeType)
 	if not isNearCartVendor(player) then

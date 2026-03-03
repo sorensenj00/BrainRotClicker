@@ -58,6 +58,17 @@ function ShopInteraction:Init()
 end
 
 function ShopInteraction:SetupPromptListener()
+	local function resolvePrompt(instance: Instance): ProximityPrompt?
+		if instance:IsA("ProximityPrompt") then
+			return instance
+		end
+		local named = instance:FindFirstChild("ShopPrompt", true)
+		if named and named:IsA("ProximityPrompt") then
+			return named
+		end
+		return instance:FindFirstChildWhichIsA("ProximityPrompt", true)
+	end
+
 	local function onInstanceAdded(instance)
 		if not instance:IsDescendantOf(workspace) then return end
 		
@@ -65,16 +76,17 @@ function ShopInteraction:SetupPromptListener()
 		
 		task.spawn(function()
 			local prompt
-			for i = 1, 20 do
-				prompt = instance:FindFirstChild("ShopPrompt", true)
-				if prompt and prompt:IsA("ProximityPrompt") then break end
+			for _ = 1, 20 do
+				prompt = resolvePrompt(instance)
+				if prompt then break end
 				task.wait(0.5)
 			end
 			
 			if prompt and prompt:IsA("ProximityPrompt") then
 				print("[ShopInteraction] Found ShopPrompt for:", instance.Name)
 				table.insert(self.Connections, prompt.Triggered:Connect(function(playerWhoTriggered)
-					if playerWhoTriggered == Player then
+					local isLocalTrigger = (playerWhoTriggered == nil) or (playerWhoTriggered == Player)
+					if isLocalTrigger then
 						print("[ShopInteraction] Prompt triggered by local player for:", instance.Name)
 						self:Toggle()
 					end
@@ -103,18 +115,49 @@ function ShopInteraction:IsNearVendor()
 	local myPos = hrp.Position
 	
 	for _, vendor in CollectionService:GetTagged(self.Config.PromptTag) do
-		-- Use GetPivot() to safely get position of Parts OR Models
-		local vendorPos
-		if vendor:IsA("Model") then
-			vendorPos = vendor:GetPivot().Position
-		elseif vendor:IsA("BasePart") then
-			vendorPos = vendor.Position
+		local prompt: ProximityPrompt?
+		if vendor:IsA("ProximityPrompt") then
+			prompt = vendor
 		else
-			continue
+			local named = vendor:FindFirstChild("ShopPrompt", true)
+			if named and named:IsA("ProximityPrompt") then
+				prompt = named
+			else
+				prompt = vendor:FindFirstChildWhichIsA("ProximityPrompt", true)
+			end
 		end
-		
-		if (vendorPos - myPos).Magnitude <= self.Config.InteractionDist then
-			return true
+
+		local promptWorldPos: Vector3? = nil
+		if prompt then
+			local holder = prompt.Parent
+			if holder and holder:IsA("Attachment") then
+				holder = holder.Parent
+			end
+			if holder and holder:IsA("BasePart") then
+				promptWorldPos = holder.Position
+			elseif prompt.Adornee and prompt.Adornee:IsA("BasePart") then
+				promptWorldPos = prompt.Adornee.Position
+			end
+		end
+
+		if promptWorldPos then
+			if (promptWorldPos - myPos).Magnitude <= (self.Config.InteractionDist + 5) then
+				return true
+			end
+		else
+			-- Use GetPivot() to safely get position of Parts OR Models as fallback
+			local vendorPos
+			if vendor:IsA("Model") then
+				vendorPos = vendor:GetPivot().Position
+			elseif vendor:IsA("BasePart") then
+				vendorPos = vendor.Position
+			else
+				continue
+			end
+			
+			if (vendorPos - myPos).Magnitude <= (self.Config.InteractionDist + 5) then
+				return true
+			end
 		end
 	end
 	

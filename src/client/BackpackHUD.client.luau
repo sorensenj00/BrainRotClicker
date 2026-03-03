@@ -16,39 +16,47 @@ local PlayerGui = Player:WaitForChild("PlayerGui")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local _ItemTypes = require(Shared:WaitForChild("ItemTypes"))
-local _ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
 local _ShopConfig = require(Shared:WaitForChild("ShopConfig"))
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 local ViewportPreview = require(Shared:WaitForChild("ViewportPreview"))
 local ClientPlotService = require(script.Parent:WaitForChild("ClientPlotService"))
 
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
-local GetUnifiedInventoryFunc = RemoteFunctions:WaitForChild("GetUnifiedInventory")
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 
+-- Remotes with Timeouts to prevent Infinite Yields
+local GetUnifiedInventoryFunc = RemoteFunctions:WaitForChild("GetUnifiedInventory", 10)
+if not GetUnifiedInventoryFunc then warn("BackpackHUD: GetUnifiedInventory not found!") end
+
 -- Storage remotes
-local GetStorageFunction = RemoteFunctions:WaitForChild("GetStorage")
-local StorageUpdatedEvent = RemoteEvents:WaitForChild("StorageUpdated")
-local TakeFromStorageEvent = RemoteEvents:FindFirstChild("TakeFromStorage") or Instance.new("RemoteEvent")
-TakeFromStorageEvent.Name = "TakeFromStorage"
-TakeFromStorageEvent.Parent = RemoteEvents
+local GetStorageFunction = RemoteFunctions:WaitForChild("GetStorage", 10)
+local StorageUpdatedEvent = RemoteEvents:WaitForChild("StorageUpdated", 10)
+local InventoryChangedEvent = RemoteEvents:WaitForChild("InventoryChanged", 10)
+local ItemProducedEvent = RemoteEvents:WaitForChild("ItemProduced", 10)
 
 -- Folders for 3D preview
 local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
 
 local UI_CONFIG = {
-	PANEL_WIDTH = 500,
-	PANEL_HEIGHT = 600,
-	SLOT_SIZE = 70, -- Larger slots for better visibility
-	GRID_PADDING = 6,
+	PANEL_WIDTH = 760,
+	PANEL_HEIGHT = 560,
+	SLOT_SIZE = 128,
+	SLOT_HEIGHT = 138,
+	GRID_PADDING = 10,
 	CORNER_RADIUS = 16,
 	
-	COLOR_BG = Color3.fromRGB(25, 25, 35),
-	COLOR_PANEL = Color3.fromRGB(35, 35, 45),
-	COLOR_SLOT = Color3.fromRGB(45, 45, 55),
-	COLOR_ACCENT = Color3.fromRGB(100, 150, 255),
+	COLOR_BG = Color3.fromRGB(12, 12, 20),
+	COLOR_PANEL = Color3.fromRGB(26, 26, 42),
+	COLOR_SLOT = Color3.fromRGB(31, 31, 52),
+	COLOR_SLOT_INNER = Color3.fromRGB(18, 18, 34),
+	COLOR_ACCENT = Color3.fromRGB(140, 80, 255),
 	COLOR_TEXT = Color3.fromRGB(240, 240, 240),
-	COLOR_TEXT_DIM = Color3.fromRGB(150, 150, 160),
+	COLOR_TEXT_DIM = Color3.fromRGB(160, 160, 180),
+	COLOR_TAB_ACTIVE = Color3.fromRGB(235, 190, 52),
+	COLOR_TAB_IDLE = Color3.fromRGB(41, 41, 60),
+	COLOR_SEARCH_BG = Color3.fromRGB(23, 23, 36),
+	COLOR_CLOSE = Color3.fromRGB(210, 55, 65),
 	
 	RARITY_COLORS = {
 		Normal = Color3.fromRGB(180, 180, 180),
@@ -64,15 +72,13 @@ local UI_CONFIG = {
 local BackpackGui
 local BackpackVisible = false
 local CurrentItems = {}
-local CurrentFilter = "Storage" -- "Storage", "Artifact"
+local CurrentFilter = "Unit" -- "Unit", "Storage", "Artifact"
+local CurrentSearchQuery = ""
 
 -- Storage state
 local CurrentStorageItems = {} -- {[itemId] = count}
 local StorageUsage = 0
 
--- Hover tooltip state
-local CurrentHoverTooltip = nil
-local HoverDelayThread = nil
 local StorageCapacity = 0 -- Updated via Player Attribute
 
 --------------------------------------------------------------------------------
@@ -86,9 +92,55 @@ local addStroke = UIUtils.addStroke
 local decodeItems = UIUtils.decodeItems
 
 local function getRarityColor(rarity)
+	if ArtifactConfig.RarityColors and ArtifactConfig.RarityColors[rarity] then
+		return ArtifactConfig.RarityColors[rarity]
+	end
 	return UI_CONFIG.RARITY_COLORS[rarity] or UI_CONFIG.RARITY_COLORS.Normal
 end
 
+local function matchesSearch(text: string): boolean
+	if CurrentSearchQuery == "" then
+		return true
+	end
+	local haystack = string.lower(tostring(text or ""))
+	local needle = string.lower(CurrentSearchQuery)
+	return string.find(haystack, needle, 1, true) ~= nil
+end
+
+local function getArtifactStats(artifactData)
+	if not artifactData then
+		return {
+			CycleTimeMult = 1,
+			LuckBonus = 0,
+			ItemTierBonus = 0,
+			SynergyRangeBonus = 0,
+		}
+	end
+
+	if artifactData.Stats then
+		return artifactData.Stats
+	end
+
+	return ArtifactConfig.CalculateArtifactStats(artifactData)
+end
+
+local function addArtifactStatLines(addLineFn, stats)
+	if not stats then return end
+
+	if stats.CycleTimeMult and stats.CycleTimeMult < 1 then
+		local pct = math.floor((1 - stats.CycleTimeMult) * 100)
+		addLineFn("Cycle Time: -" .. pct .. "%", Color3.fromRGB(255, 255, 100))
+	end
+	if stats.LuckBonus and stats.LuckBonus > 0 then
+		addLineFn("Luck: +" .. math.floor(stats.LuckBonus * 100) .. "%", Color3.fromRGB(100, 255, 100))
+	end
+	if stats.ItemTierBonus and stats.ItemTierBonus > 0 then
+		addLineFn("Tier Bonus: +" .. stats.ItemTierBonus, Color3.fromRGB(255, 210, 120))
+	end
+	if stats.SynergyRangeBonus and stats.SynergyRangeBonus > 0 then
+		addLineFn("Synergy Range: +" .. stats.SynergyRangeBonus, Color3.fromRGB(120, 220, 255))
+	end
+end
 --[[
 	Checks if player is standing on their own island.
 	Used to enable/disable taking items from storage.
@@ -113,215 +165,6 @@ local function getBrainrotTemplate(unitName)
 	end
 	
 	return nil
-end
-
---------------------------------------------------------------------------------
--- HOVER TOOLTIP
---------------------------------------------------------------------------------
-
-local function clearHoverTooltip()
-	if HoverDelayThread then
-		-- pcall because thread may have already completed
-		pcall(function()
-			task.cancel(HoverDelayThread)
-		end)
-		HoverDelayThread = nil
-	end
-	
-	if CurrentHoverTooltip then
-		-- Fade out smoothly
-		local tooltip = CurrentHoverTooltip
-		CurrentHoverTooltip = nil
-		
-		local fadeOut = TweenService:Create(tooltip, TweenInfo.new(UI_CONFIG.TOOLTIP_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			BackgroundTransparency = 1,
-			GroupTransparency = 1
-		})
-		fadeOut:Play()
-		fadeOut.Completed:Connect(function()
-			if tooltip and tooltip.Parent then
-				tooltip:Destroy()
-			end
-		end)
-	end
-end
-
-
-
-local function createHoverTooltip(item, slotPosition)
-	clearHoverTooltip()
-	
-	-- Guard: need a valid GUI parent
-	local guiParent = BackpackGui or PlayerGui:FindFirstChild("BackpackHUD")
-	if not guiParent then
-		warn("BackpackHUD: No GUI parent for hover tooltip")
-		return
-	end
-	
-	local tooltip = Instance.new("CanvasGroup")
-	tooltip.Name = "HoverTooltip"
-	tooltip.Size = UDim2.new(0, 220, 0, 280)
-	tooltip.BackgroundColor3 = UI_CONFIG.COLOR_BG
-	tooltip.BorderSizePixel = 0
-	tooltip.GroupTransparency = 1 -- Start invisible for fade-in
-	tooltip.ZIndex = 200
-	
-	-- Position tooltip to the right of cursor, with screen boundary check
-	local screenSize = guiParent.AbsoluteSize
-	local tooltipX = slotPosition.X + 80 -- Offset to the right of the slot
-	local tooltipY = slotPosition.Y
-	
-	-- Keep tooltip on screen
-	if tooltipX + 220 > screenSize.X then
-		tooltipX = slotPosition.X - 230 -- Show on left if no room on right
-	end
-	if tooltipY + 280 > screenSize.Y then
-		tooltipY = screenSize.Y - 290
-	end
-	if tooltipY < 10 then
-		tooltipY = 10
-	end
-	
-	tooltip.Position = UDim2.new(0, tooltipX, 0, tooltipY)
-	tooltip.Parent = guiParent
-	
-	addCorner(tooltip, 12)
-	addStroke(tooltip, (item.Type == "Artifact" and getRarityColor(item.Rarity) or UI_CONFIG.COLOR_ACCENT), 2)
-	
-	-- Content padding
-	local padding = Instance.new("UIPadding")
-	padding.PaddingLeft = UDim.new(0, 10)
-	padding.PaddingRight = UDim.new(0, 10)
-	padding.PaddingTop = UDim.new(0, 10)
-	padding.PaddingBottom = UDim.new(0, 10)
-	padding.Parent = tooltip
-	
-	local content = Instance.new("Frame")
-	content.Size = UDim2.new(1, 0, 1, 0)
-	content.BackgroundTransparency = 1
-	content.Parent = tooltip
-	
-	local layout = Instance.new("UIListLayout")
-	layout.SortOrder = Enum.SortOrder.LayoutOrder
-	layout.Padding = UDim.new(0, 6)
-	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-	layout.Parent = content
-	
-	-- Header with rarity glow
-	local header = Instance.new("TextLabel")
-	local rarityPrefix = item.Type == "Artifact" and (item.Rarity .. "  ") or ""
-	header.Text = rarityPrefix .. item.Name
-	header.TextColor3 = item.Type == "Artifact" and getRarityColor(item.Rarity) or UI_CONFIG.COLOR_TEXT
-	header.Font = Enum.Font.GothamBold
-	header.TextSize = 14
-	header.TextTruncate = Enum.TextTruncate.AtEnd
-	header.Size = UDim2.new(1, 0, 0, 20)
-	header.BackgroundTransparency = 1
-	header.LayoutOrder = 1
-	header.Parent = content
-	
-	-- Preview area
-	local previewFrame = Instance.new("Frame")
-	previewFrame.Size = UDim2.new(0, 140, 0, 140)
-	previewFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 28)
-	previewFrame.LayoutOrder = 2
-	previewFrame.Parent = content
-	addCorner(previewFrame, 8)
-	
-	if item.Type == "Unit" then
-		local template = getBrainrotTemplate(item.UUID)
-		if template then
-			local preview = ViewportPreview.Create(template, previewFrame)
-			preview.viewport.BackgroundTransparency = 1
-		end
-	else
-		-- Fallback icon logic if item.Icon is missing
-		local displayIcon = item.Icon
-		if not displayIcon or displayIcon == "" then
-			-- Try to look up based on base ID/Name if possible, or use generic
-			displayIcon = "⚔️" -- Generic artifact icon
-		end
-		
-		local iconLabel = Instance.new("TextLabel")
-		iconLabel.Text = displayIcon
-		iconLabel.Size = UDim2.new(1, 0, 1, 0)
-		iconLabel.BackgroundTransparency = 1
-		iconLabel.TextSize = 60
-		iconLabel.Parent = previewFrame
-	end
-	
-	-- Slot/Status line
-	local statusLabel = Instance.new("TextLabel")
-	if item.Type == "Unit" then
-		statusLabel.Text = item.IsPlaced and "Slot: Placed" or "Slot: Inventory"
-	else
-		statusLabel.Text = "Slot: " .. (item.Data.EquippedTo and "Equipped" or "Inventory")
-	end
-	statusLabel.TextColor3 = UI_CONFIG.COLOR_TEXT_DIM
-	statusLabel.Font = Enum.Font.Gotham
-	statusLabel.TextSize = 11
-	statusLabel.Size = UDim2.new(1, 0, 0, 16)
-	statusLabel.BackgroundTransparency = 1
-	statusLabel.LayoutOrder = 3
-	statusLabel.Parent = content
-	
-	-- Stats section
-	local statsFrame = Instance.new("Frame")
-	statsFrame.Size = UDim2.new(1, 0, 0, 60)
-	statsFrame.BackgroundTransparency = 1
-	statsFrame.LayoutOrder = 4
-	statsFrame.Parent = content
-	
-	local statsLayout = Instance.new("UIListLayout")
-	statsLayout.Padding = UDim.new(0, 3)
-	statsLayout.Parent = statsFrame
-	
-	local function addStat(text, color)
-		local l = Instance.new("TextLabel")
-		l.Text = text
-		l.TextColor3 = color or UI_CONFIG.COLOR_TEXT
-		l.TextSize = 12
-		l.Font = Enum.Font.Gotham
-		l.Size = UDim2.new(1, 0, 0, 14)
-		l.BackgroundTransparency = 1
-		l.Parent = statsFrame
-	end
-	
-	if item.Type == "Unit" then
-		addStat("⭐ Level: " .. (item.Data.Level or 1), Color3.fromRGB(255, 220, 100))
-	else
-		local stats = item.Data.Stats or {}
-		if stats.CycleTimeMult and stats.CycleTimeMult ~= 1 then
-			local p = math.round((1 - stats.CycleTimeMult) * 100)
-			addStat("⚡ Cycle Time: -" .. p .. "%", Color3.fromRGB(255, 255, 100))
-		end
-		if stats.ItemTierBonus and stats.ItemTierBonus > 0 then
-			addStat("⭐ Tier: +" .. stats.ItemTierBonus, Color3.fromRGB(255, 200, 100))
-		end
-		if stats.LuckBonus and stats.LuckBonus > 0 then
-			addStat("🍀 Luck: +" .. stats.LuckBonus, Color3.fromRGB(100, 255, 100))
-		end
-	end
-	
-	CurrentHoverTooltip = tooltip
-	
-	-- Smooth fade in
-	local fadeIn = TweenService:Create(tooltip, TweenInfo.new(UI_CONFIG.TOOLTIP_FADE_TIME, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		GroupTransparency = 0
-	})
-	fadeIn:Play()
-end
-
-local function scheduleHoverTooltip(item, slot)
-	clearHoverTooltip()
-	
-	HoverDelayThread = task.delay(UI_CONFIG.HOVER_DELAY, function()
-		if slot and slot.Parent then
-			local slotPos = slot.AbsolutePosition
-			createHoverTooltip(item, slotPos)
-		end
-		HoverDelayThread = nil
-	end)
 end
 
 --------------------------------------------------------------------------------
@@ -351,7 +194,7 @@ local function openDetailPopup(item)
 	
 	-- Close Button (Top Right)
 	local close = Instance.new("TextButton")
-	close.Text = "✕"
+	close.Text = "X"
 	close.Size = UDim2.new(0, 30, 0, 30)
 	close.Position = UDim2.new(1, -35, 0, 5)
 	close.BackgroundTransparency = 1
@@ -375,7 +218,8 @@ local function openDetailPopup(item)
 	
 	-- 1. Header (Name & Rarity)
 	local header = Instance.new("TextLabel")
-	header.Text = item.Name
+	local rarityPrefix = item.Type == "Artifact" and ((item.Rarity or "Common") .. " ") or ""
+	header.Text = rarityPrefix .. item.Name
 	header.TextColor3 = item.Type == "Artifact" and getRarityColor(item.Rarity) or UI_CONFIG.COLOR_TEXT
 	header.Font = Enum.Font.GothamBold
 	header.TextSize = 18
@@ -409,7 +253,7 @@ local function openDetailPopup(item)
 		-- FALLBACK LOGIC
 		local displayIcon = item.Icon
 		if not displayIcon or displayIcon == "" then
-			displayIcon = "⚔️" -- Generic fallback
+			displayIcon = "[Artifact]"
 		end
 		
 		icon.Text = displayIcon
@@ -421,7 +265,7 @@ local function openDetailPopup(item)
 	
 	-- 3. Stats / Info
 	local infoFrame = Instance.new("Frame")
-	infoFrame.Size = UDim2.new(1, 0, 0, 100)
+	infoFrame.Size = UDim2.new(1, 0, 0, 160)
 	infoFrame.BackgroundTransparency = 1
 	infoFrame.LayoutOrder = 3
 	infoFrame.Parent = content
@@ -448,18 +292,23 @@ local function openDetailPopup(item)
 			
 		-- TODO: Show slots?
 	else -- Artifact
-		addLine("Slot: " .. (item.Data.EquippedTo and "Equipped" or "Inventory"), UI_CONFIG.COLOR_TEXT_DIM)
-		
-		local stats = item.Data.Stats or {}
-		if stats.CycleTimeMult and stats.CycleTimeMult ~= 1 then
-			local p = math.round((1 - stats.CycleTimeMult) * 100)
-			addLine("⚡ Cycle Time: -" .. p .. "%", Color3.fromRGB(255,255,100))
-		end
-		if stats.LuckBonus and stats.LuckBonus > 0 then
-			addLine("🍀 Luck: +" .. stats.LuckBonus, Color3.fromRGB(100,255,100))
-		end
-		if stats.ItemTierBonus and stats.ItemTierBonus > 0 then
-			addLine("⭐ Tier: +" .. stats.ItemTierBonus, Color3.fromRGB(255,100,255))
+		local slotIcon = ArtifactConfig.SlotIcons[item.Data.Slot] or "[Slot]"
+		addLine(string.format("Slot: %s %s", slotIcon, item.Data.Slot or "Unknown"), UI_CONFIG.COLOR_TEXT)
+		addLine("Status: " .. (item.Data.EquippedTo and "Equipped" or "In Inventory"), UI_CONFIG.COLOR_TEXT_DIM)
+		addLine("Rarity: " .. tostring(item.Rarity or "Common"), getRarityColor(item.Rarity))
+
+		local stats = getArtifactStats(item.Data)
+		addArtifactStatLines(addLine, stats)
+
+		local affixes = item.Data.Affixes or {}
+		if #affixes > 0 then
+			addLine("Affixes:", Color3.fromRGB(190, 190, 220))
+			for _, affix in ipairs(affixes) do
+				local icon = affix.Icon or "-"
+				addLine(string.format("%s %s", icon, affix.Name or "Unknown"), UI_CONFIG.COLOR_TEXT_DIM)
+			end
+		else
+			addLine("No affixes", UI_CONFIG.COLOR_TEXT_DIM)
 		end
 	end
 end
@@ -471,380 +320,337 @@ end
 local IsRefreshing = false -- Debounce flag to prevent duplicate renders
 
 local function refreshGrid()
-	-- Debounce to prevent duplicate renders from rapid event firing
 	if IsRefreshing then return end
 	IsRefreshing = true
-	task.defer(function() IsRefreshing = false end)
-	
-	if not BackpackGui then
+
+	-- Cleanup IsRefreshing at the very end
+	local function finish()
 		IsRefreshing = false
-		return
 	end
+
+	if not BackpackGui then return finish() end
 	local mainPanel = BackpackGui:FindFirstChild("MainPanel")
-	if not mainPanel then
-		IsRefreshing = false
-		return
-	end
+	if not mainPanel then return finish() end
 	local grid = mainPanel:FindFirstChild("Grid")
-	if not grid then
-		IsRefreshing = false
-		return
+	if not grid then return finish() end
+	local infoLabel = mainPanel:FindFirstChild("InfoLabel")
+	local searchBox = mainPanel:FindFirstChild("SearchBox")
+	if searchBox and searchBox:IsA("TextBox") then
+		CurrentSearchQuery = string.gsub(searchBox.Text or "", "^%s*(.-)%s*$", "%1")
 	end
-	
-	clearHoverTooltip()
-	-- Clean ALL children (including layouts) to prevent duplicates
-	for _, c in pairs(grid:GetChildren()) do
-		c:Destroy()
+
+	-- Thoroughly clear grid leaving ONLY the GridLayout
+	for _, child in grid:GetChildren() do
+		if not child:IsA("UIGridLayout") then
+			child:Destroy()
+		end
 	end
-	
 
+	local function createEmptyState(text)
+		local empty = Instance.new("TextLabel")
+		empty.Size = UDim2.new(1, -10, 0, 40)
+		empty.BackgroundTransparency = 1
+		empty.Text = text
+		empty.TextColor3 = UI_CONFIG.COLOR_TEXT_DIM
+		empty.TextSize = 16
+		empty.Font = Enum.Font.Gotham
+		empty.Parent = grid
+	end
 
-	-- If Storage tab, show storage items instead
 	if CurrentFilter == "Storage" then
-		-- Fetch storage data from server
 		local success, items, total, capacity = pcall(function()
 			return GetStorageFunction:InvokeServer()
 		end)
-		
 		if not success or not items then
-			items = {}
-			total = 0
-			capacity = 2000
+			items, total, capacity = {}, 0, 2000
 		end
-		
+
 		CurrentStorageItems = decodeItems(items)
 		StorageUsage = total or 0
 		StorageCapacity = Player:GetAttribute("StorageCapacity") or capacity or 0
-		
+
 		local onIsland = isOnOwnIsland()
-		
-		-- Storage header showing total
-		local header = Instance.new("Frame")
-		header.Name = "StorageHeader"
-		header.Size = UDim2.new(1, 0, 0, 44)
-		header.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
-		header.BackgroundTransparency = 0.3
-		header.LayoutOrder = 0
-		header.Parent = grid
-		addCorner(header, 8)
-		
-		local headerText = Instance.new("TextLabel")
-		headerText.Text = string.format("📦 %d / %d", StorageUsage, StorageCapacity)
-		headerText.Size = UDim2.new(0, 100, 1, 0)
-		headerText.Position = UDim2.new(0, 8, 0, 0)
-		headerText.BackgroundTransparency = 1
-		headerText.TextColor3 = UI_CONFIG.COLOR_TEXT
-		headerText.TextSize = 13
-		headerText.Font = Enum.Font.GothamBold
-		headerText.TextXAlignment = Enum.TextXAlignment.Left
-		headerText.Parent = header
-		
-		-- Take All button (center)
-		local takeAllBtn = Instance.new("TextButton")
-		takeAllBtn.Name = "TakeAllButton"
-		takeAllBtn.Text = onIsland and "📥 Take All" or "🔒"
-		takeAllBtn.Size = UDim2.new(0, 80, 0, 28)
-		takeAllBtn.Position = UDim2.new(0.5, -40, 0.5, -14)
-		takeAllBtn.BackgroundColor3 = onIsland and Color3.fromRGB(80, 160, 80) or Color3.fromRGB(60, 60, 60)
-		takeAllBtn.TextColor3 = Color3.new(1, 1, 1)
-		takeAllBtn.TextSize = 11
-		takeAllBtn.Font = Enum.Font.GothamBold
-		takeAllBtn.AutoButtonColor = onIsland
-		takeAllBtn.Parent = header
-		addCorner(takeAllBtn, 6)
-		
-		if onIsland then
-			takeAllBtn.MouseButton1Click:Connect(function()
-				-- Take all items from storage
-				local payload = {}
-				for itemId, count in pairs(CurrentStorageItems) do
-					if count > 0 then
-						payload[itemId] = count
-					end
-				end
-				TakeFromStorageEvent:FireServer(payload)
-				-- Refresh after short delay
-				task.wait(0.3)
-				refreshGrid()
-			end)
-			
-			-- Hover effect
-			takeAllBtn.MouseEnter:Connect(function()
-				TweenService:Create(takeAllBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(100, 200, 100)}):Play()
-			end)
-			takeAllBtn.MouseLeave:Connect(function()
-				TweenService:Create(takeAllBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(80, 160, 80)}):Play()
-			end)
+		if infoLabel then
+			infoLabel.Text = string.format("Items in storage: %d / %d%s", StorageUsage, StorageCapacity, onIsland and "" or "  (Go to your island to transfer)")
 		end
-		
-		-- Island status indicator (right side)
-		local statusLabel = Instance.new("TextLabel")
-		statusLabel.Text = onIsland and "✓ On Island" or "⚠ Go to island"
-		statusLabel.Size = UDim2.new(0, 90, 1, 0)
-		statusLabel.Position = UDim2.new(1, -95, 0, 0)
-		statusLabel.BackgroundTransparency = 1
-		statusLabel.TextColor3 = onIsland and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 150, 100)
-		statusLabel.TextSize = 10
-		statusLabel.Font = Enum.Font.Gotham
-		statusLabel.TextXAlignment = Enum.TextXAlignment.Right
-		statusLabel.Parent = header
-		
-		-- Create storage item slots
-		local itemIndex = 1
+
+		local display = {}
 		for itemId, count in pairs(CurrentStorageItems) do
 			if count > 0 then
-				local itemInfo = ItemConfig.Items[itemId]
-				local icon = itemInfo and itemInfo.icon or "📦"
-				local displayName = itemInfo and itemInfo.displayName or itemId
+				local def = ItemConfig.Items[itemId]
+				-- Strict Item Tab Filter: Only show items defined in ItemConfig
+				if not def then continue end 
 				
-				local slot = Instance.new("Frame")
-				slot.Name = "StorageSlot_" .. itemIndex
-				slot.Size = UDim2.new(1, 0, 0, 55)
-				slot.BackgroundColor3 = UI_CONFIG.COLOR_SLOT
-				slot.LayoutOrder = itemIndex
-				slot.Parent = grid
-				addCorner(slot, 8)
-				addStroke(slot, UI_CONFIG.COLOR_ACCENT, 1)
-				
-				-- Icon
-				local iconLabel = Instance.new("TextLabel")
-				iconLabel.Text = icon
-				iconLabel.Size = UDim2.new(0, 40, 0, 40)
-				iconLabel.Position = UDim2.new(0, 5, 0.5, -20)
-				iconLabel.BackgroundTransparency = 1
-				iconLabel.TextSize = 28
-				iconLabel.Parent = slot
-				
-				-- Name + Count
-				local nameLabel = Instance.new("TextLabel")
-				nameLabel.Text = displayName
-				nameLabel.Size = UDim2.new(0.45, 0, 0, 20)
-				nameLabel.Position = UDim2.new(0, 50, 0, 8)
-				nameLabel.BackgroundTransparency = 1
-				nameLabel.TextColor3 = UI_CONFIG.COLOR_TEXT
-				nameLabel.TextSize = 13
-				nameLabel.Font = Enum.Font.GothamBold
-				nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-				nameLabel.Parent = slot
-				
-				local countLabel = Instance.new("TextLabel")
-				countLabel.Text = "x" .. count
-				countLabel.Size = UDim2.new(0.45, 0, 0, 18)
-				countLabel.Position = UDim2.new(0, 50, 0, 28)
-				countLabel.BackgroundTransparency = 1
-				countLabel.TextColor3 = UI_CONFIG.COLOR_TEXT_DIM
-				countLabel.TextSize = 12
-				countLabel.Font = Enum.Font.Gotham
-				countLabel.TextXAlignment = Enum.TextXAlignment.Left
-				countLabel.Parent = slot
-				
-				-- Take button
-				local takeBtn = Instance.new("TextButton")
-				takeBtn.Name = "TakeButton"
-				takeBtn.Text = onIsland and "Take" or "🔒"
-				takeBtn.Size = UDim2.new(0, 60, 0, 32)
-				takeBtn.Position = UDim2.new(1, -70, 0.5, -16)
-				takeBtn.BackgroundColor3 = onIsland and Color3.fromRGB(80, 160, 80) or Color3.fromRGB(80, 80, 80)
-				takeBtn.TextColor3 = Color3.new(1, 1, 1)
-				takeBtn.TextSize = 12
-				takeBtn.Font = Enum.Font.GothamBold
-				takeBtn.AutoButtonColor = onIsland
-				takeBtn.Parent = slot
-				addCorner(takeBtn, 6)
-				
-				if onIsland then
-					takeBtn.MouseButton1Click:Connect(function()
-						-- Request take from server (take 1 at a time for now)
-						TakeFromStorageEvent:FireServer(itemId, 1)
-						-- Refresh after a short delay
-						task.wait(0.2)
-						refreshGrid()
-					end)
-					
-					-- Hover effect
-					takeBtn.MouseEnter:Connect(function()
-						TweenService:Create(takeBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(100, 200, 100)}):Play()
-					end)
-					takeBtn.MouseLeave:Connect(function()
-						TweenService:Create(takeBtn, TweenInfo.new(0.1), {BackgroundColor3 = Color3.fromRGB(80, 160, 80)}):Play()
-					end)
+				local name = def.displayName or itemId
+				if matchesSearch(name) or matchesSearch(itemId) then
+					table.insert(display, {
+						itemId = itemId,
+						name = name,
+						icon = def.icon or "[Item]",
+						count = count,
+					})
 				end
-				
-				itemIndex = itemIndex + 1
 			end
 		end
-		
-		-- If no items
-		if itemIndex == 1 then
-			local emptyLabel = Instance.new("TextLabel")
-			emptyLabel.Text = "Storage is empty"
-			emptyLabel.Size = UDim2.new(1, 0, 0, 50)
-			emptyLabel.LayoutOrder = 1
-			emptyLabel.BackgroundTransparency = 1
-			emptyLabel.TextColor3 = UI_CONFIG.COLOR_TEXT_DIM
-			emptyLabel.TextSize = 14
-			emptyLabel.Font = Enum.Font.Gotham
-			emptyLabel.Parent = grid
+		table.sort(display, function(a, b)
+			if a.count == b.count then return a.name < b.name end
+			return a.count > b.count
+		end)
+
+		if #display == 0 then
+			createEmptyState("No matching storage items")
 		end
-		
-		-- Change to list layout for Storage
-		local existingLayout = grid:FindFirstChildOfClass("UIGridLayout")
-		if existingLayout then existingLayout:Destroy() end
-		
-		local listLayout = grid:FindFirstChildOfClass("UIListLayout")
-		if not listLayout then
-			listLayout = Instance.new("UIListLayout")
-			listLayout.SortOrder = Enum.SortOrder.LayoutOrder
-			listLayout.Padding = UDim.new(0, 8)
-			listLayout.Parent = grid
+
+		for i, entry in ipairs(display) do
+			local card = Instance.new("Frame")
+			card.Name = "StorageCard_" .. i
+			card.BackgroundColor3 = UI_CONFIG.COLOR_SLOT
+			card.LayoutOrder = i
+			card.Parent = grid
+			addCorner(card, 10)
+			addStroke(card, Color3.fromRGB(80, 130, 255), 1.5)
+
+			local title = Instance.new("TextLabel")
+			title.Size = UDim2.new(1, -12, 0, 18)
+			title.Position = UDim2.new(0, 6, 0, 6)
+			title.BackgroundTransparency = 1
+			title.Text = entry.name
+			title.TextTruncate = Enum.TextTruncate.AtEnd
+			title.TextColor3 = UI_CONFIG.COLOR_TEXT
+			title.TextSize = 11
+			title.Font = Enum.Font.GothamBold
+			title.Parent = card
+
+			local iconFrame = Instance.new("Frame")
+			iconFrame.Size = UDim2.new(1, -14, 0, 70)
+			iconFrame.Position = UDim2.new(0, 7, 0, 28)
+			iconFrame.BackgroundColor3 = UI_CONFIG.COLOR_SLOT_INNER
+			iconFrame.BorderSizePixel = 0
+			iconFrame.Parent = card
+			addCorner(iconFrame, 8)
+
+			local icon = Instance.new("TextLabel")
+			icon.Size = UDim2.new(1, 0, 1, 0)
+			icon.BackgroundTransparency = 1
+			icon.Text = entry.icon
+			icon.TextSize = 40
+			icon.Parent = iconFrame
+
+			local count = Instance.new("TextLabel")
+			count.Size = UDim2.new(1, -12, 0, 14)
+			count.Position = UDim2.new(0, 6, 0, 102)
+			count.BackgroundTransparency = 1
+			count.Text = "x" .. tostring(entry.count)
+			count.TextColor3 = UI_CONFIG.COLOR_TEXT_DIM
+			count.TextSize = 11
+			count.Font = Enum.Font.GothamBold
+			count.TextXAlignment = Enum.TextXAlignment.Left
+			count.Parent = card
+
+			-- Action button removed per user request: items are now moved via Carts/Transport
 		end
-		
-		return
-	end
-	
-	-- Standard grid layout for non-storage items
-	local existingList = grid:FindFirstChildOfClass("UIListLayout")
-	if existingList then existingList:Destroy() end
-	
-	local existingGrid = grid:FindFirstChildOfClass("UIGridLayout")
-	if not existingGrid then
-		local gridLayout = Instance.new("UIGridLayout")
-		gridLayout.CellSize = UDim2.new(0, UI_CONFIG.SLOT_SIZE, 0, UI_CONFIG.SLOT_SIZE)
-		gridLayout.CellPadding = UDim2.new(0, UI_CONFIG.GRID_PADDING, 0, UI_CONFIG.GRID_PADDING)
-		gridLayout.Parent = grid
-	end
-	
-	-- Filter Items
-	local displayItems = {}
-	for _, item in ipairs(CurrentItems) do
-		if CurrentFilter == "All" or item.Type == CurrentFilter then
-			table.insert(displayItems, item)
+	elseif CurrentFilter == "Unit" then
+		-- UNIT TAB
+		if infoLabel then
+			infoLabel.Text = "Your Brainrot collection"
 		end
-	end
-	
-	-- Create Slots
-	for i, item in ipairs(displayItems) do
-		local slot = Instance.new("ImageButton")
-		slot.Name = "Slot_" .. i
-		slot.BackgroundColor3 = UI_CONFIG.COLOR_SLOT
-		slot.AutoButtonColor = false
-		slot.Parent = grid
-		addCorner(slot, 8)
-		addStroke(slot, getRarityColor(item.Rarity), 1.5)
-		
-		-- Icon
-		local icon = Instance.new("TextLabel")
-		
-		-- robust fallback for icon
-		local displayIcon = item.Icon
-		if not displayIcon or displayIcon == "" then
-			displayIcon = "❓"
+
+		local display = {}
+		for _, item in ipairs(CurrentItems) do
+			if item.Type == "Unit" then
+				if matchesSearch(item.Name) then
+					table.insert(display, item)
+				end
+			end
+		end
+
+		if #display == 0 then
+			createEmptyState("No matching units")
+		end
+
+		for i, item in ipairs(display) do
+			local card = Instance.new("ImageButton")
+			card.Name = "UnitCard_" .. i
+			card.BackgroundColor3 = UI_CONFIG.COLOR_SLOT
+			card.AutoButtonColor = false
+			card.LayoutOrder = i
+			card.Parent = grid
+			addCorner(card, 10)
+			addStroke(card, UI_CONFIG.COLOR_ACCENT, 1.7)
+
+			local title = Instance.new("TextLabel")
+			title.Size = UDim2.new(1, -12, 0, 18)
+			title.Position = UDim2.new(0, 6, 0, 6)
+			title.BackgroundTransparency = 1
+			title.Text = item.Name
+			title.TextTruncate = Enum.TextTruncate.AtEnd
+			title.TextColor3 = UI_CONFIG.COLOR_TEXT
+			title.TextSize = 11
+			title.Font = Enum.Font.GothamBold
+			title.Parent = card
+
+			local iconFrame = Instance.new("Frame")
+			iconFrame.Size = UDim2.new(1, -14, 0, 70)
+			iconFrame.Position = UDim2.new(0, 7, 0, 28)
+			iconFrame.BackgroundColor3 = UI_CONFIG.COLOR_SLOT_INNER
+			iconFrame.BorderSizePixel = 0
+			iconFrame.Parent = card
+			addCorner(iconFrame, 8)
+
+			-- 3D Viewport would be better, but for grid, we'll try a static preview
+			task.spawn(function()
+				local template = getBrainrotTemplate(item.Name)
+				if template then
+					local preview = ViewportPreview.CreateStatic(template, iconFrame)
+					preview.viewport.BackgroundTransparency = 1
+				end
+			end)
+
+			local levelLine = Instance.new("TextLabel")
+			levelLine.Size = UDim2.new(1, -12, 0, 14)
+			levelLine.Position = UDim2.new(0, 6, 0, 102)
+			levelLine.BackgroundTransparency = 1
+			levelLine.Text = "Level " .. (item.Data and item.Data.Level or 1)
+			levelLine.TextColor3 = UI_CONFIG.COLOR_TEXT_DIM
+			levelLine.TextSize = 10
+			levelLine.Font = Enum.Font.Gotham
+			levelLine.TextXAlignment = Enum.TextXAlignment.Left
+			levelLine.Parent = card
+
+			local statusLine = Instance.new("TextLabel")
+			statusLine.Size = UDim2.new(1, -12, 0, 14)
+			statusLine.Position = UDim2.new(0, 6, 0, 118)
+			statusLine.BackgroundTransparency = 1
+			statusLine.Text = item.IsPlaced and "PLACED" or "STORED"
+			statusLine.TextColor3 = item.IsPlaced and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 200, 100)
+			statusLine.TextSize = 10
+			statusLine.Font = Enum.Font.GothamBold
+			statusLine.TextXAlignment = Enum.TextXAlignment.Left
+			statusLine.Parent = card
+
+			card.MouseButton1Click:Connect(function()
+				openDetailPopup(item)
+			end)
+		end
+	else
+		-- ARTIFACT TAB
+		if infoLabel then
+			infoLabel.Text = "Artifacts collected"
+		end
+
+		local display = {}
+		for _, item in ipairs(CurrentItems) do
+			-- Strict Artifact Tab Filter: Only show artifact type
 			if item.Type == "Artifact" then
-				displayIcon = "⚔️"
-			elseif item.Type == "Unit" then
-				displayIcon = "👤"
+				local slotName = (item.Data and item.Data.Slot) or ""
+				if matchesSearch(item.Name) or matchesSearch(item.Rarity or "") or matchesSearch(slotName) then
+					table.insert(display, item)
+				end
 			end
 		end
-		
-		icon.Text = displayIcon
-		icon.Size = UDim2.new(1,0,1,0)
-		icon.BackgroundTransparency = 1
-		icon.TextSize = 24
-		icon.Parent = slot
-		
-		-- Level badge (for Units)
-		if item.Type == "Unit" and item.Data and item.Data.Level then
-			local levelBadge = Instance.new("Frame")
-			levelBadge.Name = "LevelBadge"
-			levelBadge.Size = UDim2.new(0, 22, 0, 16)
-			levelBadge.Position = UDim2.new(0, 2, 1, -18)
-			levelBadge.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
-			levelBadge.BorderSizePixel = 0
-			levelBadge.Parent = slot
-			addCorner(levelBadge, 4)
-			addStroke(levelBadge, Color3.fromRGB(255, 200, 100), 1)
-			
-			local levelLabel = Instance.new("TextLabel")
-			levelLabel.Text = "Lv" .. item.Data.Level
-			levelLabel.Size = UDim2.new(1, 0, 1, 0)
-			levelLabel.BackgroundTransparency = 1
-			levelLabel.TextSize = 10
-			levelLabel.Font = Enum.Font.GothamBold
-			levelLabel.TextColor3 = Color3.fromRGB(255, 220, 100)
-			levelLabel.Parent = levelBadge
+
+		if #display == 0 then
+			createEmptyState("No matching artifacts")
 		end
-		
-		-- Placed/Equipped indicator
-		if item.IsPlaced or item.IsEquipped then
-			local ind = Instance.new("Frame")
-			ind.Size = UDim2.new(0, 14, 0, 14)
-			ind.Position = UDim2.new(1, -16, 0, 2)
-			ind.BackgroundColor3 = item.IsPlaced and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(100, 180, 255)
-			ind.BorderSizePixel = 0
-			ind.Parent = slot
-			addCorner(ind, 7)
-			
-			local sLabel = Instance.new("TextLabel")
-			sLabel.Text = item.IsPlaced and "✓" or "E"
-			sLabel.Size = UDim2.new(1,0,1,0)
-			sLabel.BackgroundTransparency = 1
-			sLabel.TextSize = 9
-			sLabel.Font = Enum.Font.GothamBold
-			sLabel.TextColor3 = Color3.new(0,0,0)
-			sLabel.Parent = ind
+
+		for i, item in ipairs(display) do
+			local card = Instance.new("ImageButton")
+			card.Name = "ArtifactCard_" .. i
+			card.BackgroundColor3 = UI_CONFIG.COLOR_SLOT
+			card.AutoButtonColor = false
+			card.LayoutOrder = i
+			card.Parent = grid
+			addCorner(card, 10)
+			addStroke(card, getRarityColor(item.Rarity), 1.7)
+
+			local title = Instance.new("TextLabel")
+			title.Size = UDim2.new(1, -12, 0, 18)
+			title.Position = UDim2.new(0, 6, 0, 6)
+			title.BackgroundTransparency = 1
+			title.Text = item.Name
+			title.TextTruncate = Enum.TextTruncate.AtEnd
+			title.TextColor3 = UI_CONFIG.COLOR_TEXT
+			title.TextSize = 11
+			title.Font = Enum.Font.GothamBold
+			title.Parent = card
+
+			local iconFrame = Instance.new("Frame")
+			iconFrame.Size = UDim2.new(1, -14, 0, 70)
+			iconFrame.Position = UDim2.new(0, 7, 0, 28)
+			iconFrame.BackgroundColor3 = UI_CONFIG.COLOR_SLOT_INNER
+			iconFrame.BorderSizePixel = 0
+			iconFrame.Parent = card
+			addCorner(iconFrame, 8)
+
+			local icon = Instance.new("TextLabel")
+			icon.Size = UDim2.new(1, 0, 1, 0)
+			icon.BackgroundTransparency = 1
+			icon.Text = (item.Icon and item.Icon ~= "") and item.Icon or "[Artifact]"
+			icon.TextSize = 36
+			icon.Parent = iconFrame
+
+			local slotLine = Instance.new("TextLabel")
+			slotLine.Size = UDim2.new(1, -12, 0, 14)
+			slotLine.Position = UDim2.new(0, 6, 0, 102)
+			slotLine.BackgroundTransparency = 1
+			slotLine.Text = string.format("%s %s", ArtifactConfig.SlotIcons[(item.Data and item.Data.Slot) or ""] or "[Slot]", (item.Data and item.Data.Slot) or "Unknown")
+			slotLine.TextColor3 = UI_CONFIG.COLOR_TEXT_DIM
+			slotLine.TextSize = 10
+			slotLine.Font = Enum.Font.Gotham
+			slotLine.TextXAlignment = Enum.TextXAlignment.Left
+			slotLine.Parent = card
+
+			local statText = "No bonus"
+			local stats = getArtifactStats(item.Data)
+			if stats.CycleTimeMult and stats.CycleTimeMult < 1 then
+				statText = "Cycle: -" .. math.floor((1 - stats.CycleTimeMult) * 100) .. "%"
+			elseif stats.LuckBonus and stats.LuckBonus > 0 then
+				statText = "Luck: +" .. math.floor(stats.LuckBonus * 100) .. "%"
+			elseif stats.ItemTierBonus and stats.ItemTierBonus > 0 then
+				statText = "Tier: +" .. stats.ItemTierBonus
+			elseif stats.SynergyRangeBonus and stats.SynergyRangeBonus > 0 then
+				statText = "Range: +" .. stats.SynergyRangeBonus
+			end
+
+			local statLine = Instance.new("TextLabel")
+			statLine.Size = UDim2.new(1, -12, 0, 14)
+			statLine.Position = UDim2.new(0, 6, 0, 118)
+			statLine.BackgroundTransparency = 1
+			statLine.Text = statText
+			statLine.TextColor3 = Color3.fromRGB(175, 215, 255)
+			statLine.TextSize = 10
+			statLine.Font = Enum.Font.Gotham
+			statLine.TextXAlignment = Enum.TextXAlignment.Left
+			statLine.Parent = card
+
+			if item.Data and item.Data.EquippedTo then
+				local equipped = Instance.new("TextLabel")
+				equipped.Size = UDim2.new(0, 30, 0, 14)
+				equipped.Position = UDim2.new(1, -34, 0, 6)
+				equipped.BackgroundColor3 = Color3.fromRGB(90, 150, 255)
+				equipped.Text = "EQ"
+				equipped.TextSize = 9
+				equipped.TextColor3 = Color3.new(1, 1, 1)
+				equipped.Font = Enum.Font.GothamBold
+				equipped.Parent = card
+				addCorner(equipped, 6)
+			end
+
+			card.MouseButton1Click:Connect(function()
+				openDetailPopup(item)
+			end)
+
+			card.MouseEnter:Connect(function()
+				TweenService:Create(card, TweenInfo.new(0.12), {BackgroundColor3 = Color3.fromRGB(40, 40, 62)}):Play()
+			end)
+			card.MouseLeave:Connect(function()
+				TweenService:Create(card, TweenInfo.new(0.12), {BackgroundColor3 = UI_CONFIG.COLOR_SLOT}):Play()
+			end)
 		end
-		
-		-- Click to open detail
-		slot.MouseButton1Click:Connect(function()
-			clearHoverTooltip()
-			openDetailPopup(item)
-		end)
-		
-		-- Hover effect with smooth scale and tooltip
-		slot.MouseEnter:Connect(function()
-			-- Smooth background color change
-			TweenService:Create(slot, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-				BackgroundColor3 = Color3.fromRGB(65, 65, 80)
-			}):Play()
-			
-			-- Get the stroke and make it brighter
-			local stroke = slot:FindFirstChildOfClass("UIStroke")
-			if stroke then
-				local originalColor = getRarityColor(item.Rarity)
-				local brighterColor = Color3.new(
-					math.min(originalColor.R * 1.3, 1),
-					math.min(originalColor.G * 1.3, 1),
-					math.min(originalColor.B * 1.3, 1)
-				)
-				TweenService:Create(stroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
-					Color = brighterColor,
-					Thickness = 2.5
-				}):Play()
-			end
-			
-			-- Schedule hover tooltip
-			scheduleHoverTooltip(item, slot)
-		end)
-		
-		slot.MouseLeave:Connect(function()
-			-- Smooth background color reset
-			TweenService:Create(slot, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-				BackgroundColor3 = UI_CONFIG.COLOR_SLOT
-			}):Play()
-			
-			-- Reset stroke
-			local stroke = slot:FindFirstChildOfClass("UIStroke")
-			if stroke then
-				TweenService:Create(stroke, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
-					Color = getRarityColor(item.Rarity),
-					Thickness = 1.5
-				}):Play()
-			end
-			
-			-- Clear hover tooltip
-			clearHoverTooltip()
-		end)
 	end
+
+	grid.CanvasSize = UDim2.new(0, 0, 0, math.max(0, grid:FindFirstChild("GridLayout").AbsoluteContentSize.Y + 10))
+	return finish()
 end
 
 --------------------------------------------------------------------------------
@@ -856,97 +662,176 @@ local function createBackpackHUD()
 	screen.Name = "BackpackHUD"
 	screen.ResetOnSpawn = false
 	screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
-	
+
 	local panel = Instance.new("Frame")
 	panel.Name = "MainPanel"
 	panel.Size = UDim2.new(0, UI_CONFIG.PANEL_WIDTH, 0, UI_CONFIG.PANEL_HEIGHT)
 	panel.Position = UDim2.new(0.5, 0, 0.5, 0)
 	panel.AnchorPoint = Vector2.new(0.5, 0.5)
 	panel.BackgroundColor3 = UI_CONFIG.COLOR_PANEL
+	panel.BorderSizePixel = 0
 	panel.Visible = false
 	panel.Parent = screen
 	addCorner(panel, UI_CONFIG.CORNER_RADIUS)
-	addStroke(panel, Color3.fromRGB(60,60,80), 2)
-	
-	-- Header
-	local header = Instance.new("Frame")
-	header.Size = UDim2.new(1, 0, 0, 50)
-	header.BackgroundTransparency = 1
-	header.Parent = panel
-	
+	addStroke(panel, UI_CONFIG.COLOR_ACCENT, 2)
+
+	local panelGradient = Instance.new("UIGradient")
+	panelGradient.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(20, 20, 34)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(12, 12, 20)),
+	})
+	panelGradient.Rotation = 90
+	panelGradient.Parent = panel
+
+	local titleChip = Instance.new("Frame")
+	titleChip.Name = "TitleChip"
+	titleChip.Size = UDim2.new(0, 340, 0, 52)
+	titleChip.Position = UDim2.new(0, 16, 0, 12)
+	titleChip.BackgroundColor3 = Color3.fromRGB(98, 26, 184)
+	titleChip.BorderSizePixel = 0
+	titleChip.Parent = panel
+	addCorner(titleChip, 10)
+	addStroke(titleChip, Color3.fromRGB(175, 120, 255), 1.4)
+
 	local title = Instance.new("TextLabel")
-	title.Text = "INVENTORY"
-	title.Font = Enum.Font.GothamBold
-	title.TextSize = 24
-	title.TextColor3 = UI_CONFIG.COLOR_TEXT
-	title.Size = UDim2.new(1, -60, 1, 0)
-	title.Position = UDim2.new(0, 20, 0, 0)
-	title.TextXAlignment = Enum.TextXAlignment.Left
 	title.BackgroundTransparency = 1
-	title.Parent = header
-	
+	title.Size = UDim2.new(1, -16, 1, 0)
+	title.Position = UDim2.new(0, 10, 0, 0)
+	title.Text = "INVENTORY"
+	title.TextColor3 = Color3.new(1, 1, 1)
+	title.TextSize = 34
+	title.Font = Enum.Font.GothamBlack
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.Parent = titleChip
+
 	local closeBtn = Instance.new("TextButton")
-	closeBtn.Text = "✕"
-	closeBtn.TextSize = 24
-	closeBtn.TextColor3 = Color3.fromRGB(200, 80, 80)
-	closeBtn.Size = UDim2.new(0, 40, 0, 40)
-	closeBtn.Position = UDim2.new(1, -50, 0, 5)
-	closeBtn.BackgroundTransparency = 1
-	closeBtn.Font = Enum.Font.GothamBold
-	closeBtn.Parent = header
+	closeBtn.Name = "CloseButton"
+	closeBtn.Size = UDim2.new(0, 46, 0, 46)
+	closeBtn.Position = UDim2.new(1, -60, 0, 16)
+	closeBtn.BackgroundColor3 = UI_CONFIG.COLOR_CLOSE
+	closeBtn.Text = "X"
+	closeBtn.TextSize = 22
+	closeBtn.TextColor3 = Color3.new(1, 1, 1)
+	closeBtn.Font = Enum.Font.GothamBlack
+	closeBtn.Parent = panel
+	addCorner(closeBtn, 10)
+	addStroke(closeBtn, Color3.fromRGB(120, 20, 30), 1.2)
 	closeBtn.MouseButton1Click:Connect(function()
 		BackpackVisible = false
 		panel.Visible = false
 		local popup = screen:FindFirstChild("DetailPopup")
 		if popup then popup:Destroy() end
 	end)
-	
-	-- Filter Tabs
+
+	local search = Instance.new("TextBox")
+	search.Name = "SearchBox"
+	search.Size = UDim2.new(0, 360, 0, 34)
+	search.Position = UDim2.new(0, 16, 0, 76)
+	search.BackgroundColor3 = UI_CONFIG.COLOR_SEARCH_BG
+	search.BorderSizePixel = 0
+	search.PlaceholderText = "Search..."
+	search.Text = ""
+	search.ClearTextOnFocus = false
+	search.TextColor3 = UI_CONFIG.COLOR_TEXT
+	search.PlaceholderColor3 = UI_CONFIG.COLOR_TEXT_DIM
+	search.TextSize = 16
+	search.Font = Enum.Font.Gotham
+	search.TextXAlignment = Enum.TextXAlignment.Left
+	search.Parent = panel
+	addCorner(search, 8)
+	addStroke(search, Color3.fromRGB(65, 65, 95), 1)
+
 	local tabsFrame = Instance.new("Frame")
-	tabsFrame.Size = UDim2.new(1, -40, 0, 36)
-	tabsFrame.Position = UDim2.new(0, 20, 0, 50)
-	tabsFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+	tabsFrame.Name = "Tabs"
+	tabsFrame.Size = UDim2.new(0, 400, 0, 34)
+	tabsFrame.Position = UDim2.new(1, -416, 0, 76)
+	tabsFrame.BackgroundTransparency = 1
 	tabsFrame.Parent = panel
-	addCorner(tabsFrame, 8)
-	
+
 	local tabLayout = Instance.new("UIListLayout")
 	tabLayout.FillDirection = Enum.FillDirection.Horizontal
+	tabLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	tabLayout.Padding = UDim.new(0, 10)
 	tabLayout.Parent = tabsFrame
-	
-	local function createTab(name, filter)
-		local t = Instance.new("TextButton")
-		t.Text = name
-		t.Size = UDim2.new(0.5, 0, 1, 0)
-		t.BackgroundTransparency = 1
-		t.TextColor3 = UI_CONFIG.COLOR_TEXT
-		t.TextSize = 11
-		t.Font = Enum.Font.GothamBold
-		t.Parent = tabsFrame
-		
-		t.MouseButton1Click:Connect(function()
+
+	local function makeTab(name, filter, order)
+		local btn = Instance.new("TextButton")
+		btn.Name = "Tab_" .. filter
+		btn.Size = UDim2.new(0, 145, 1, 0)
+		btn.LayoutOrder = order
+		btn.Text = name
+		btn.TextSize = 14
+		btn.Font = Enum.Font.GothamBold
+		btn.TextColor3 = Color3.fromRGB(235, 235, 245)
+		btn.BackgroundColor3 = UI_CONFIG.COLOR_TAB_IDLE
+		btn.BorderSizePixel = 0
+		btn.Parent = tabsFrame
+		addCorner(btn, 8)
+
+		local function updateTabs()
+			for _, tab in tabsFrame:GetChildren() do
+				if tab:IsA("TextButton") then
+					local isThis = (tab.Name == "Tab_" .. CurrentFilter)
+					tab.BackgroundColor3 = isThis and UI_CONFIG.COLOR_TAB_ACTIVE or UI_CONFIG.COLOR_TAB_IDLE
+					tab.TextColor3 = isThis and Color3.fromRGB(25, 25, 30) or Color3.fromRGB(235, 235, 245)
+				end
+			end
+		end
+
+		btn.MouseButton1Click:Connect(function()
 			CurrentFilter = filter
-			-- Visual update for tabs could go here
+			updateTabs()
 			refreshGrid()
 		end)
+		return btn
 	end
-	
-	createTab("ITEMS", "Storage")
-	createTab("ARTIFACTS", "Artifact")
-	
-	-- Grid Scroll
+
+	local unitsTab = makeTab("UNITS", "Unit", 1)
+	local _itemsTab = makeTab("ITEMS", "Storage", 2)
+	local _artifactTab = makeTab("ARTIFACTS", "Artifact", 3)
+
+	unitsTab.BackgroundColor3 = UI_CONFIG.COLOR_TAB_ACTIVE
+	unitsTab.TextColor3 = Color3.fromRGB(25, 25, 30)
+
+	local infoLabel = Instance.new("TextLabel")
+	infoLabel.Name = "InfoLabel"
+	infoLabel.Size = UDim2.new(1, -32, 0, 18)
+	infoLabel.Position = UDim2.new(0, 16, 0, 118)
+	infoLabel.BackgroundTransparency = 1
+	infoLabel.Text = ""
+	infoLabel.TextColor3 = UI_CONFIG.COLOR_TEXT_DIM
+	infoLabel.TextSize = 12
+	infoLabel.Font = Enum.Font.Gotham
+	infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+	infoLabel.Parent = panel
+
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "Grid"
-	scroll.Size = UDim2.new(1, -40, 1, -110)
-	scroll.Position = UDim2.new(0, 20, 0, 100)
-	scroll.BackgroundTransparency = 1
+	scroll.Size = UDim2.new(1, -32, 1, -162)
+	scroll.Position = UDim2.new(0, 16, 0, 142)
+	scroll.BackgroundColor3 = Color3.fromRGB(11, 11, 20)
+	scroll.BorderSizePixel = 0
 	scroll.ScrollBarThickness = 6
+	scroll.ScrollBarImageColor3 = UI_CONFIG.COLOR_ACCENT
+	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scroll.Parent = panel
-	
-	local gridLayout = Instance.new("UIGridLayout")
-	gridLayout.CellSize = UDim2.new(0, UI_CONFIG.SLOT_SIZE, 0, UI_CONFIG.SLOT_SIZE)
-	gridLayout.CellPadding = UDim2.new(0, UI_CONFIG.GRID_PADDING, 0, UI_CONFIG.GRID_PADDING)
-	gridLayout.Parent = scroll
-	
+	addCorner(scroll, 10)
+	addStroke(scroll, Color3.fromRGB(70, 55, 120), 1)
+
+	-- Persistent layout
+	local layout = Instance.new("UIGridLayout")
+	layout.Name = "GridLayout"
+	layout.CellSize = UDim2.new(0, UI_CONFIG.SLOT_SIZE, 0, UI_CONFIG.SLOT_HEIGHT)
+	layout.CellPadding = UDim2.new(0, UI_CONFIG.GRID_PADDING, 0, UI_CONFIG.GRID_PADDING)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = scroll
+
+	search:GetPropertyChangedSignal("Text"):Connect(function()
+		if BackpackVisible then
+			refreshGrid()
+		end
+	end)
+
 	return screen
 end
 
@@ -955,6 +840,10 @@ end
 --------------------------------------------------------------------------------
 
 local function loadInventory()
+	if not GetUnifiedInventoryFunc then
+		warn("BackpackHUD: Cannot load inventory - GetUnifiedInventory function missing!")
+		return
+	end
 	local items = GetUnifiedInventoryFunc:InvokeServer()
 	if items then
 		CurrentItems = items
@@ -977,8 +866,22 @@ local function toggleBackpack(filterOverride)
 	
 	local panel = BackpackGui:FindFirstChild("MainPanel")
 	panel.Visible = BackpackVisible
+
+	if not BackpackVisible then
+		local popup = BackpackGui:FindFirstChild("DetailPopup")
+		if popup then popup:Destroy() end
+		return
+	end
 	
 	if BackpackVisible then
+		for _, tab in panel:FindFirstChild("Tabs"):GetChildren() do
+			if tab:IsA("TextButton") then
+				local filter = string.gsub(tab.Name, "Tab_", "")
+				local isThis = (filter == CurrentFilter)
+				tab.BackgroundColor3 = isThis and UI_CONFIG.COLOR_TAB_ACTIVE or UI_CONFIG.COLOR_TAB_IDLE
+				tab.TextColor3 = isThis and Color3.fromRGB(25, 25, 30) or Color3.fromRGB(235, 235, 245)
+			end
+		end
 		loadInventory()
 	end
 end
@@ -992,28 +895,36 @@ if not BackpackToggleEvent then
 end
 BackpackToggleEvent.Event:Connect(toggleBackpack)
 
--- Listen for updates from Server-side InventoryService? 
--- The plan said "InventoryChanged" (Units) and "ArtifactDropped" (Artifacts).
--- Let's listen to those and re-fetch if Backpack is open.
-
+-- Listen for updates from Server-side InventoryService
 local function onUpdate()
 	if BackpackVisible then
 		loadInventory()
 	end
 end
 
-local InventoryChanged = RemoteEvents:FindFirstChild("InventoryChanged")
-if InventoryChanged then InventoryChanged.OnClientEvent:Connect(onUpdate) end
+if InventoryChangedEvent then InventoryChangedEvent.OnClientEvent:Connect(onUpdate) end
 
 local ArtifactDropped = RemoteEvents:FindFirstChild("ArtifactDropped")
 if ArtifactDropped then ArtifactDropped.OnClientEvent:Connect(onUpdate) end
+local ArtifactEquipped = RemoteEvents:FindFirstChild("ArtifactEquipped")
+if ArtifactEquipped then ArtifactEquipped.OnClientEvent:Connect(onUpdate) end
 
--- Listen for storage updates to refresh when in Storage tab
-StorageUpdatedEvent.OnClientEvent:Connect(function()
-	if BackpackVisible and CurrentFilter == "Storage" then
-		refreshGrid()
-	end
-end)
+-- Listen for storage updates
+if StorageUpdatedEvent then
+	StorageUpdatedEvent.OnClientEvent:Connect(function()
+		if BackpackVisible and CurrentFilter == "Storage" then
+			refreshGrid()
+		end
+	end)
+end
 
--- Wait for storage updates
--- Event handler is above
+-- Consume ItemProduced event to drain the queue warning
+if ItemProducedEvent then
+	ItemProducedEvent.OnClientEvent:Connect(function(_producedItems)
+		-- For now, just drain the queue to avoid exhaustion warnings
+	end)
+end
+
+print("✓ [BackpackHUD] Client script fully loaded and ready")
+
+

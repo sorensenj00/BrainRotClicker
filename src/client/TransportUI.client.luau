@@ -687,54 +687,30 @@ CartUpdateEvent.OnClientEvent:Connect(function(state, inventory, capacity)
 	end
 end)
 
--- Keyboard toggle (T key)
-UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then return end
-	
-	if input.KeyCode == Enum.KeyCode.T then
-		if isOpen then
-			closeUI()
-		else
-			openUI()
-		end
+-- Toggle via HUD button
+local StorageToggleEvent = ReplicatedStorage:FindFirstChild("StorageToggleEvent")
+if not StorageToggleEvent then
+	StorageToggleEvent = Instance.new("BindableEvent")
+	StorageToggleEvent.Name = "StorageToggleEvent"
+	StorageToggleEvent.Parent = ReplicatedStorage
+end
+
+StorageToggleEvent.Event:Connect(function()
+	if isOpen then
+		closeUI()
+	else
+		openUI()
 	end
 end)
 
--- Toggle via HUD button
-local StorageToggleEvent = ReplicatedStorage:WaitForChild("StorageToggleEvent", 5)
-if StorageToggleEvent then
-	StorageToggleEvent.Event:Connect(function()
+-- Toggle via ProximityPrompt
+ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
+	if player == LocalPlayer and CollectionService:HasTag(prompt, "TransportCartPrompt") then
 		if isOpen then
 			closeUI()
 		else
 			openUI()
 		end
-	end)
-end
-
--- Cart Proximity Prompt integration
-local function setupPromptListener(prompt)
-	if not prompt:IsA("ProximityPrompt") then return end
-	prompt.Triggered:Connect(function(playerWhoTriggered)
-		if playerWhoTriggered == LocalPlayer then
-			if isOpen then
-				closeUI()
-			else
-				openUI()
-			end
-		end
-	end)
-end
-
-CollectionService:GetInstanceAddedSignal("TransportCartPrompt"):Connect(setupPromptListener)
-for _, prompt in CollectionService:GetTagged("TransportCartPrompt") do
-	setupPromptListener(prompt)
-end
-
--- Fallback for world prompts that are not tagged yet (ex: placed kiosk prompts).
-ProximityPromptService.PromptTriggered:Connect(function(prompt, playerWhoTriggered)
-	if playerWhoTriggered == LocalPlayer and prompt.Name == "TransportCartPrompt" then
-		openUI()
 	end
 end)
 
@@ -751,7 +727,7 @@ local function initialize()
 	createCartPanel(mainFrame) -- Changed from createBackpackPanel
 	createBottomBar(mainFrame)
 	
-	print("✓ TransportUI initialized - Press T to open")
+	print("✓ TransportUI initialized - Use HUD Button to open")
 end
 
 initialize()

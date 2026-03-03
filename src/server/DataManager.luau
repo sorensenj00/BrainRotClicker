@@ -38,7 +38,6 @@ local function getDefaultData()
 		-- convenienceUpgrades = {}, -- Migrated
 		-- brainrotPlacements = {},  -- Migrated
 		-- itemStorage = {},         -- Migrated
-		-- backpack = {},            -- Migrated
 		-- storageCapacity = 2000,   -- Migrated
 		-- selectedVehicle = "Sneakers", -- Migrated
 		-- vehicleCapacities = {},   -- Migrated
@@ -142,14 +141,6 @@ local function gatherPlayerData(player: Player): any
 		lifetimeEarnings = 0,
 		unlockProgress = unlockProgress,
 		purchasedTiers = purchasedTiers,
-		-- convenienceUpgrades = convenienceUpgrades, -- Migrated
-		-- GridPlacements = gridPositions, -- Migrated
-		-- ItemStorage = itemStorage, -- Migrated
-		-- Backpack = backpack, -- Migrated
-		-- storageCapacity = storageCapacity, -- Migrated
-		-- selectedVehicle = selectedVehicle, -- Migrated
-		-- vehicleCapacities = vehicleCapacities, -- Migrated
-		-- discoveredSynergies = discoveredSynergies, -- Migrated
 	}
 end
 
@@ -298,14 +289,13 @@ function DataManager.ResetPlayerData(player, keepPrestigeData)
 	ds.SetComponentData(player, "Inventory", {})
 	ds.SetComponentData(player, "Artifacts", {})
 	
-	-- Reset Item Storage (Silos and Backpack)
+	-- Reset Item Storage (Silos)
 	local ItemStorageManager = rawget(Services, "ItemStorageManager")
 	if ItemStorageManager and ItemStorageManager.ResetPlayerStorage then
 		ItemStorageManager.ResetPlayerStorage(player)
 	else
 		-- Fallback if manager not available
 		ds.SetComponentData(player, "ItemStorage", {})
-		ds.SetComponentData(player, "Backpack", {})
 	end
 
 	-- Reset Grid (Units and Tiles)
@@ -328,7 +318,6 @@ function DataManager.ResetPlayerData(player, keepPrestigeData)
 		Prestige = true, 
 		Artifacts = true, 
 		ItemStorage = true, 
-		Backpack = true,
 		GridPlacements = true
 	}
 	for k, _ in pairs(currentData) do

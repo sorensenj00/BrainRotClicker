@@ -60,11 +60,26 @@ end
 -- DataService (Lazy Loaded via Services)
 local DataService -- Will be set from Services.DataService
 
--- Events
+-- Remotes
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
-local InventoryChangedEvent = RemoteEvents:FindFirstChild("InventoryChanged") or Instance.new("RemoteEvent")
-InventoryChangedEvent.Name = "InventoryChanged"
-InventoryChangedEvent.Parent = RemoteEvents
+local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
+
+local function getOrCreateRemoteEvent(name: string): RemoteEvent
+	local existing = RemoteEvents:FindFirstChild(name)
+	if existing and existing:IsA("RemoteEvent") then
+		return existing
+	end
+
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = name
+	remote.Parent = RemoteEvents
+	return remote
+end
+
+local InventoryChangedEvent = getOrCreateRemoteEvent("InventoryChanged")
+-- Legacy name kept for old clients still waiting on this remote.
+local InventoryUpdatedEvent = getOrCreateRemoteEvent("InventoryUpdated")
+
 
 -- Component key for DataService
 local COMPONENT_KEY = "Inventory"
@@ -116,9 +131,14 @@ function InventoryManager.Init(services)
 	Services = services or {}
 	
 	-- Create canonical GetInventory RemoteFunction
-	local GetInventoryRemote = RemoteEvents:FindFirstChild("GetInventory") or Instance.new("RemoteFunction")
+	local GetInventoryRemote = RemoteFunctions:FindFirstChild("GetInventory") or Instance.new("RemoteFunction")
 	GetInventoryRemote.Name = "GetInventory"
-	GetInventoryRemote.Parent = RemoteEvents
+	GetInventoryRemote.Parent = RemoteFunctions
+
+	-- Create GetUnifiedInventory RemoteFunction (for BackpackHUD)
+	local GetUnifiedInventoryRemote = RemoteFunctions:FindFirstChild("GetUnifiedInventory") or Instance.new("RemoteFunction")
+	GetUnifiedInventoryRemote.Name = "GetUnifiedInventory"
+	GetUnifiedInventoryRemote.Parent = RemoteFunctions
 	
 	-- Register with DataService
 	local ds = getDataService()
@@ -177,14 +197,7 @@ function InventoryManager.Init(services)
 		return inventory
 	end
 	
-	-- Create GetUnifiedInventory RemoteFunction (for BackpackHUD)
-	local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions") or Instance.new("Folder")
-	RemoteFunctions.Name = "RemoteFunctions"
-	RemoteFunctions.Parent = ReplicatedStorage
-	
-	local GetUnifiedInventoryRemote = RemoteFunctions:FindFirstChild("GetUnifiedInventory") or Instance.new("RemoteFunction")
-	GetUnifiedInventoryRemote.Name = "GetUnifiedInventory"
-	GetUnifiedInventoryRemote.Parent = RemoteFunctions
+	-- GetUnifiedInventory handler is now defined above
 	
 	-- Unified inventory handler (returns units + artifacts in format BackpackHUD expects)
 	GetUnifiedInventoryRemote.OnServerInvoke = function(player)
@@ -324,6 +337,7 @@ function InventoryManager.AddUnit(player: Player, unitName: string, level: numbe
 
 	UnitChangedSignal:Fire(player, unitName, newData)
 	InventoryChangedEvent:FireClient(player, unitName, newData)
+	InventoryUpdatedEvent:FireClient(player, unitName, newData)
 
 	return newData
 end

@@ -1114,14 +1114,6 @@ end)
 -- INPUT BINDINGS
 --------------------------------------------------------------------------------
 
--- G keybind
-UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then return end
-	if input.KeyCode == Enum.KeyCode.G then
-		toggleExchange()
-	end
-end)
-
 -- ExchangeToggleEvent (from MoneyHUD bottom bar button)
 local exchangeToggleEvent = ReplicatedStorage:FindFirstChild("ExchangeToggleEvent")
 if not exchangeToggleEvent then

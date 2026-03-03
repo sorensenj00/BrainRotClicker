@@ -103,18 +103,6 @@ end
 local function initializePlayerData(player)
 	PlayerUnlockProgress[player] = ShopConfig.INITIAL_UNLOCKED
 
-	-- Visual folder (Legacy)
-	local ownedFolder = Instance.new("Folder")
-	ownedFolder.Name = "OwnedUnits"
-	ownedFolder.Parent = player
-
-	for unitName, _ in pairs(ShopConfig.Units) do
-		local c = Instance.new("IntValue")
-		c.Name = unitName
-		c.Value = 0
-		c.Parent = ownedFolder
-	end
-
 	local unlockValue = Instance.new("IntValue")
 	unlockValue.Name = "UnlockProgress"
 	unlockValue.Value = ShopConfig.INITIAL_UNLOCKED
@@ -137,13 +125,7 @@ local function deductMoney(player, amount)
 	return false
 end
 
-local function updateLegacyOwnedCount(player, unitName, count)
-	local f = player:FindFirstChild("OwnedUnits")
-	if f then
-		local c = f:FindFirstChild(unitName)
-		if c then c.Value = count end
-	end
-end
+
 
 --------------------------------------------------------------------------------
 -- PUBLIC API & CORE LOGIC
@@ -215,13 +197,8 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	if itemCost then
 		if not ISM then return false, "Storage System Offline" end
 
-		-- Merge storage + backpack into one "have" table
-		local storageItems = ISM.GetStorageContents(player)
-		local backpackItems = ISM.GetBackpackContents(player)
-		local playerItems = {}
-		for itemId, _ in pairs(itemCost) do
-			playerItems[itemId] = (storageItems[itemId] or 0) + (backpackItems[itemId] or 0)
-		end
+		-- Only use storage items
+		local playerItems = ISM.GetStorageContents(player)
 
 		-- Calculate shortfall cost with slippage
 		local maxBuy = MarketConfig.CONFIG.MAX_BUY_PER_TRANSACTION or 100
@@ -254,16 +231,11 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	-- Consume physical items (burn from storage/backpack)
 	if itemCost and ISM then
 		for itemId, needed in pairs(itemCost) do
-			-- Only consume what the player physically has (not the virtual imports)
-			local physicalHave = shortfall and shortfall.perItem[itemId]
+			-- Only consume from storage
+			local toConsume = shortfall and shortfall.perItem[itemId]
 				and math.min(needed, shortfall.perItem[itemId].have) or needed
-			if physicalHave > 0 then
-				local remaining = physicalHave
-				local fromStorage = ISM.RemoveFromStorage(player, itemId, remaining)
-				remaining -= fromStorage
-				if remaining > 0 then
-					ISM.RemoveFromBackpack(player, itemId, remaining)
-				end
+			if toConsume > 0 then
+				ISM.RemoveFromStorage(player, itemId, toConsume)
 			end
 		end
 	end
@@ -283,7 +255,7 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	end
 	local newLevel = newData.level
 
-	updateLegacyOwnedCount(player, unitName, newLevel)
+
 
 	-- Update client
 	local newPrice = ShopConfig.CalculatePrice(unitName, newLevel)
@@ -319,14 +291,7 @@ function ShopManager.SetPlayerData(player, ownedUnits, unlockProgress)
 	local uv = player:FindFirstChild("UnlockProgress")
 	if uv then uv.Value = unlockProgress end
 
-	-- Restore legacy folder visuals
-	local f = player:FindFirstChild("OwnedUnits")
-	if f then
-		for name, count in pairs(ownedUnits) do
-			local c = f:FindFirstChild(name)
-			if c then c.Value = count end
-		end
-	end
+
 
 	UnlockProgressChangedEvent:FireClient(player, unlockProgress)
 
@@ -342,10 +307,7 @@ ShopManager.ResetPlayerData = function(player)
 	PlayerUnlockProgress[player] = ShopConfig.INITIAL_UNLOCKED
 	local uv = player:FindFirstChild("UnlockProgress")
 	if uv then uv.Value = ShopConfig.INITIAL_UNLOCKED end
-	local f = player:FindFirstChild("OwnedUnits")
-	if f then
-		for _, v in pairs(f:GetChildren()) do v.Value = 0 end
-	end
+
 	UnlockProgressChangedEvent:FireClient(player, ShopConfig.INITIAL_UNLOCKED)
 end
 

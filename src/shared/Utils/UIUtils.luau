@@ -1,5 +1,7 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local UIConfig = require(Shared:WaitForChild("UIConfig"))
 
 local UIUtils = {}
 
@@ -16,13 +18,35 @@ function UIUtils.addCorner(inst: Instance, r: any): UICorner
 	return c
 end
 
-function UIUtils.addStroke(inst: Instance, color: Color3?, thick: number?): UIStroke
+function UIUtils.addStroke(inst: Instance, color: Color3?, thick: number?, transparency: number?): UIStroke
 	local s = Instance.new("UIStroke")
 	s.Color = color or Color3.fromRGB(45, 45, 58)
 	s.Thickness = thick or 1
-	s.Transparency = 0.3
+	s.Transparency = transparency or 0.3
 	s.Parent = inst
 	return s
+end
+
+-- Shared Tween Animation Logic
+function UIUtils.openShop(frame: GuiObject)
+	frame.Position = UDim2.new(0.5, 0, 0.5, 50)
+	frame.Size = UDim2.new(0, 0, 0, 0)
+	frame.Visible = true
+	
+	TweenService:Create(frame, UIConfig.TWEEN_INFO.Open, {
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		Size = UDim2.new(0, 800, 0, 600)
+	}):Play()
+end
+
+function UIUtils.closeShop(frame: GuiObject)
+	local tween = TweenService:Create(frame, UIConfig.TWEEN_INFO.Close, {
+		Position = UDim2.new(0.5, 0, 0.5, 50),
+		Size = UDim2.new(0, 0, 0, 0)
+	})
+	tween:Play()
+	tween.Completed:Wait()
+	frame.Visible = false
 end
 
 function UIUtils.decodeItems(encoded: any): any

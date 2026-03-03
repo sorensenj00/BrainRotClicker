@@ -102,23 +102,8 @@ local function updateCartVisuals(cartData)
 	if not promptPart then return end
 	
 	local prompt = promptPart:FindFirstChild("CartPrompt")
-	if not prompt then
-		prompt = Instance.new("ProximityPrompt")
-		prompt.Name = "CartPrompt"
-		prompt.ObjectText = "Transport Cart"
-		prompt.RequiresLineOfSight = false
-		prompt.HoldDuration = 0.5
-		game:GetService("CollectionService"):AddTag(prompt, "TransportCartPrompt")
-		prompt.Parent = promptPart
-	end
-	
-	prompt.Enabled = (cartData.State == "idle" or cartData.State == "at_market")
-	
-	if cartData.State == "idle" or cartData.State == "at_market" then
-		prompt.ActionText = "Manage Cart"
-		prompt.KeyboardKeyCode = Enum.KeyCode.E
-	else
-		prompt.Enabled = false
+	if prompt then
+		prompt:Destroy()
 	end
 end
 

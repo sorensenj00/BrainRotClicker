@@ -1,12 +1,12 @@
 --[[
 	HFTTerminal Client Script (v4.0)
 	
-	High-Frequency Trading Terminal — 2-column Bloomberg-style interface.
+	High-Frequency Trading Terminal - 2-column Bloomberg-style interface.
 	Replaces old 3-column layout. Keybind: M
 	
 	Layout:
-	  Left (40%)   — PORTFOLIO (Storage Holdings, Cash, Portfolio Value)
-	  Right (60%)  — INSPECTOR & TRADING (Item detail, Local/Global prices,
+	  Left (40%)   - PORTFOLIO (Storage Holdings, Cash, Portfolio Value)
+	  Right (60%)  - INSPECTOR & TRADING (Item detail, Local/Global prices,
 	                 Arbitrage alerts, BUY/SELL with quantity multipliers)
 ]]
 
@@ -44,30 +44,28 @@ local CartController = require(script.Parent:WaitForChild("Controllers"):WaitFor
 --------------------------------------------------------------------------------
 
 local C = {
-	bg         = Color3.fromRGB(10, 10, 14),
-	panel      = Color3.fromRGB(18, 18, 24),
-	panelLight = Color3.fromRGB(26, 26, 34),
-	card       = Color3.fromRGB(22, 22, 30),
-	border     = Color3.fromRGB(45, 45, 58),
-	amber      = Color3.fromRGB(255, 182, 39),
-	amberDim   = Color3.fromRGB(180, 130, 30),
-	green      = Color3.fromRGB(0, 255, 136),
-	greenDim   = Color3.fromRGB(0, 180, 100),
-	greenBg    = Color3.fromRGB(15, 50, 35),
-	red        = Color3.fromRGB(255, 51, 51),
-	redDim     = Color3.fromRGB(180, 40, 40),
-	redBg      = Color3.fromRGB(50, 15, 15),
-	cyan       = Color3.fromRGB(0, 200, 255),
-	white      = Color3.fromRGB(230, 230, 235),
-	muted      = Color3.fromRGB(100, 100, 118),
-	dimBg      = Color3.fromRGB(30, 30, 40),
-	arbFlash   = Color3.fromRGB(255, 215, 0), -- Gold for arbitrage alert
+	bg = Color3.fromRGB(15, 10, 20),
+	panel = Color3.fromRGB(25, 20, 35),
+	card = Color3.fromRGB(35, 30, 50),
+	header = Color3.fromRGB(110, 40, 180),
+	border = Color3.fromRGB(50, 40, 70),
+	green = Color3.fromRGB(30, 215, 95),
+	red = Color3.fromRGB(245, 50, 50),
+	gold = Color3.fromRGB(255, 190, 50),
 }
 
 local FONT_MONO = Enum.Font.RobotoMono
 local FONT_BOLD = Enum.Font.GothamBold
 local FONT_REG  = Enum.Font.Gotham
 local PAD       = 10
+
+local C_WHITE = Color3.fromRGB(240, 240, 245)
+local C_MUTED = Color3.fromRGB(145, 145, 168)
+local C_DIM_BG = Color3.fromRGB(22, 18, 30)
+local C_CYAN = Color3.fromRGB(80, 190, 255)
+local C_ARB_FLASH = Color3.fromRGB(255, 210, 120)
+local C_OWNED_BG = Color3.fromRGB(15, 35, 20)
+local C_SEARCH_PLACEHOLDER = Color3.fromRGB(170, 160, 195)
 
 local MAX_BUY = MarketConfig.CONFIG.MAX_BUY_PER_TRANSACTION or 100
 local ARB_THRESHOLD = MarketConfig.CONFIG.ARBITRAGE_ALERT_THRESHOLD or 0.15
@@ -91,6 +89,11 @@ local itemHistories = {}        -- {[itemId] = {number}}
 local sectorHistories = {}      -- {[sector] = {number}}
 local inspectedItem = nil       -- Currently selected item for trading
 local selectedQty = 1           -- Current quantity multiplier
+local assetSearchQuery = ""
+local assetSearchBox
+local rowDefaultColors = {}     -- {[rowName] = Color3}
+local rowFlashDebounce = {}     -- {[rowName] = boolean}
+local prevLocalPrices = {}      -- {[itemId] = number}
 
 -- UI refs
 local screenGui, mainFrame
@@ -113,7 +116,7 @@ local decodeItems = UIUtils.decodeItems
 local function makeLabel(parent, props)
 	local l = Instance.new("TextLabel")
 	l.BackgroundTransparency = 1
-	l.TextColor3 = props.Color or C.white
+	l.TextColor3 = props.Color or C_WHITE
 	l.Font = props.Font or FONT_REG
 	l.TextSize = props.Size or 14
 	l.TextXAlignment = props.XAlign or Enum.TextXAlignment.Left
@@ -124,6 +127,49 @@ local function makeLabel(parent, props)
 	if props.Position then l.Position = props.Position end
 	l.Parent = parent
 	return l
+end
+
+local function matchesAssetSearch(itemId: string, displayName: string): boolean
+	if assetSearchQuery == "" then return true end
+	local needle = string.lower(assetSearchQuery)
+	local byName = string.find(string.lower(displayName), needle, 1, true) ~= nil
+	local byId = string.find(string.lower(itemId), needle, 1, true) ~= nil
+	return byName or byId
+end
+
+local function applyRowVisualState(row, isOwned, isSelected)
+	local stroke = row:FindFirstChild("OwnedStroke")
+	local baseColor = isOwned and C_OWNED_BG or C.card
+	if isSelected then
+		baseColor = isOwned and Color3.fromRGB(20, 50, 30) or Color3.fromRGB(50, 42, 65)
+	end
+	rowDefaultColors[row.Name] = baseColor
+	row.BackgroundColor3 = baseColor
+	if stroke and stroke:IsA("UIStroke") then
+		if isOwned then
+			stroke.Enabled = true
+			stroke.Color = C.green
+			stroke.Transparency = 0
+		else
+			stroke.Enabled = false
+			stroke.Transparency = 1
+		end
+	end
+end
+
+local function flashRow(row: TextButton, wentUp: boolean)
+	if rowFlashDebounce[row.Name] then return end
+	rowFlashDebounce[row.Name] = true
+
+	local flashColor = wentUp and Color3.fromRGB(36, 90, 56) or Color3.fromRGB(95, 35, 40)
+	local baseColor = rowDefaultColors[row.Name] or row.BackgroundColor3
+	TweenService:Create(row, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {BackgroundColor3 = flashColor}):Play()
+	task.delay(0.12, function()
+		TweenService:Create(row, TweenInfo.new(0.18, Enum.EasingStyle.Quad), {BackgroundColor3 = baseColor}):Play()
+		task.delay(0.2, function()
+			rowFlashDebounce[row.Name] = nil
+		end)
+	end)
 end
 
 
@@ -251,28 +297,28 @@ local function createContainer()
 	mainFrame.BorderSizePixel = 0
 	mainFrame.Visible = false
 	mainFrame.Parent = screenGui
-	addCorner(mainFrame, UDim.new(0, 8))
-	addStroke(mainFrame, C.border, 2)
+	addCorner(mainFrame, UDim.new(0, 12))
+	addStroke(mainFrame, C.header, 2)
 
 	-- Top bar
 	local topBar = Instance.new("Frame")
 	topBar.Name = "TopBar"
 	topBar.Size = UDim2.new(1, 0, 0, 38)
-	topBar.BackgroundColor3 = C.panel
+	topBar.BackgroundColor3 = C.header
 	topBar.BorderSizePixel = 0
 	topBar.Parent = mainFrame
-	addCorner(topBar, UDim.new(0, 8))
+	addCorner(topBar, UDim.new(0, 10))
 
 	makeLabel(topBar, {
-		Name = "Title", Text = "⚡ HFT TERMINAL v4.0",
-		Color = C.amber, Font = FONT_BOLD, Size = 15,
+		Name = "Title", Text = "HFT TERMINAL v4.0",
+		Color = C_WHITE, Font = FONT_BOLD, Size = 15,
 		UDim2Size = UDim2.new(0, 300, 1, 0),
 		Position = UDim2.new(0, 14, 0, 0),
 	})
 
 	local statusLabel = makeLabel(topBar, {
-		Name = "Status", Text = "● MARKET LIVE",
-		Color = C.green, Font = FONT_MONO, Size = 12,
+		Name = "Status", Text = utf8.char(0x25CF) .. " MARKET LIVE",
+		Color = C_WHITE, Font = FONT_MONO, Size = 12,
 		UDim2Size = UDim2.new(0, 200, 1, 0),
 		Position = UDim2.new(0.5, -100, 0, 0),
 		XAlign = Enum.TextXAlignment.Center,
@@ -280,7 +326,7 @@ local function createContainer()
 
 	makeLabel(topBar, {
 		Name = "RateName", Text = "",
-		Color = C.muted, Font = FONT_MONO, Size = 11,
+		Color = C_WHITE, Font = FONT_MONO, Size = 11,
 		UDim2Size = UDim2.new(0, 200, 1, 0),
 		Position = UDim2.new(1, -260, 0, 0),
 		XAlign = Enum.TextXAlignment.Right,
@@ -288,16 +334,16 @@ local function createContainer()
 
 	local closeBtn = Instance.new("TextButton")
 	closeBtn.Name = "Close"
-	closeBtn.Size = UDim2.new(0, 32, 0, 26)
-	closeBtn.Position = UDim2.new(1, -42, 0, 6)
+	closeBtn.Size = UDim2.new(0, 36, 0, 36)
+	closeBtn.Position = UDim2.new(1, -44, 0, 1)
 	closeBtn.BackgroundColor3 = C.red
-	closeBtn.BackgroundTransparency = 0.4
-	closeBtn.Text = "✕"
-	closeBtn.TextColor3 = C.white
-	closeBtn.TextSize = 14
+	closeBtn.BackgroundTransparency = 0
+	closeBtn.Text = "X"
+	closeBtn.TextColor3 = Color3.new(1, 1, 1)
+	closeBtn.TextSize = 18
 	closeBtn.Font = FONT_BOLD
 	closeBtn.Parent = topBar
-	addCorner(closeBtn)
+	addCorner(closeBtn, UDim.new(0, 8))
 
 	-- Content area
 	local content = Instance.new("Frame")
@@ -311,7 +357,7 @@ local function createContainer()
 end
 
 --------------------------------------------------------------------------------
--- LEFT COLUMN — PORTFOLIO
+-- LEFT COLUMN - PORTFOLIO
 --------------------------------------------------------------------------------
 
 local portfolioLiquidLabel, portfolioAssetsLabel
@@ -324,13 +370,13 @@ local function createLeftColumn(parent)
 	col.BackgroundColor3 = C.panel
 	col.BorderSizePixel = 0
 	col.Parent = parent
-	addCorner(col)
-	addStroke(col)
+	addCorner(col, UDim.new(0, 10))
+	addStroke(col, C.border, 1.5)
 
 	-- Header
 	makeLabel(col, {
-		Name = "Header", Text = "🛒 CART INVENTORY",
-		Color = C.amber, Font = FONT_BOLD, Size = 14,
+		Name = "Header", Text = "ORDER BOOK",
+		Color = C.gold, Font = FONT_BOLD, Size = 14,
 		UDim2Size = UDim2.new(1, -12, 0, 28),
 		Position = UDim2.new(0, 8, 0, 6),
 	})
@@ -340,30 +386,31 @@ local function createLeftColumn(parent)
 	statsBar.Name = "StatsBar"
 	statsBar.Size = UDim2.new(1, -16, 0, 48)
 	statsBar.Position = UDim2.new(0, 8, 0, 34)
-	statsBar.BackgroundColor3 = C.bg
+	statsBar.BackgroundColor3 = C_DIM_BG
 	statsBar.BorderSizePixel = 0
 	statsBar.Parent = col
 	addCorner(statsBar, UDim.new(0, 4))
+	addStroke(statsBar, C.border, 1)
 
-	makeLabel(statsBar, { Name = "LblCash", Text = "LIQUID CASH", Color = C.muted, Font = FONT_BOLD, Size = 9,
+	makeLabel(statsBar, { Name = "LblCash", Text = "LIQUID CASH", Color = C_MUTED, Font = FONT_BOLD, Size = 9,
 		UDim2Size = UDim2.new(0.5, 0, 0, 13), Position = UDim2.new(0, 8, 0, 5) })
 	portfolioLiquidLabel = makeLabel(statsBar, { Name = "ValCash", Text = "$0", Color = C.green, Font = FONT_MONO, Size = 15,
 		UDim2Size = UDim2.new(0.5, 0, 0, 22), Position = UDim2.new(0, 8, 0, 20) })
 
-	makeLabel(statsBar, { Name = "LblPortfolio", Text = "PORTFOLIO VALUE", Color = C.muted, Font = FONT_BOLD, Size = 9,
+	makeLabel(statsBar, { Name = "LblPortfolio", Text = "PORTFOLIO VALUE", Color = C_MUTED, Font = FONT_BOLD, Size = 9,
 		UDim2Size = UDim2.new(0.5, -8, 0, 13), Position = UDim2.new(0.5, 0, 0, 5), XAlign = Enum.TextXAlignment.Right })
-	portfolioAssetsLabel = makeLabel(statsBar, { Name = "ValPortfolio", Text = "$0", Color = C.amber, Font = FONT_MONO, Size = 15,
+	portfolioAssetsLabel = makeLabel(statsBar, { Name = "ValPortfolio", Text = "$0", Color = C.gold, Font = FONT_MONO, Size = 15,
 		UDim2Size = UDim2.new(0.5, -8, 0, 22), Position = UDim2.new(0.5, 0, 0, 20), XAlign = Enum.TextXAlignment.Right })
 
 	-- Capacity bar (now shows CART capacity)
-	makeLabel(col, { Name = "CapLabel", Text = "CART CAPACITY", Color = C.muted, Font = FONT_BOLD, Size = 9,
+	makeLabel(col, { Name = "CapLabel", Text = "CART CAPACITY", Color = C_MUTED, Font = FONT_BOLD, Size = 9,
 		UDim2Size = UDim2.new(1, -16, 0, 12), Position = UDim2.new(0, 8, 0, 88) })
 
 	local capFrame = Instance.new("Frame")
 	capFrame.Name = "CapBar"
 	capFrame.Size = UDim2.new(1, -16, 0, 14)
 	capFrame.Position = UDim2.new(0, 8, 0, 102)
-	capFrame.BackgroundColor3 = C.dimBg
+	capFrame.BackgroundColor3 = C_DIM_BG
 	capFrame.BorderSizePixel = 0
 	capFrame.Parent = col
 	addCorner(capFrame, UDim.new(0, 4))
@@ -371,12 +418,12 @@ local function createLeftColumn(parent)
 	local capFill = Instance.new("Frame")
 	capFill.Name = "Fill"
 	capFill.Size = UDim2.new(0, 0, 1, 0)
-	capFill.BackgroundColor3 = C.amber
+	capFill.BackgroundColor3 = C.gold
 	capFill.BorderSizePixel = 0
 	capFill.Parent = capFrame
 	addCorner(capFill, UDim.new(0, 4))
 
-	stoCapText = makeLabel(capFrame, { Name = "Text", Text = "0/0", Color = C.white, Font = FONT_MONO, Size = 9,
+	stoCapText = makeLabel(capFrame, { Name = "Text", Text = "0/0", Color = C_WHITE, Font = FONT_MONO, Size = 9,
 		UDim2Size = UDim2.new(1, 0, 1, 0), XAlign = Enum.TextXAlignment.Center })
 	stoCapFill = capFill
 
@@ -385,33 +432,56 @@ local function createLeftColumn(parent)
 	cartStatusBanner.Name = "CartStatusBanner"
 	cartStatusBanner.Size = UDim2.new(1, -8, 0, 24)
 	cartStatusBanner.Position = UDim2.new(0, 4, 0, 122)
-	cartStatusBanner.BackgroundColor3 = C.dimBg
+	cartStatusBanner.BackgroundColor3 = C_DIM_BG
 	cartStatusBanner.BorderSizePixel = 0
 	cartStatusBanner.Parent = col
 	addCorner(cartStatusBanner, UDim.new(0, 4))
 
 	local bannerText = makeLabel(cartStatusBanner, {
-		Name = "BannerText", Text = "🔴 CART AT PLOT",
-		Color = C.muted, Font = FONT_MONO, Size = 10,
+		Name = "BannerText", Text = "CART AT PLOT",
+		Color = C_MUTED, Font = FONT_MONO, Size = 10,
 		UDim2Size = UDim2.new(1, 0, 1, 0),
 		XAlign = Enum.TextXAlignment.Center,
 	})
 	bannerText.TextXAlignment = Enum.TextXAlignment.Center
 
+	assetSearchBox = Instance.new("TextBox")
+	assetSearchBox.Name = "SearchBar"
+	assetSearchBox.Size = UDim2.new(1, -8, 0, 30)
+	assetSearchBox.Position = UDim2.new(0, 4, 0, 150)
+	assetSearchBox.BackgroundColor3 = C.card
+	assetSearchBox.BorderSizePixel = 0
+	assetSearchBox.ClearTextOnFocus = false
+	assetSearchBox.PlaceholderText = utf8.char(0x1F50D) .. " Search assets..."
+	assetSearchBox.PlaceholderColor3 = C_SEARCH_PLACEHOLDER
+	assetSearchBox.Text = ""
+	assetSearchBox.TextColor3 = C_WHITE
+	assetSearchBox.TextSize = 14
+	assetSearchBox.Font = FONT_REG
+	assetSearchBox.Parent = col
+	addCorner(assetSearchBox, UDim.new(0, 8))
+	addStroke(assetSearchBox, C.border, 1)
+
+	assetSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+		assetSearchQuery = string.lower(string.gsub(assetSearchBox.Text or "", "^%s*(.-)%s*$", "%1"))
+		updateLeftColumn()
+	end)
+
 	-- Scrolling cart item list
 	local scroll = Instance.new("ScrollingFrame")
 	scroll.Name = "AssetList"
-	scroll.Size = UDim2.new(1, -8, 1, -154)
-	scroll.Position = UDim2.new(0, 4, 0, 150)
+	scroll.Size = UDim2.new(1, -8, 1, -188)
+	scroll.Position = UDim2.new(0, 4, 0, 184)
 	scroll.BackgroundTransparency = 1
 	scroll.ScrollBarThickness = 3
-	scroll.ScrollBarImageColor3 = C.amber
+	scroll.ScrollBarImageColor3 = C.gold
 	scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
 	scroll.BorderSizePixel = 0
 	scroll.Parent = col
 
 	local layout = Instance.new("UIListLayout")
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
 	layout.Padding = UDim.new(0, 2)
 	layout.Parent = scroll
 
@@ -419,7 +489,7 @@ local function createLeftColumn(parent)
 	return col
 end
 
---------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- ASSET ROW (Left Column)
 --------------------------------------------------------------------------------
 
@@ -431,33 +501,41 @@ local function getOrCreateAssetRow(parent, index)
 	row = Instance.new("TextButton")
 	row.Name = rowName
 	row.Size = UDim2.new(1, -4, 0, 30)
-	row.BackgroundTransparency = 0.2
+	row.BackgroundTransparency = 0
 	row.BorderSizePixel = 0
 	row.Text = ""
 	row.AutoButtonColor = false
 	row.LayoutOrder = index
 	row.Parent = parent
-	addCorner(row, UDim.new(0, 4))
+	addCorner(row, UDim.new(0, 8))
+
+	local ownedStroke = Instance.new("UIStroke")
+	ownedStroke.Name = "OwnedStroke"
+	ownedStroke.Enabled = false
+	ownedStroke.Color = C.green
+	ownedStroke.Thickness = 1.2
+	ownedStroke.Transparency = 1
+	ownedStroke.Parent = row
 
 	-- Icon
 	makeLabel(row, { Name = "Icon", Text = "?", Font = FONT_REG, Size = 12,
 		UDim2Size = UDim2.new(0, 18, 1, 0), Position = UDim2.new(0, 5, 0, 0) })
 
 	-- Name
-	makeLabel(row, { Name = "ItemName", Text = "Item", Color = C.white, Font = FONT_REG, Size = 10,
+	makeLabel(row, { Name = "ItemName", Text = "Item", Color = C_WHITE, Font = FONT_REG, Size = 10,
 		UDim2Size = UDim2.new(1, -130, 1, 0), Position = UDim2.new(0, 24, 0, 0) })
 
 	-- Qty
-	makeLabel(row, { Name = "Qty", Text = "×0", Color = C.amber, Font = FONT_MONO, Size = 10,
+	makeLabel(row, { Name = "Qty", Text = "x0", Color = C.gold, Font = FONT_MONO, Size = 10,
 		UDim2Size = UDim2.new(0, 35, 1, 0), Position = UDim2.new(1, -100, 0, 0), XAlign = Enum.TextXAlignment.Right })
 
 	-- Price
-	makeLabel(row, { Name = "Price", Text = "$0", Color = C.muted, Font = FONT_MONO, Size = 10,
+	makeLabel(row, { Name = "Price", Text = "$0", Color = C_MUTED, Font = FONT_MONO, Size = 10,
 		UDim2Size = UDim2.new(0, 60, 1, 0), Position = UDim2.new(1, -60, 0, 0), XAlign = Enum.TextXAlignment.Right })
 
 	-- Arb indicator
-	local arbDot = makeLabel(row, { Name = "ArbDot", Text = "⚡", Font = FONT_REG, Size = 10,
-		Color = C.arbFlash, UDim2Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -4, 0, 0) })
+	local arbDot = makeLabel(row, { Name = "ArbDot", Text = "!", Font = FONT_REG, Size = 10,
+		Color = C_ARB_FLASH, UDim2Size = UDim2.new(0, 14, 1, 0), Position = UDim2.new(1, -4, 0, 0) })
 	arbDot.Visible = false
 
 	local idValue = Instance.new("StringValue")
@@ -469,27 +547,53 @@ local function getOrCreateAssetRow(parent, index)
 		if id and id.Value ~= "" then
 			inspectedItem = id.Value
 			updateInspector()
+			updateLeftColumn()
 		end
 	end)
 
 	row.MouseEnter:Connect(function()
-		TweenService:Create(row, TweenInfo.new(0.12), {BackgroundTransparency = 0}):Play()
+		local base = rowDefaultColors[row.Name] or row.BackgroundColor3
+		local hover = base:Lerp(Color3.new(1, 1, 1), 0.06)
+		TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = hover}):Play()
 	end)
 	row.MouseLeave:Connect(function()
-		TweenService:Create(row, TweenInfo.new(0.12), {BackgroundTransparency = 0.2}):Play()
+		local base = rowDefaultColors[row.Name] or row.BackgroundColor3
+		TweenService:Create(row, TweenInfo.new(0.12), {BackgroundColor3 = base}):Play()
 	end)
 
 	return row
 end
 
-local function updateAssetRow(row, itemId, count)
+local function createOrUpdateSectionLabel(parent: ScrollingFrame, labelName: string, text: string, layoutOrder: number, color: Color3?)
+	local section = parent:FindFirstChild(labelName)
+	if not section then
+		section = Instance.new("TextLabel")
+		section.Name = labelName
+		section.Size = UDim2.new(1, -4, 0, 20)
+		section.BackgroundTransparency = 1
+		section.TextColor3 = color or C.gold
+		section.TextSize = 11
+		section.Font = FONT_BOLD
+		section.TextXAlignment = Enum.TextXAlignment.Left
+		section.Parent = parent
+	end
+	section.LayoutOrder = layoutOrder
+	section.Text = text
+	section.TextColor3 = color or C.gold
+	section.Visible = true
+	return section
+end
+
+local function updateAssetRow(row, itemId, count, cartCount, storageCount)
 	local itemInfo = ItemConfig.Items[itemId] or {}
 	local isArb = isArbOpportunity(itemId)
+	local isOwned = count > 0
+	local isSelected = inspectedItem == itemId
 
 	local idValue = row:FindFirstChild("ItemId")
 	if idValue then idValue.Value = itemId end
 
-	row.BackgroundColor3 = isArb and Color3.fromRGB(40, 35, 15) or C.dimBg
+	applyRowVisualState(row, isOwned, isSelected)
 	row.Visible = true
 
 	local icon = row:FindFirstChild("Icon")
@@ -499,21 +603,47 @@ local function updateAssetRow(row, itemId, count)
 	if name then name.Text = itemInfo.displayName or itemId end
 
 	local qty = row:FindFirstChild("Qty")
-	if qty then qty.Text = "×" .. count end
+	if qty then
+		if count > 0 then
+			qty.Text = string.format("x%d", count)
+			qty.TextColor3 = C.green
+		else
+			qty.Text = "x0"
+			qty.TextColor3 = C.gold
+		end
+	end
 
 	local price = row:FindFirstChild("Price")
 	if price then price.Text = formatMoney(getLocalPrice(itemId)) end
 
 	local arbDot = row:FindFirstChild("ArbDot")
 	if arbDot then arbDot.Visible = isArb end
+
+	row:SetAttribute("CartCount", cartCount or 0)
+	row:SetAttribute("StorageCount", storageCount or 0)
 end
 
---------------------------------------------------------------------------------
--- RIGHT COLUMN — INSPECTOR & TRADING
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
+-- RIGHT COLUMN - INSPECTOR & TRADING
 --------------------------------------------------------------------------------
 
 local inspectorFrame
 local itemSparkline = nil
+
+local function wireHoverGrow(btn: TextButton, baseSize: UDim2, basePos: UDim2, growPx: number)
+	btn.MouseEnter:Connect(function()
+		TweenService:Create(btn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {
+			Size = UDim2.new(baseSize.X.Scale, baseSize.X.Offset + growPx, baseSize.Y.Scale, baseSize.Y.Offset + growPx),
+			Position = UDim2.new(basePos.X.Scale, basePos.X.Offset - math.floor(growPx / 2), basePos.Y.Scale, basePos.Y.Offset - math.floor(growPx / 2)),
+		}):Play()
+	end)
+	btn.MouseLeave:Connect(function()
+		TweenService:Create(btn, TweenInfo.new(0.12, Enum.EasingStyle.Quad), {
+			Size = baseSize,
+			Position = basePos,
+		}):Play()
+	end)
+end
 
 local function createRightColumn(parent)
 	local col = Instance.new("Frame")
@@ -523,13 +653,13 @@ local function createRightColumn(parent)
 	col.BackgroundColor3 = C.panel
 	col.BorderSizePixel = 0
 	col.Parent = parent
-	addCorner(col)
-	addStroke(col)
+	addCorner(col, UDim.new(0, 10))
+	addStroke(col, C.border, 1.5)
 
 	-- Header
 	makeLabel(col, {
-		Name = "Header", Text = "🎯 TRADING INSPECTOR",
-		Color = C.amber, Font = FONT_BOLD, Size = 14,
+		Name = "Header", Text = "TRADING INSPECTOR",
+		Color = C.gold, Font = FONT_BOLD, Size = 14,
 		UDim2Size = UDim2.new(1, -12, 0, 28),
 		Position = UDim2.new(0, 8, 0, 6),
 	})
@@ -542,55 +672,103 @@ local function createRightColumn(parent)
 	inspector.BackgroundTransparency = 1
 	inspector.Parent = col
 
+	local watermark = makeLabel(inspector, {
+		Name = "Watermark", Text = utf8.char(0x1F4C8),
+		Color = C_WHITE, Font = FONT_BOLD, Size = 150,
+		UDim2Size = UDim2.new(1, 0, 1, 0),
+		XAlign = Enum.TextXAlignment.Center,
+	})
+	watermark.ZIndex = 1
+	watermark.TextTransparency = 0.9
+	watermark.TextYAlignment = Enum.TextYAlignment.Center
+
 	-- Placeholder text (shown when no item selected)
-	makeLabel(inspector, {
-		Name = "Placeholder", Text = "← Select an item from your portfolio to inspect",
-		Color = C.muted, Font = FONT_REG, Size = 14,
+	local placeholder = makeLabel(inspector, {
+		Name = "Placeholder", Text = "Select an item from your order book",
+		Color = C_MUTED, Font = FONT_BOLD, Size = 14,
 		UDim2Size = UDim2.new(1, 0, 0, 40),
 		Position = UDim2.new(0, 0, 0.4, 0),
 		XAlign = Enum.TextXAlignment.Center,
 	})
+	placeholder.ZIndex = 2
 
 	-- Item title
-	makeLabel(inspector, { Name = "ItemName", Text = "", Color = C.white, Font = FONT_BOLD, Size = 22,
+	local itemName = makeLabel(inspector, { Name = "ItemName", Text = "", Color = C_WHITE, Font = FONT_BOLD, Size = 22,
 		UDim2Size = UDim2.new(1, 0, 0, 30), Position = UDim2.new(0, 0, 0, 0) })
+	itemName.ZIndex = 2
 
 	-- LOCAL PRICE (big)
-	makeLabel(inspector, { Name = "LblLocalPrice", Text = "LOCAL PRICE", Color = C.muted, Font = FONT_BOLD, Size = 9,
+	makeLabel(inspector, { Name = "LblLocalPrice", Text = "LOCAL PRICE", Color = C_MUTED, Font = FONT_BOLD, Size = 9,
 		UDim2Size = UDim2.new(0.5, 0, 0, 12), Position = UDim2.new(0, 0, 0, 34) })
-	makeLabel(inspector, { Name = "LocalPrice", Text = "$0", Color = C.amber, Font = FONT_MONO, Size = 36,
+	makeLabel(inspector, { Name = "LocalPrice", Text = "$0", Color = C.gold, Font = FONT_MONO, Size = 36,
 		UDim2Size = UDim2.new(0.5, 0, 0, 42), Position = UDim2.new(0, 0, 0, 48) })
 
 	-- GLOBAL PRICE (smaller, next to local)
-	makeLabel(inspector, { Name = "LblGlobalPrice", Text = "GLOBAL PRICE", Color = C.muted, Font = FONT_BOLD, Size = 9,
+	makeLabel(inspector, { Name = "LblGlobalPrice", Text = "GLOBAL PRICE", Color = C_MUTED, Font = FONT_BOLD, Size = 9,
 		UDim2Size = UDim2.new(0.3, 0, 0, 12), Position = UDim2.new(0.5, 10, 0, 34) })
-	makeLabel(inspector, { Name = "GlobalPrice", Text = "$0", Color = C.cyan, Font = FONT_MONO, Size = 20,
+	makeLabel(inspector, { Name = "GlobalPrice", Text = "$0", Color = C_CYAN, Font = FONT_MONO, Size = 20,
 		UDim2Size = UDim2.new(0.3, 0, 0, 24), Position = UDim2.new(0.5, 10, 0, 50) })
 
-	-- Sector + Rate info
-	makeLabel(inspector, { Name = "SectorInfo", Text = "", Color = C.muted, Font = FONT_MONO, Size = 11,
+	makeLabel(inspector, { Name = "SectorInfo", Text = "", Color = C_MUTED, Font = FONT_MONO, Size = 11,
 		UDim2Size = UDim2.new(0.5, 0, 0, 16), Position = UDim2.new(0.5, 10, 0, 76) })
+
+	local spreadPill = Instance.new("Frame")
+	spreadPill.Name = "SpreadPill"
+	spreadPill.Size = UDim2.new(0, 170, 0, 24)
+	spreadPill.Position = UDim2.new(1, -170, 0, 96)
+	spreadPill.BackgroundColor3 = C.card
+	spreadPill.BorderSizePixel = 0
+	spreadPill.Parent = inspector
+	addCorner(spreadPill, UDim.new(1, 0))
+
+	makeLabel(spreadPill, {
+		Name = "SpreadLabel", Text = "Spread 0.0%",
+		Color = C_WHITE, Font = FONT_MONO, Size = 12,
+		UDim2Size = UDim2.new(1, 0, 1, 0),
+		XAlign = Enum.TextXAlignment.Center,
+	})
 
 	-- ARBITRAGE ALERT
 	local arbAlert = makeLabel(inspector, {
-		Name = "ArbAlert", Text = "⚡ ARBITRAGE OPPORTUNITY ⚡",
-		Color = C.arbFlash, Font = FONT_BOLD, Size = 14,
+		Name = "ArbAlert", Text = "ARBITRAGE OPPORTUNITY",
+		Color = C_ARB_FLASH, Font = FONT_BOLD, Size = 14,
 		UDim2Size = UDim2.new(1, 0, 0, 22),
 		Position = UDim2.new(0, 0, 0, 96),
 		XAlign = Enum.TextXAlignment.Center,
 	})
 	arbAlert.Visible = false
 
-	-- Sparkline
+	-- Sparkline monitor
+	local graphContainer = Instance.new("Frame")
+	graphContainer.Name = "GraphContainer"
+	graphContainer.Size = UDim2.new(1, 0, 0, 100)
+	graphContainer.Position = UDim2.new(0, 0, 0, 122)
+	graphContainer.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+	graphContainer.BorderSizePixel = 0
+	graphContainer.Parent = inspector
+	addCorner(graphContainer, UDim.new(0, 8))
+	addStroke(graphContainer, C.border, 1)
+
+	for i = 1, 3 do
+		local gridLine = Instance.new("Frame")
+		gridLine.Name = "GridLine_" .. i
+		gridLine.Size = UDim2.new(1, -12, 0, 1)
+		gridLine.Position = UDim2.new(0, 6, i / 4, 0)
+		gridLine.BackgroundColor3 = Color3.fromRGB(80, 80, 95)
+		gridLine.BackgroundTransparency = 0.8
+		gridLine.BorderSizePixel = 0
+		gridLine.ZIndex = 1
+		gridLine.Parent = graphContainer
+	end
+
 	local graphFrame = Instance.new("Frame")
 	graphFrame.Name = "GraphFrame"
-	graphFrame.Size = UDim2.new(1, 0, 0, 100)
-	graphFrame.Position = UDim2.new(0, 0, 0, 122)
-	graphFrame.BackgroundColor3 = C.bg
-	graphFrame.BackgroundTransparency = 0.5
+	graphFrame.Size = UDim2.new(1, -8, 1, -8)
+	graphFrame.Position = UDim2.new(0, 4, 0, 4)
+	graphFrame.BackgroundTransparency = 1
 	graphFrame.BorderSizePixel = 0
-	graphFrame.Parent = inspector
-	addCorner(graphFrame, UDim.new(0, 4))
+	graphFrame.ZIndex = 2
+	graphFrame.Parent = graphContainer
 
 	task.spawn(function()
 		local spark = SparklineRenderer.new(graphFrame, Vector2.new(512, 120))
@@ -600,9 +778,9 @@ local function createRightColumn(parent)
 	end)
 
 	-- Position info
-	makeLabel(inspector, { Name = "LblPosition", Text = "YOUR POSITION", Color = C.amberDim, Font = FONT_BOLD, Size = 9,
+	makeLabel(inspector, { Name = "LblPosition", Text = "YOUR POSITION", Color = C.gold, Font = FONT_BOLD, Size = 9,
 		UDim2Size = UDim2.new(1, 0, 0, 12), Position = UDim2.new(0, 0, 0, 228) })
-	makeLabel(inspector, { Name = "PosText", Text = "", Color = C.white, Font = FONT_MONO, Size = 12,
+	makeLabel(inspector, { Name = "PosText", Text = "", Color = C_WHITE, Font = FONT_MONO, Size = 12,
 		UDim2Size = UDim2.new(1, 0, 0, 18), Position = UDim2.new(0, 0, 0, 242) })
 
 	-- ========== TRADING SECTION ==========
@@ -613,40 +791,45 @@ local function createRightColumn(parent)
 	tradingFrame.BackgroundTransparency = 1
 	tradingFrame.Parent = inspector
 
-	-- Quantity selector
-	makeLabel(tradingFrame, { Name = "LblQty", Text = "QUANTITY", Color = C.muted, Font = FONT_BOLD, Size = 9,
-		UDim2Size = UDim2.new(1, 0, 0, 12), Position = UDim2.new(0, 0, 0, 0) })
+	makeLabel(tradingFrame, { Name = "TradeState", Text = "CART NOT AT MARKET - TRADING DISABLED", Color = C.red, Font = FONT_BOLD, Size = 10,
+		UDim2Size = UDim2.new(1, 0, 0, 12), Position = UDim2.new(0, 0, 0, 0), XAlign = Enum.TextXAlignment.Left })
+	makeLabel(tradingFrame, { Name = "CartItemQty", Text = "In cart: 0", Color = C_MUTED, Font = FONT_MONO, Size = 10,
+		UDim2Size = UDim2.new(1, 0, 0, 12), Position = UDim2.new(0, 0, 0, 12), XAlign = Enum.TextXAlignment.Left })
+
+	makeLabel(tradingFrame, { Name = "LblQty", Text = "QUANTITY", Color = C_MUTED, Font = FONT_BOLD, Size = 9,
+		UDim2Size = UDim2.new(1, 0, 0, 12), Position = UDim2.new(0, 0, 0, 24) })
 
 	local qtyRow = Instance.new("Frame")
 	qtyRow.Name = "QtyRow"
 	qtyRow.Size = UDim2.new(1, 0, 0, 34)
-	qtyRow.Position = UDim2.new(0, 0, 0, 14)
+	qtyRow.Position = UDim2.new(0, 0, 0, 38)
 	qtyRow.BackgroundTransparency = 1
 	qtyRow.Parent = tradingFrame
 
 	local qtyButtons = {}
-	local qtyValues = {1, 10, 50, -1} -- -1 = MAX
-	local qtyLabels = {"×1", "×10", "×50", "MAX"}
+	local qtyValues = {1, 10, -1} -- -1 = MAX
+	local qtyLabels = {"x1", "x10", "MAX"}
 
 	for i, val in ipairs(qtyValues) do
 		local btn = Instance.new("TextButton")
 		btn.Name = "Qty_" .. qtyLabels[i]
-		btn.Size = UDim2.new(0.24, -4, 1, 0)
-		btn.Position = UDim2.new((i-1) * 0.25, 2, 0, 0)
-		btn.BackgroundColor3 = (val == 1) and C.amber or C.dimBg
+		btn.Size = UDim2.new(1 / #qtyValues, -4, 1, 0)
+		btn.Position = UDim2.new((i-1) / #qtyValues, 2, 0, 0)
+		btn.BackgroundColor3 = (val == 1) and C.gold or C.card
 		btn.Text = qtyLabels[i]
-		btn.TextColor3 = (val == 1) and C.bg or C.white
+		btn.TextColor3 = (val == 1) and C.bg or C_WHITE
 		btn.TextSize = 13
-		btn.Font = FONT_BOLD
+		btn.Font = FONT_MONO
 		btn.AutoButtonColor = false
 		btn.Parent = qtyRow
-		addCorner(btn, UDim.new(0, 4))
+		addCorner(btn, UDim.new(0, 8))
+		addStroke(btn, C.border, 1)
 
 		btn.MouseButton1Click:Connect(function()
 			selectedQty = val
 			for j, ob in ipairs(qtyButtons) do
-				ob.BackgroundColor3 = (qtyValues[j] == val) and C.amber or C.dimBg
-				ob.TextColor3 = (qtyValues[j] == val) and C.bg or C.white
+				ob.BackgroundColor3 = (qtyValues[j] == val) and C.gold or C.card
+				ob.TextColor3 = (qtyValues[j] == val) and C.bg or C_WHITE
 			end
 			updateInspector()
 		end)
@@ -658,18 +841,18 @@ local function createRightColumn(parent)
 	local buyFrame = Instance.new("Frame")
 	buyFrame.Name = "BuyFrame"
 	buyFrame.Size = UDim2.new(0.48, 0, 0, 110)
-	buyFrame.Position = UDim2.new(0, 0, 0, 54)
-	buyFrame.BackgroundColor3 = C.greenBg
+	buyFrame.Position = UDim2.new(0, 0, 0, 78)
+	buyFrame.BackgroundColor3 = C.card
 	buyFrame.BorderSizePixel = 0
 	buyFrame.Parent = tradingFrame
-	addCorner(buyFrame)
-	addStroke(buyFrame, C.greenDim)
+	addCorner(buyFrame, UDim.new(0, 8))
+	addStroke(buyFrame, C.border, 1)
 
 	makeLabel(buyFrame, { Name = "LblBuy", Text = "BUY", Color = C.green, Font = FONT_BOLD, Size = 11,
 		UDim2Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 8, 0, 4) })
-	makeLabel(buyFrame, { Name = "BuyQty", Text = "0 items", Color = C.white, Font = FONT_MONO, Size = 12,
+	makeLabel(buyFrame, { Name = "BuyQty", Text = "0 items", Color = C_WHITE, Font = FONT_MONO, Size = 12,
 		UDim2Size = UDim2.new(1, -16, 0, 16), Position = UDim2.new(0, 8, 0, 22) })
-	makeLabel(buyFrame, { Name = "BuyCost", Text = "Cost: $0", Color = C.muted, Font = FONT_MONO, Size = 11,
+	makeLabel(buyFrame, { Name = "BuyCost", Text = "Cost: $0", Color = C_MUTED, Font = FONT_MONO, Size = 11,
 		UDim2Size = UDim2.new(1, -16, 0, 14), Position = UDim2.new(0, 8, 0, 40) })
 
 	local buyBtn = Instance.new("TextButton")
@@ -677,30 +860,31 @@ local function createRightColumn(parent)
 	buyBtn.Size = UDim2.new(1, -16, 0, 34)
 	buyBtn.Position = UDim2.new(0, 8, 1, -42)
 	buyBtn.BackgroundColor3 = C.green
-	buyBtn.Text = "⬆ BUY"
-	buyBtn.TextColor3 = C.bg
+	buyBtn.Text = "BUY"
+	buyBtn.TextColor3 = Color3.new(0, 0, 0)
 	buyBtn.TextSize = 14
 	buyBtn.Font = FONT_BOLD
-	buyBtn.AutoButtonColor = true
+	buyBtn.AutoButtonColor = false
 	buyBtn.Parent = buyFrame
-	addCorner(buyBtn, UDim.new(0, 4))
+	addCorner(buyBtn, UDim.new(0, 8))
+	wireHoverGrow(buyBtn, buyBtn.Size, buyBtn.Position, 2)
 
 	-- SELL section
 	local sellFrame = Instance.new("Frame")
 	sellFrame.Name = "SellFrame"
 	sellFrame.Size = UDim2.new(0.48, 0, 0, 110)
-	sellFrame.Position = UDim2.new(0.52, 0, 0, 54)
-	sellFrame.BackgroundColor3 = C.redBg
+	sellFrame.Position = UDim2.new(0.52, 0, 0, 78)
+	sellFrame.BackgroundColor3 = C.card
 	sellFrame.BorderSizePixel = 0
 	sellFrame.Parent = tradingFrame
-	addCorner(sellFrame)
-	addStroke(sellFrame, C.redDim)
+	addCorner(sellFrame, UDim.new(0, 8))
+	addStroke(sellFrame, C.border, 1)
 
 	makeLabel(sellFrame, { Name = "LblSell", Text = "SELL", Color = C.red, Font = FONT_BOLD, Size = 11,
 		UDim2Size = UDim2.new(1, 0, 0, 16), Position = UDim2.new(0, 8, 0, 4) })
-	makeLabel(sellFrame, { Name = "SellQty", Text = "0 items", Color = C.white, Font = FONT_MONO, Size = 12,
+	makeLabel(sellFrame, { Name = "SellQty", Text = "0 items", Color = C_WHITE, Font = FONT_MONO, Size = 12,
 		UDim2Size = UDim2.new(1, -16, 0, 16), Position = UDim2.new(0, 8, 0, 22) })
-	makeLabel(sellFrame, { Name = "SellEarn", Text = "Earn: $0", Color = C.muted, Font = FONT_MONO, Size = 11,
+	makeLabel(sellFrame, { Name = "SellEarn", Text = "Earn: $0", Color = C_MUTED, Font = FONT_MONO, Size = 11,
 		UDim2Size = UDim2.new(1, -16, 0, 14), Position = UDim2.new(0, 8, 0, 40) })
 
 	local sellBtn = Instance.new("TextButton")
@@ -708,13 +892,14 @@ local function createRightColumn(parent)
 	sellBtn.Size = UDim2.new(1, -16, 0, 34)
 	sellBtn.Position = UDim2.new(0, 8, 1, -42)
 	sellBtn.BackgroundColor3 = C.red
-	sellBtn.Text = "⬇ SELL"
-	sellBtn.TextColor3 = C.white
+	sellBtn.Text = "SELL"
+	sellBtn.TextColor3 = C_WHITE
 	sellBtn.TextSize = 14
 	sellBtn.Font = FONT_BOLD
-	sellBtn.AutoButtonColor = true
+	sellBtn.AutoButtonColor = false
 	sellBtn.Parent = sellFrame
-	addCorner(sellBtn, UDim.new(0, 4))
+	addCorner(sellBtn, UDim.new(0, 8))
+	wireHoverGrow(sellBtn, sellBtn.Size, sellBtn.Position, 2)
 
 	-- Wire BUY button (cart-based)
 	buyBtn.MouseButton1Click:Connect(function()
@@ -724,7 +909,7 @@ local function createRightColumn(parent)
 		if qty <= 0 then return end
 		buyBtn.Text = "..."
 		local bought, _cost = BuyToCartFunction:InvokeServer(inspectedItem, qty)
-		buyBtn.Text = "⬆ BUY"
+		buyBtn.Text = "BUY"
 		if bought and bought > 0 then
 			task.spawn(fetchData)
 			task.wait(0.1)
@@ -741,7 +926,7 @@ local function createRightColumn(parent)
 		if qty <= 0 then return end
 		sellBtn.Text = "..."
 		local sold, _earned = SellFromCartFunction:InvokeServer(inspectedItem, qty)
-		sellBtn.Text = "⬇ SELL"
+		sellBtn.Text = "SELL"
 		if sold and sold > 0 then
 			task.spawn(fetchData)
 			task.wait(0.1)
@@ -755,7 +940,7 @@ local function createRightColumn(parent)
 	return col
 end
 
---------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- QUANTITY CALCULATION
 --------------------------------------------------------------------------------
 
@@ -795,18 +980,21 @@ function updateInspector()
 	if not inspectorFrame then return end
 
 	local placeholder = inspectorFrame:FindFirstChild("Placeholder")
+	local watermark = inspectorFrame:FindFirstChild("Watermark")
 	local itemName = inspectorFrame:FindFirstChild("ItemName")
 	local localPriceLabel = inspectorFrame:FindFirstChild("LocalPrice")
 	local globalPriceLabel = inspectorFrame:FindFirstChild("GlobalPrice")
 	local sectorInfo = inspectorFrame:FindFirstChild("SectorInfo")
 	local arbAlert = inspectorFrame:FindFirstChild("ArbAlert")
+	local spreadPill = inspectorFrame:FindFirstChild("SpreadPill")
 	local posText = inspectorFrame:FindFirstChild("PosText")
 	local tradingFrame = inspectorFrame:FindFirstChild("TradingFrame")
 
 	if not inspectedItem then
 		if placeholder then placeholder.Visible = true end
+		if watermark then watermark.Visible = true end
 		for _, child in inspectorFrame:GetChildren() do
-			if child.Name ~= "Placeholder" and child:IsA("GuiObject") then
+			if child.Name ~= "Placeholder" and child.Name ~= "Watermark" and child:IsA("GuiObject") then
 				child.Visible = false
 			end
 		end
@@ -815,84 +1003,154 @@ function updateInspector()
 
 	-- Show all inspector elements
 	if placeholder then placeholder.Visible = false end
+	if watermark then watermark.Visible = false end
 	for _, child in inspectorFrame:GetChildren() do
-		if child:IsA("GuiObject") then child.Visible = true end
+		if child:IsA("GuiObject") and child.Name ~= "Placeholder" and child.Name ~= "Watermark" then
+			child.Visible = true
+		end
 	end
 
 	local itemInfo = ItemConfig.Items[inspectedItem] or {}
 	local localPrice = getLocalPrice(inspectedItem)
 	local globalPrice = getGlobalPrice(inspectedItem)
 	local localRate = getLocalRate(inspectedItem)
+	local globalRate = getGlobalRate(inspectedItem)
 	local sector = getItemSector(inspectedItem)
 	local isArb = isArbOpportunity(inspectedItem)
-	local owned = cartInventory[inspectedItem] or 0
+	local ownedInCart = cartInventory[inspectedItem] or 0
+	local ownedInStorage = currentStorage[inspectedItem] or 0
 
 	-- Item name
 	if itemName then
 		itemName.Text = (itemInfo.icon or "") .. " " .. (itemInfo.displayName or inspectedItem)
 	end
 
-	-- Local price (big, prominent)
 	if localPriceLabel then
 		localPriceLabel.Text = formatMoney(localPrice)
-		localPriceLabel.TextColor3 = C.amber
+		localPriceLabel.TextColor3 = C.gold
+		localPriceLabel.Font = FONT_MONO
 	end
 
-	-- Global price (smaller)
 	if globalPriceLabel then
 		globalPriceLabel.Text = formatMoney(globalPrice)
+		globalPriceLabel.Font = FONT_MONO
 	end
 
-	-- Sector info
 	if sectorInfo then
-		sectorInfo.Text = string.format("SECTOR: %s | RATE: ×%.2f", string.upper(sector), localRate)
+		sectorInfo.Text = string.format("SECTOR: %s | RATE: x%.2f", string.upper(sector), localRate)
 		sectorInfo.TextColor3 = localRate >= 1.0 and C.green or C.red
+		sectorInfo.Font = FONT_MONO
 	end
 
-	-- Arbitrage alert
+	if spreadPill and spreadPill:IsA("Frame") then
+		local spreadLabel = spreadPill:FindFirstChild("SpreadLabel")
+		local spreadPct = 0
+		if globalRate ~= 0 then
+			spreadPct = ((localRate / globalRate) - 1) * 100
+		end
+		if spreadPct > 0 then
+			spreadPill.BackgroundColor3 = C.red
+			if spreadLabel and spreadLabel:IsA("TextLabel") then
+				spreadLabel.TextColor3 = C_WHITE
+			end
+		elseif spreadPct < 0 then
+			spreadPill.BackgroundColor3 = C.green
+			if spreadLabel and spreadLabel:IsA("TextLabel") then
+				spreadLabel.TextColor3 = Color3.new(0, 0, 0)
+			end
+		else
+			spreadPill.BackgroundColor3 = C.card
+			if spreadLabel and spreadLabel:IsA("TextLabel") then
+				spreadLabel.TextColor3 = C_WHITE
+			end
+		end
+		if spreadLabel and spreadLabel:IsA("TextLabel") then
+			spreadLabel.Text = string.format("Spread %+.2f%%", spreadPct)
+			spreadLabel.Font = FONT_MONO
+		end
+	end
+
 	if arbAlert then
 		arbAlert.Visible = isArb
 		if isArb then
 			local deviation = ((getLocalRate(inspectedItem) / getGlobalRate(inspectedItem)) - 1) * 100
 			local direction = deviation > 0 and "OVERPRICED" or "UNDERPRICED"
-			arbAlert.Text = string.format("⚡ ARBITRAGE: %s by %+.1f%% ⚡", direction, deviation)
+			arbAlert.Text = string.format("ARBITRAGE: %s by %+.1f%%", direction, deviation)
 		end
 	end
 
-	-- Position
 	if posText then
 		local basePrice = itemInfo.basePrice or 1
-		local value = owned * localPrice
-		posText.Text = string.format("You own: %d  |  Value: %s  |  Base: %s",
-			owned, formatMoney(value), formatMoney(basePrice))
+		local totalOwned = ownedInCart + ownedInStorage
+		local value = totalOwned * localPrice
+		posText.Text = string.format("Cart: %d  |  Storage: %d  |  Value: %s  |  Base: %s",
+			ownedInCart, ownedInStorage, formatMoney(value), formatMoney(basePrice))
+		posText.Font = FONT_MONO
 	end
 
-	-- Sparkline
 	local history = itemHistories[inspectedItem]
 	if itemSparkline and history and #history >= 2 then
 		itemSparkline:Update(history, C.green, C.red)
 	end
 
-	-- Trading section
 	if tradingFrame then
-		local buyQty = getActualBuyQty()
-		local sellQty = getActualSellQty()
+		local isAtMarket = (cartState == "at_market")
+		local inCart = ownedInCart
+		local buyQty = isAtMarket and getActualBuyQty() or 0
+		local sellQty = isAtMarket and getActualSellQty() or 0
 		local buyCost = buyQty * localPrice
 		local sellEarn = sellQty * localPrice
 
+		local tradeStateLabel = tradingFrame:FindFirstChild("TradeState")
+		local cartItemQtyLabel = tradingFrame:FindFirstChild("CartItemQty")
 		local buyQtyLabel = tradingFrame:FindFirstChild("BuyFrame") and tradingFrame.BuyFrame:FindFirstChild("BuyQty")
 		local buyCostLabel = tradingFrame:FindFirstChild("BuyFrame") and tradingFrame.BuyFrame:FindFirstChild("BuyCost")
+		local buyBtn = tradingFrame:FindFirstChild("BuyFrame") and tradingFrame.BuyFrame:FindFirstChild("BuyBtn")
 		local sellQtyLabel = tradingFrame:FindFirstChild("SellFrame") and tradingFrame.SellFrame:FindFirstChild("SellQty")
 		local sellEarnLabel = tradingFrame:FindFirstChild("SellFrame") and tradingFrame.SellFrame:FindFirstChild("SellEarn")
+		local sellBtn = tradingFrame:FindFirstChild("SellFrame") and tradingFrame.SellFrame:FindFirstChild("SellBtn")
+
+		if tradeStateLabel and tradeStateLabel:IsA("TextLabel") then
+			if isAtMarket then
+				tradeStateLabel.Text = "CART AT MARKET - TRADING ENABLED"
+				tradeStateLabel.TextColor3 = C.green
+			else
+				tradeStateLabel.Text = "CART NOT AT MARKET - TRADING DISABLED"
+				tradeStateLabel.TextColor3 = C.red
+			end
+		end
+
+		if cartItemQtyLabel and cartItemQtyLabel:IsA("TextLabel") then
+			cartItemQtyLabel.Text = string.format("In cart: %d", inCart)
+		end
 
 		if buyQtyLabel then buyQtyLabel.Text = buyQty .. " items" end
 		if buyCostLabel then buyCostLabel.Text = "Cost: " .. formatMoney(buyCost) end
 		if sellQtyLabel then sellQtyLabel.Text = sellQty .. " items" end
 		if sellEarnLabel then sellEarnLabel.Text = "Earn: " .. formatMoney(sellEarn) end
+
+		local canBuy = isAtMarket and buyQty > 0
+		local canSell = isAtMarket and sellQty > 0
+
+		if buyBtn and buyBtn:IsA("TextButton") then
+			buyBtn.Active = canBuy
+			buyBtn.AutoButtonColor = canBuy
+			buyBtn.BackgroundColor3 = canBuy and C.green or Color3.fromRGB(60, 90, 65)
+			buyBtn.Text = canBuy and "BUY" or "BUY (UNAVAILABLE)"
+			buyBtn.TextColor3 = canBuy and Color3.new(0, 0, 0) or C_WHITE
+		end
+
+		if sellBtn and sellBtn:IsA("TextButton") then
+			sellBtn.Active = canSell
+			sellBtn.AutoButtonColor = canSell
+			sellBtn.BackgroundColor3 = canSell and C.red or Color3.fromRGB(95, 50, 55)
+			sellBtn.Text = canSell and "SELL" or "SELL (UNAVAILABLE)"
+			sellBtn.TextColor3 = C_WHITE
+		end
 	end
 end
 
---------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- UPDATE FUNCTIONS
 --------------------------------------------------------------------------------
 
@@ -903,68 +1161,167 @@ function updateLeftColumn()
 	for _, child in leftScroll:GetChildren() do
 		if child:IsA("TextButton") and string.match(child.Name, "^AssetRow_") then
 			child.Visible = false
+		elseif child:IsA("TextLabel") and (child.Name == "SectionMarket" or child.Name == "SectionOwned" or child.Name == "SectionAll" or child.Name == "SectionEmpty") then
+			child.Visible = false
 		end
 	end
 
-	-- Populate sorted by count (from CART inventory)
-	local sorted = {}
-	-- Iterate through ALL known items instead of just cartInventory
-	for itemId, _ in pairs(globalItemRates) do 
-		local count = cartInventory[itemId] or 0
-		table.insert(sorted, {id = itemId, count = count})
+	local market = {}
+	local owned = {}
+	local unowned = {}
+
+	-- Build from union of market-known + cart + storage so all owned items are represented.
+	local allItemIds = {}
+	for itemId, _ in pairs(globalItemRates) do
+		allItemIds[itemId] = true
 	end
-	
-	-- Sort: Owned items first (by count), then unowned items alphabetically
-	table.sort(sorted, function(a, b) 
-		if a.count ~= b.count then
-			return a.count > b.count 
-		else
+	for itemId, _ in pairs(cartInventory) do
+		allItemIds[itemId] = true
+	end
+	for itemId, _ in pairs(currentStorage) do
+		allItemIds[itemId] = true
+	end
+
+	for itemId, _ in pairs(allItemIds) do
+		local cartCount = cartInventory[itemId] or 0
+		local storageCount = currentStorage[itemId] or 0
+		local ownedCount = cartCount + storageCount
+		local displayName = ((ItemConfig.Items[itemId] or {}).displayName) or itemId
+		if matchesAssetSearch(itemId, displayName) then
+			local entry = {
+				id = itemId,
+				displayName = displayName,
+				cartCount = cartCount,
+				storageCount = storageCount,
+				ownedCount = ownedCount,
+			}
+			if cartCount > 0 and cartState == "at_market" then
+				table.insert(market, entry)
+			elseif ownedCount > 0 then
+				table.insert(owned, entry)
+			else
+				table.insert(unowned, entry)
+			end
+		end
+	end
+
+	local function alphaSort(a, b)
+		if a.displayName == b.displayName then
 			return a.id < b.id
 		end
-	end)
-
-	local totalAssetValue = 0
-	for i, item in ipairs(sorted) do
-		local row = getOrCreateAssetRow(leftScroll, i)
-		updateAssetRow(row, item.id, item.count)
-		totalAssetValue += getLocalPrice(item.id) * item.count
+		return a.displayName < b.displayName
 	end
 
-	-- Update cart capacity bar
+	table.sort(market, alphaSort)
+	table.sort(owned, alphaSort)
+	table.sort(unowned, alphaSort)
+
+	local totalAssetValue = 0
+	local rowPoolIndex = 0
+	local layoutOrder = 0
+
+	if #market > 0 then
+		layoutOrder += 1
+		createOrUpdateSectionLabel(leftScroll, "SectionMarket", string.format("AT MARKET (%d)", #market), layoutOrder, C.green)
+	end
+
+	for _, item in ipairs(market) do
+		rowPoolIndex += 1
+		layoutOrder += 1
+		local row = getOrCreateAssetRow(leftScroll, rowPoolIndex)
+		row.LayoutOrder = layoutOrder
+		-- Market section shows exactly what can be sold right now (cart quantity).
+		updateAssetRow(row, item.id, item.cartCount, item.cartCount, item.storageCount)
+
+		local currentPrice = getLocalPrice(item.id)
+		local previousPrice = prevLocalPrices[item.id]
+		if previousPrice and previousPrice ~= currentPrice then
+			flashRow(row, currentPrice > previousPrice)
+		end
+		prevLocalPrices[item.id] = currentPrice
+
+		totalAssetValue += currentPrice * item.ownedCount
+	end
+
+	if #owned > 0 then
+		layoutOrder += 1
+		createOrUpdateSectionLabel(leftScroll, "SectionOwned", string.format("OWNED (%d)", #owned), layoutOrder)
+	end
+
+	for _, item in ipairs(owned) do
+		rowPoolIndex += 1
+		layoutOrder += 1
+		local row = getOrCreateAssetRow(leftScroll, rowPoolIndex)
+		row.LayoutOrder = layoutOrder
+		updateAssetRow(row, item.id, item.ownedCount, item.cartCount, item.storageCount)
+
+		local currentPrice = getLocalPrice(item.id)
+		local previousPrice = prevLocalPrices[item.id]
+		if previousPrice and previousPrice ~= currentPrice then
+			flashRow(row, currentPrice > previousPrice)
+		end
+		prevLocalPrices[item.id] = currentPrice
+
+		totalAssetValue += currentPrice * item.ownedCount
+	end
+
+	if #unowned > 0 then
+		layoutOrder += 1
+		createOrUpdateSectionLabel(leftScroll, "SectionAll", "ALL ITEMS", layoutOrder)
+	end
+
+	for _, item in ipairs(unowned) do
+		rowPoolIndex += 1
+		layoutOrder += 1
+		local row = getOrCreateAssetRow(leftScroll, rowPoolIndex)
+		row.LayoutOrder = layoutOrder
+		updateAssetRow(row, item.id, 0, item.cartCount, item.storageCount)
+
+		local currentPrice = getLocalPrice(item.id)
+		local previousPrice = prevLocalPrices[item.id]
+		if previousPrice and previousPrice ~= currentPrice then
+			flashRow(row, currentPrice > previousPrice)
+		end
+		prevLocalPrices[item.id] = currentPrice
+	end
+
+	if #market == 0 and #owned == 0 and #unowned == 0 then
+		layoutOrder += 1
+		createOrUpdateSectionLabel(leftScroll, "SectionEmpty", "NO ITEMS MATCH SEARCH", layoutOrder)
+	end
+
 	if stoCapFill then
 		local ratio = math.clamp(cartItemCount / math.max(1, cartCapacity), 0, 1)
 		TweenService:Create(stoCapFill, TweenInfo.new(0.3), {Size = UDim2.new(ratio, 0, 1, 0)}):Play()
-		stoCapFill.BackgroundColor3 = ratio >= 1 and C.red or C.amber
+		stoCapFill.BackgroundColor3 = ratio >= 1 and C.red or C.gold
 	end
 	if stoCapText then
 		stoCapText.Text = string.format("%d/%d", cartItemCount, cartCapacity)
 	end
 
-	-- Update cart status banner
 	if cartStatusBanner then
 		local bt = cartStatusBanner:FindFirstChild("BannerText")
-		if bt then
+		if bt and bt:IsA("TextLabel") then
 			if cartState == "at_market" then
-				bt.Text = "🟢 CART AT MARKET — TRADING ENABLED"
+				bt.Text = "CART AT MARKET - TRADING ENABLED"
 				bt.TextColor3 = C.green
-				cartStatusBanner.BackgroundColor3 = C.greenBg
+				cartStatusBanner.BackgroundColor3 = Color3.fromRGB(20, 55, 30)
 			elseif cartState == "rolling_to_market" then
-				bt.Text = "🟡 CART EN ROUTE TO MARKET..."
-				bt.TextColor3 = C.amber
-				cartStatusBanner.BackgroundColor3 = C.dimBg
+				bt.Text = "CART EN ROUTE TO MARKET..."
+				bt.TextColor3 = C.gold
+				cartStatusBanner.BackgroundColor3 = C_DIM_BG
 			elseif cartState == "rolling_to_plot" then
-				bt.Text = "🟡 CART RETURNING TO PLOT..."
-				bt.TextColor3 = C.amber
-				cartStatusBanner.BackgroundColor3 = C.dimBg
+				bt.Text = "CART RETURNING TO PLOT..."
+				bt.TextColor3 = C.gold
+				cartStatusBanner.BackgroundColor3 = C_DIM_BG
 			else
-				bt.Text = "🔴 CART AT PLOT — SEND TO TRADE"
+				bt.Text = "CART AT PLOT - SEND TO TRADE"
 				bt.TextColor3 = C.red
-				cartStatusBanner.BackgroundColor3 = C.redBg
+				cartStatusBanner.BackgroundColor3 = Color3.fromRGB(55, 20, 25)
 			end
 		end
 	end
 
-	-- Portfolio values
 	if portfolioLiquidLabel then
 		portfolioLiquidLabel.Text = formatMoney(getPlayerMoney())
 	end
@@ -973,7 +1330,7 @@ function updateLeftColumn()
 	end
 end
 
---------------------------------------------------------------------------------
+--------------------------------------------------------------------------------------------------------------------------------------------------------------
 -- DATA FETCHING
 --------------------------------------------------------------------------------
 
@@ -1038,10 +1395,24 @@ local function initialize()
 
 	-- EVENT HANDLERS
 	StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
-		items = decodeItems(items)
-		currentStorage = items or {}
-		storageUsage = total or 0
-		storageCapacity = Player:GetAttribute("StorageCapacity") or capacity or 0
+		-- Some server emitters may send partial deltas; always pull a full snapshot.
+		local ok, freshItems, freshTotal, freshCap = pcall(function()
+			return GetStorageFunction:InvokeServer()
+		end)
+		if ok then
+			currentStorage = decodeItems(freshItems) or {}
+			storageUsage = freshTotal or 0
+			storageCapacity = Player:GetAttribute("StorageCapacity") or freshCap or 0
+		else
+			items = decodeItems(items)
+			currentStorage = items or {}
+			storageUsage = total or 0
+			storageCapacity = Player:GetAttribute("StorageCapacity") or capacity or 0
+		end
+		if isOpen then
+			updateLeftColumn()
+			if inspectedItem then updateInspector() end
+		end
 	end)
 
 	-- Cart state updates (real-time)
@@ -1098,22 +1469,6 @@ local function initialize()
 		if isOpen then closeUI() else openUI() end
 	end)
 
-	-- M key toggle
-	UserInputService.InputBegan:Connect(function(input, processed)
-		if processed then
-			if input.KeyCode == Enum.KeyCode.M then
-				local focus = UserInputService:GetFocusedTextBox()
-				if focus then return end
-			else
-				return
-			end
-		end
-
-		if input.KeyCode == Enum.KeyCode.M then
-			if isOpen then closeUI() else openUI() end
-		end
-	end)
-
 	-- ProximityPrompt (market building & player plot terminals)
 	local ProximityPromptService = game:GetService("ProximityPromptService")
 	ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
@@ -1129,7 +1484,7 @@ local function initialize()
 		local dot = true
 		while true do
 			if statusLabel and isOpen then
-				statusLabel.Text = dot and "● MARKET LIVE" or "○ MARKET LIVE"
+				statusLabel.Text = dot and (utf8.char(0x25CF) .. " MARKET LIVE") or (utf8.char(0x25CB) .. " MARKET LIVE")
 				statusLabel.TextColor3 = C.green
 			end
 			dot = not dot
@@ -1156,7 +1511,16 @@ local function initialize()
 		end
 	end)
 
-	print("✓ HFT Terminal v4.0 initialized — Press M to open")
+	print("HFT Terminal v4.0 initialized - Press M to open")
 end
 
 initialize()
+
+
+
+
+
+
+
+
+

@@ -17,7 +17,7 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
-local UserInputService = game:GetService("UserInputService")
+local _UserInputService = game:GetService("UserInputService")
 
 -- Player reference
 local Player = Players.LocalPlayer
@@ -29,6 +29,50 @@ local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 local ShortfallCalc = require(Shared:WaitForChild("ShortfallCalc"))
 local MarketConfig = require(Shared:WaitForChild("MarketConfig"))
+local UIConfig = require(Shared:WaitForChild("UIConfig"))
+
+UIConfig.PANEL_COLOR = UIConfig.PANEL_COLOR or Color3.fromRGB(35, 30, 45)
+UIConfig.BACKGROUND_COLOR = UIConfig.BACKGROUND_COLOR or Color3.fromRGB(20, 15, 25)
+UIConfig.STROKE_COLOR = UIConfig.STROKE_COLOR or Color3.fromRGB(80, 70, 100)
+UIConfig.SOFT_STROKE_COLOR = UIConfig.SOFT_STROKE_COLOR or Color3.fromRGB(60, 50, 70)
+UIConfig.TITLE_CHIP_COLOR = UIConfig.TITLE_CHIP_COLOR or Color3.fromRGB(50, 40, 65)
+UIConfig.TITLE_CHIP_STROKE = UIConfig.TITLE_CHIP_STROKE or Color3.fromRGB(100, 80, 130)
+UIConfig.TEXT_COLOR = UIConfig.TEXT_COLOR or Color3.fromRGB(255, 255, 255)
+UIConfig.SECONDARY_TEXT_COLOR = UIConfig.SECONDARY_TEXT_COLOR or Color3.fromRGB(200, 200, 200)
+UIConfig.RED_COLOR = UIConfig.RED_COLOR or Color3.fromRGB(210, 55, 65)
+UIConfig.ACCENT_COLOR = UIConfig.ACCENT_COLOR or Color3.fromRGB(150, 100, 255)
+UIConfig.CARD_COLOR = UIConfig.CARD_COLOR or Color3.fromRGB(45, 40, 55)
+UIConfig.CARD_INNER_COLOR = UIConfig.CARD_INNER_COLOR or Color3.fromRGB(35, 30, 45)
+UIConfig.CARD_DISABLED_COLOR = UIConfig.CARD_DISABLED_COLOR or Color3.fromRGB(30, 25, 35)
+UIConfig.CARD_HOVER_COLOR = UIConfig.CARD_HOVER_COLOR or Color3.fromRGB(55, 50, 65)
+UIConfig.CARD_MAXED_COLOR = Color3.fromRGB(60, 50, 80)
+UIConfig.CARD_WIDTH = 150 -- Slightly wider
+UIConfig.CARD_HEIGHT = 320 -- Taller for description and info
+UIConfig.CARD_CORNER_RADIUS = 10
+UIConfig.GRID_PADDING = 14
+UIConfig.BUTTON_COLOR = Color3.fromRGB(150, 100, 255)
+UIConfig.BUTTON_DISABLED_COLOR = Color3.fromRGB(60, 50, 70)
+UIConfig.TWEEN_TIME = 0.3
+UIConfig.SHOP_WIDTH = 900
+UIConfig.SHOP_HEIGHT = 650
+UIConfig.CORNER_RADIUS = 16
+UIConfig.SHOP_PADDING = 20
+UIConfig.VIEWPORT_BG = Color3.fromRGB(25, 20, 30)
+UIConfig.LOCKED_COLOR = Color3.fromRGB(15, 10, 15)
+UIConfig.LOCKED_TEXT_COLOR = Color3.fromRGB(100, 100, 100)
+UIConfig.LOCKED_OVERLAY_COLOR = Color3.fromRGB(0, 0, 0)
+UIConfig.PRICE_COLOR = Color3.fromRGB(100, 255, 100)
+UIConfig.GOLD_COLOR = Color3.fromRGB(255, 215, 0)
+UIConfig.ITEM_COST_COLOR = Color3.fromRGB(180, 180, 180)
+UIConfig.ITEM_NEED_COLOR = Color3.fromRGB(255, 100, 100)
+UIConfig.ITEM_HAVE_COLOR = Color3.fromRGB(100, 255, 100)
+
+-- Utils
+local Utils = Shared:WaitForChild("Utils")
+local UIUtils = require(Utils:WaitForChild("UIUtils"))
+local FormatUtils = require(Utils:WaitForChild("FormatUtils"))
+local ViewportPreview = require(Shared:WaitForChild("ViewportPreview"))
+
 local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local BuyUnitRemote = RemoteEvents:WaitForChild("BuyUnit")
@@ -38,51 +82,7 @@ local UnlockProgressChangedEvent = RemoteEvents:WaitForChild("UnlockProgressChan
 
 --------------------------------------------------------------------------------
 -- UI CONFIGURATION
---------------------------------------------------------------------------------
 
-local UI_CONFIG = {
-	-- Shop Panel (responsive)
-	SHOP_WIDTH_SCALE = 0.6,    -- 60% of screen width
-	SHOP_MAX_WIDTH = 900,      -- Cap for large screens
-	SHOP_PADDING = 12,
-	
-	-- Card sizing (grid cells)
-	CARD_WIDTH = 160,
-	CARD_HEIGHT = 260,
-	GRID_PADDING = 8,
-	
-	-- Corner radius
-	CORNER_RADIUS = 16,
-	CARD_CORNER_RADIUS = 10,
-	
-	-- Colors
-	BACKGROUND_COLOR = Color3.fromRGB(15, 15, 22),
-	PANEL_COLOR = Color3.fromRGB(20, 20, 30),
-	CARD_COLOR = Color3.fromRGB(30, 30, 45),
-	CARD_HOVER_COLOR = Color3.fromRGB(40, 40, 60),
-	CARD_DISABLED_COLOR = Color3.fromRGB(20, 20, 25),
-	LOCKED_COLOR = Color3.fromRGB(15, 15, 20),
-	LOCKED_OVERLAY_COLOR = Color3.fromRGB(0, 0, 0),
-	ACCENT_COLOR = Color3.fromRGB(80, 230, 120),
-	GOLD_COLOR = Color3.fromRGB(255, 195, 40),
-	GOLD_HOVER_COLOR = Color3.fromRGB(255, 215, 80),
-	TEXT_COLOR = Color3.fromRGB(250, 250, 255),
-	SECONDARY_TEXT_COLOR = Color3.fromRGB(160, 160, 180),
-	LOCKED_TEXT_COLOR = Color3.fromRGB(100, 100, 120),
-	PRICE_COLOR = Color3.fromRGB(250, 190, 60),
-	ITEM_COST_COLOR = Color3.fromRGB(255, 140, 50),
-	ITEM_HAVE_COLOR = Color3.fromRGB(80, 230, 120),
-	ITEM_NEED_COLOR = Color3.fromRGB(255, 70, 70),
-	STROKE_COLOR = Color3.fromRGB(70, 70, 90),
-	VIEWPORT_BG = Color3.fromRGB(25, 22, 35),
-	
-	-- Animation
-	TWEEN_TIME = 0.2,
-	
-	-- Grid positions
-	SHOP_OPEN_POSITION = UDim2.new(1, -10, 0, 10),
-	SHOP_CLOSED_POSITION = UDim2.new(1, 50, 0, 10),
-}
 
 --------------------------------------------------------------------------------
 -- SOUNDS
@@ -180,119 +180,7 @@ end
 
 --------------------------------------------------------------------------------
 -- UI CREATION HELPERS
---------------------------------------------------------------------------------
-
-local function addCorner(parent: GuiObject, radius: number)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = parent
-	return corner
-end
-
-local function addStroke(parent: GuiObject, color: Color3, thickness: number)
-	local stroke = Instance.new("UIStroke")
-	stroke.Color = color
-	stroke.Thickness = thickness
-	stroke.Parent = parent
-	return stroke
-end
-
-local function formatMoney(amount: number): string
-	local suffixes = {"K", "M", "B", "T", "Qa", "Qi", "Sx", "Sp", "Oc", "No", "Dc"}
-	
-	if amount < 1000 then
-		return "$" .. tostring(math.floor(amount))
-	end
-	
-	local magnitude = math.floor(math.log(amount, 1000))
-	if magnitude > #suffixes then
-		magnitude = #suffixes
-	end
-	
-	local value = amount / (1000 ^ magnitude)
-	
-	if value < 100 and value % 1 ~= 0 then
-		return string.format("$%.1f%s", value, suffixes[magnitude])
-	else
-		return string.format("$%.0f%s", value, suffixes[magnitude])
-	end
-end
-
---------------------------------------------------------------------------------
 -- STATIC VIEWPORT PREVIEW (no spin — performance safe for 74 units)
---------------------------------------------------------------------------------
-
---[[
-	Creates a static 3D viewport of a model. No RunService connection.
-]]
-local function createStaticViewport(model: Model, parent: GuiObject): ViewportFrame
-	local viewport = Instance.new("ViewportFrame")
-	viewport.Name = "ModelPreview"
-	viewport.Size = UDim2.new(1, 0, 1, 0)
-	viewport.BackgroundColor3 = UI_CONFIG.VIEWPORT_BG
-	viewport.BackgroundTransparency = 0.3
-	viewport.BorderSizePixel = 0
-	viewport.Parent = parent
-	
-	addCorner(viewport, 6)
-	
-	-- Clone model into WorldModel
-	local previewModel = model:Clone()
-	local worldModel = Instance.new("WorldModel")
-	worldModel.Parent = viewport
-	previewModel.Parent = worldModel
-	
-	-- Camera
-	local camera = Instance.new("Camera")
-	camera.Parent = viewport
-	viewport.CurrentCamera = camera
-	
-	-- Position camera to frame the model
-	local cf, size = previewModel:GetBoundingBox()
-	local maxDimension = math.max(size.X, size.Y, size.Z)
-	local fovRad = math.rad(50 / 2)
-	local distance = (maxDimension / 2) / math.tan(fovRad) * 1.5
-	
-	local cameraOffset = Vector3.new(distance * 0.6, distance * 0.6, distance * 0.6)
-	local targetPos = cf.Position + Vector3.new(0, size.Y * 0.1, 0)
-	
-	camera.CFrame = CFrame.new(cf.Position + cameraOffset, targetPos)
-	camera.FieldOfView = 50
-	
-	return viewport
-end
-
---[[
-	Creates a silhouette version of a model: all parts black, no textures.
-]]
-local function createSilhouetteModel(model: Model): Model
-	local clone = model:Clone()
-	
-	for _, desc in clone:GetDescendants() do
-		if desc:IsA("BasePart") then
-			desc.Color = Color3.new(0, 0, 0)
-			desc.Material = Enum.Material.SmoothPlastic
-			desc.Transparency = 0
-			-- Clear MeshPart TextureID
-			if desc:IsA("MeshPart") then
-				desc.TextureID = ""
-			end
-		elseif desc:IsA("SurfaceAppearance") then
-			-- PBR textures override Color entirely — must remove
-			desc:Destroy()
-		elseif desc:IsA("Decal") or desc:IsA("Texture") then
-			desc:Destroy()
-		elseif desc:IsA("SpecialMesh") then
-			desc.TextureId = ""
-		elseif desc:IsA("ParticleEmitter") or desc:IsA("Fire") or desc:IsA("Smoke") or desc:IsA("Sparkles") then
-			desc:Destroy()
-		end
-	end
-	
-	return clone
-end
-
---------------------------------------------------------------------------------
 -- SHOP UI CREATION
 --------------------------------------------------------------------------------
 
@@ -303,29 +191,24 @@ local function createShopGui(): ScreenGui
 	screenGui.Enabled = false
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	
-	-- Main shop panel — responsive width, starts off-screen to the right
+	-- Main shop panel - centered, zoom animation target
 	local shopPanel = Instance.new("Frame")
 	shopPanel.Name = "ShopPanel"
-	shopPanel.Size = UDim2.new(UI_CONFIG.SHOP_WIDTH_SCALE, 0, 1, -20)
-	shopPanel.AnchorPoint = Vector2.new(1, 0)
-	shopPanel.Position = UI_CONFIG.SHOP_CLOSED_POSITION -- Start off-screen (right)
-	shopPanel.BackgroundColor3 = Color3.new(1, 1, 1)
-	shopPanel.BackgroundTransparency = 0.25
+	shopPanel.Size = UDim2.new(0, UIConfig.SHOP_WIDTH, 0, UIConfig.SHOP_HEIGHT)
+	shopPanel.Position = UDim2.new(0.5, 0, 0.5, 0)
+	shopPanel.AnchorPoint = Vector2.new(0.5, 0.5)
+	shopPanel.BackgroundColor3 = UIConfig.PANEL_COLOR
+	shopPanel.BackgroundTransparency = 0
 	shopPanel.BorderSizePixel = 0
 	shopPanel.Parent = screenGui
-	addCorner(shopPanel, UI_CONFIG.CORNER_RADIUS)
-	addStroke(shopPanel, UI_CONFIG.STROKE_COLOR, 1.5)
-	
-	-- Size constraint: cap max width on large screens
-	local sizeConstraint = Instance.new("UISizeConstraint")
-	sizeConstraint.MaxSize = Vector2.new(UI_CONFIG.SHOP_MAX_WIDTH, math.huge)
-	sizeConstraint.Parent = shopPanel
+	UIUtils.addCorner(shopPanel, UIConfig.CORNER_RADIUS)
+	UIUtils.addStroke(shopPanel, UIConfig.STROKE_COLOR, 1.8)
 	
 	-- Panel gradient
 	local gradient = Instance.new("UIGradient")
 	gradient.Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, UI_CONFIG.PANEL_COLOR),
-		ColorSequenceKeypoint.new(1, UI_CONFIG.BACKGROUND_COLOR)
+		ColorSequenceKeypoint.new(0, UIConfig.PANEL_COLOR),
+		ColorSequenceKeypoint.new(1, UIConfig.BACKGROUND_COLOR)
 	})
 	gradient.Rotation = 90
 	gradient.Parent = shopPanel
@@ -333,41 +216,53 @@ local function createShopGui(): ScreenGui
 	-- Title bar
 	local titleBar = Instance.new("Frame")
 	titleBar.Name = "TitleBar"
-	titleBar.Size = UDim2.new(1, 0, 0, 50)
+	titleBar.Size = UDim2.new(1, 0, 0, 62)
 	titleBar.BackgroundTransparency = 1
 	titleBar.BorderSizePixel = 0
 	titleBar.Parent = shopPanel
+
+	local titleChip = Instance.new("Frame")
+	titleChip.Name = "TitleChip"
+	titleChip.Size = UDim2.new(0, 320, 0, 44)
+	titleChip.Position = UDim2.new(0, 12, 0, 10)
+	titleChip.BackgroundColor3 = UIConfig.TITLE_CHIP_COLOR
+	titleChip.BorderSizePixel = 0
+	titleChip.Parent = titleBar
+	UIUtils.addCorner(titleChip, 9)
+	UIUtils.addStroke(titleChip, UIConfig.TITLE_CHIP_STROKE, 1.2)
 	
 	local titleLabel = Instance.new("TextLabel")
 	titleLabel.Name = "Title"
-	titleLabel.Size = UDim2.new(1, -40, 1, 0)
-	titleLabel.Position = UDim2.new(0, 0, 0, 0)
+	titleLabel.Size = UDim2.new(1, -16, 1, 0)
+	titleLabel.Position = UDim2.new(0, 10, 0, 0)
 	titleLabel.BackgroundTransparency = 1
-	titleLabel.Text = "🧠 BRAINROT SHOP"
-	titleLabel.TextColor3 = UI_CONFIG.TEXT_COLOR
-	titleLabel.TextSize = 20
-	titleLabel.Font = Enum.Font.GothamBold
-	titleLabel.Parent = titleBar
+	titleLabel.Text = "BRAINROT SHOP"
+	titleLabel.TextColor3 = UIConfig.TEXT_COLOR
+	titleLabel.TextSize = 24
+	titleLabel.Font = Enum.Font.GothamBlack
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	titleLabel.Parent = titleChip
 	
 	-- Close button
 	local closeButton = Instance.new("TextButton")
 	closeButton.Name = "CloseButton"
-	closeButton.Size = UDim2.new(0, 36, 0, 36)
-	closeButton.Position = UDim2.new(1, -42, 0.5, -18)
-	closeButton.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
-	closeButton.Text = "✕"
-	closeButton.TextColor3 = UI_CONFIG.TEXT_COLOR
-	closeButton.TextSize = 18
-	closeButton.Font = Enum.Font.GothamBold
+	closeButton.Size = UDim2.new(0, 40, 0, 40)
+	closeButton.Position = UDim2.new(1, -50, 0, 11)
+	closeButton.BackgroundColor3 = Color3.fromRGB(210, 55, 65)
+	closeButton.Text = "X"
+	closeButton.TextColor3 = UIConfig.TEXT_COLOR
+	closeButton.TextSize = 20
+	closeButton.Font = Enum.Font.GothamBlack
 	closeButton.Parent = titleBar
-	addCorner(closeButton, 8)
+	UIUtils.addCorner(closeButton, 9)
+	UIUtils.addStroke(closeButton, Color3.fromRGB(120, 20, 30), 1.2)
 	
 	-- Warning banner (off-island)
 	local warningBanner = Instance.new("Frame")
 	warningBanner.Name = "WarningBanner"
 	warningBanner.Size = UDim2.new(1, 0, 0, 24)
-	warningBanner.Position = UDim2.new(0, 0, 0, 50)
-	warningBanner.BackgroundColor3 = Color3.fromRGB(180, 80, 30)
+	warningBanner.Position = UDim2.new(0, 0, 0, 62)
+	warningBanner.BackgroundColor3 = Color3.fromRGB(120, 58, 30)
 	warningBanner.BorderSizePixel = 0
 	warningBanner.Visible = false
 	warningBanner.Parent = shopPanel
@@ -376,8 +271,8 @@ local function createShopGui(): ScreenGui
 	warningLabel.Name = "WarningText"
 	warningLabel.Size = UDim2.new(1, 0, 1, 0)
 	warningLabel.BackgroundTransparency = 1
-	warningLabel.Text = "⚠️ Visit Main Island to purchase"
-	warningLabel.TextColor3 = Color3.fromRGB(255, 255, 200)
+	warningLabel.Text = "Visit Main Island to purchase"
+	warningLabel.TextColor3 = Color3.fromRGB(255, 235, 190)
 	warningLabel.TextSize = 12
 	warningLabel.Font = Enum.Font.GothamBold
 	warningLabel.Parent = warningBanner
@@ -385,22 +280,24 @@ local function createShopGui(): ScreenGui
 	-- Scrolling frame for grid
 	local scrollFrame = Instance.new("ScrollingFrame")
 	scrollFrame.Name = "ItemList"
-	scrollFrame.Size = UDim2.new(1, -UI_CONFIG.SHOP_PADDING * 2, 1, -60)
-	scrollFrame.Position = UDim2.new(0, UI_CONFIG.SHOP_PADDING, 0, 55)
-	scrollFrame.BackgroundTransparency = 1
+	scrollFrame.Size = UDim2.new(1, -UIConfig.SHOP_PADDING * 2, 1, -92)
+	scrollFrame.Position = UDim2.new(0, UIConfig.SHOP_PADDING, 0, 86)
+	scrollFrame.BackgroundColor3 = UIConfig.VIEWPORT_BG
 	scrollFrame.BorderSizePixel = 0
 	scrollFrame.ScrollBarThickness = 6
-	scrollFrame.ScrollBarImageColor3 = UI_CONFIG.ACCENT_COLOR
+	scrollFrame.ScrollBarImageColor3 = UIConfig.ACCENT_COLOR
 	scrollFrame.AutomaticCanvasSize = Enum.AutomaticSize.Y
-	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0) -- AutomaticCanvasSize handles this
+	scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
 	scrollFrame.Parent = shopPanel
+	UIUtils.addCorner(scrollFrame, 10)
+	UIUtils.addStroke(scrollFrame, UIConfig.SOFT_STROKE_COLOR, 1)
 	
 	-- Grid layout
 	local gridLayout = Instance.new("UIGridLayout")
 	gridLayout.Name = "Layout"
 	gridLayout.SortOrder = Enum.SortOrder.LayoutOrder
-	gridLayout.CellSize = UDim2.new(0, UI_CONFIG.CARD_WIDTH, 0, UI_CONFIG.CARD_HEIGHT)
-	gridLayout.CellPadding = UDim2.new(0, UI_CONFIG.GRID_PADDING, 0, UI_CONFIG.GRID_PADDING)
+	gridLayout.CellSize = UDim2.new(0, UIConfig.CARD_WIDTH, 0, UIConfig.CARD_HEIGHT)
+	gridLayout.CellPadding = UDim2.new(0, UIConfig.GRID_PADDING, 0, UIConfig.GRID_PADDING)
 	gridLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	gridLayout.Parent = scrollFrame
 	
@@ -414,12 +311,12 @@ end
 local function createShopCard(unitName: string, config: any, layoutOrder: number, isLocked: boolean): Frame
 	local card = Instance.new("Frame")
 	card.Name = unitName
-	card.Size = UDim2.new(0, UI_CONFIG.CARD_WIDTH, 0, UI_CONFIG.CARD_HEIGHT)
-	card.BackgroundColor3 = isLocked and UI_CONFIG.LOCKED_COLOR or UI_CONFIG.CARD_COLOR
+	card.Size = UDim2.new(0, UIConfig.CARD_WIDTH, 0, UIConfig.CARD_HEIGHT)
+	card.BackgroundColor3 = isLocked and UIConfig.LOCKED_COLOR or UIConfig.CARD_COLOR
 	card.BorderSizePixel = 0
 	card.LayoutOrder = layoutOrder
-	addCorner(card, UI_CONFIG.CARD_CORNER_RADIUS)
-	addStroke(card, UI_CONFIG.STROKE_COLOR, 1)
+	UIUtils.addCorner(card, UIConfig.CARD_CORNER_RADIUS)
+	UIUtils.addStroke(card, UIConfig.STROKE_COLOR, 1)
 	
 	-- Clickable area (only interactive if unlocked)
 	local clickButton = Instance.new("TextButton")
@@ -432,17 +329,17 @@ local function createShopCard(unitName: string, config: any, layoutOrder: number
 	clickButton.Parent = card
 	
 	-- ═══════════════════════════════════════════════════════════
-	-- TOP: 3D Model Viewport (100px)
+	-- TOP: 3D Model Viewport (110px)
 	-- ═══════════════════════════════════════════════════════════
 	local viewportContainer = Instance.new("Frame")
 	viewportContainer.Name = "IconContainer"
-	viewportContainer.Size = UDim2.new(1, -12, 0, 100)
+	viewportContainer.Size = UDim2.new(1, -12, 0, 110)
 	viewportContainer.Position = UDim2.new(0, 6, 0, 6)
-	viewportContainer.BackgroundColor3 = UI_CONFIG.VIEWPORT_BG
+	viewportContainer.BackgroundColor3 = UIConfig.VIEWPORT_BG
 	viewportContainer.BackgroundTransparency = 0.5
 	viewportContainer.BorderSizePixel = 0
 	viewportContainer.Parent = card
-	addCorner(viewportContainer, 6)
+	UIUtils.addCorner(viewportContainer, 6)
 	
 	local modelName = config.ModelName or unitName
 	local modelTemplate = BrainrotsFolder:FindFirstChild(modelName)
@@ -450,11 +347,10 @@ local function createShopCard(unitName: string, config: any, layoutOrder: number
 	if modelTemplate then
 		if isLocked then
 			-- Silhouette: black model, no textures
-			local silhouette = createSilhouetteModel(modelTemplate)
-			createStaticViewport(silhouette, viewportContainer)
+			ViewportPreview.CreateSilhouette(modelTemplate, viewportContainer)
 		else
 			-- Normal colored model
-			createStaticViewport(modelTemplate, viewportContainer)
+			ViewportPreview.CreateStatic(modelTemplate, viewportContainer)
 		end
 	else
 		-- Fallback emoji
@@ -469,28 +365,28 @@ local function createShopCard(unitName: string, config: any, layoutOrder: number
 	end
 	
 	-- ═══════════════════════════════════════════════════════════
-	-- UNIT NAME (20px)
+	-- UNIT NAME (24px)
 	-- ═══════════════════════════════════════════════════════════
 	local nameLabel = Instance.new("TextLabel")
 	nameLabel.Name = "UnitName"
-	nameLabel.Size = UDim2.new(1, -8, 0, 20)
-	nameLabel.Position = UDim2.new(0, 4, 0, 110)
+	nameLabel.Size = UDim2.new(1, -8, 0, 24)
+	nameLabel.Position = UDim2.new(0, 4, 0, 120)
 	nameLabel.BackgroundTransparency = 1
 	nameLabel.Text = isLocked and "???" or unitName
-	nameLabel.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or UI_CONFIG.TEXT_COLOR
-	nameLabel.TextSize = 12
+	nameLabel.TextColor3 = isLocked and UIConfig.LOCKED_TEXT_COLOR or UIConfig.TEXT_COLOR
+	nameLabel.TextSize = 13
 	nameLabel.Font = Enum.Font.GothamBold
 	nameLabel.TextXAlignment = Enum.TextXAlignment.Center
 	nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
 	nameLabel.Parent = card
 	
 	-- ═══════════════════════════════════════════════════════════
-	-- PRODUCTION ITEMS (4 rows, ~80px total)
+	-- PRODUCTION ITEMS (4 rows, 80px total)
 	-- ═══════════════════════════════════════════════════════════
 	local itemsContainer = Instance.new("Frame")
 	itemsContainer.Name = "ItemsContainer"
-	itemsContainer.Size = UDim2.new(1, -8, 0, 72)
-	itemsContainer.Position = UDim2.new(0, 4, 0, 132)
+	itemsContainer.Size = UDim2.new(1, -8, 0, 80)
+	itemsContainer.Position = UDim2.new(0, 4, 0, 148)
 	itemsContainer.BackgroundTransparency = 1
 	itemsContainer.Parent = card
 	
@@ -500,8 +396,8 @@ local function createShopCard(unitName: string, config: any, layoutOrder: number
 	for tierIdx, tierKey in ipairs(tierKeys) do
 		local tierLabel = Instance.new("TextLabel")
 		tierLabel.Name = "Tier" .. tierIdx
-		tierLabel.Size = UDim2.new(1, 0, 0, 16)
-		tierLabel.Position = UDim2.new(0, 0, 0, (tierIdx - 1) * 18)
+		tierLabel.Size = UDim2.new(1, 0, 0, 18)
+		tierLabel.Position = UDim2.new(0, 0, 0, (tierIdx - 1) * 20)
 		tierLabel.BackgroundTransparency = 1
 		tierLabel.TextSize = 10
 		tierLabel.Font = Enum.Font.Gotham
@@ -517,27 +413,43 @@ local function createShopCard(unitName: string, config: any, layoutOrder: number
 				-- Locked: show Tier 1 fully, tiers 2-4 as "???"
 				if tierIdx == 1 and itemDef then
 					tierLabel.Text = itemDef.icon .. " " .. itemDef.displayName
-					tierLabel.TextColor3 = UI_CONFIG.SECONDARY_TEXT_COLOR
+					tierLabel.TextColor3 = UIConfig.SECONDARY_TEXT_COLOR
 				else
 					tierLabel.Text = "Tier " .. tierIdx .. ": ???"
-					tierLabel.TextColor3 = UI_CONFIG.LOCKED_TEXT_COLOR
+					tierLabel.TextColor3 = UIConfig.LOCKED_TEXT_COLOR
 				end
 			else
 				-- Unlocked: show full item info
 				if itemDef then
 					tierLabel.Text = itemDef.icon .. " " .. itemDef.displayName
-					tierLabel.TextColor3 = UI_CONFIG.SECONDARY_TEXT_COLOR
+					tierLabel.TextColor3 = UIConfig.SECONDARY_TEXT_COLOR
 				else
 					tierLabel.Text = "Tier " .. tierIdx .. ": ???"
-					tierLabel.TextColor3 = UI_CONFIG.LOCKED_TEXT_COLOR
+					tierLabel.TextColor3 = UIConfig.LOCKED_TEXT_COLOR
 				end
 			end
 		else
 			tierLabel.Text = "—"
-			tierLabel.TextColor3 = UI_CONFIG.LOCKED_TEXT_COLOR
+			tierLabel.TextColor3 = UIConfig.LOCKED_TEXT_COLOR
 		end
 	end
 	
+	-- ═══════════════════════════════════════════════════════════
+	-- DESCRIPTION (36px)
+	-- ═══════════════════════════════════════════════════════════
+	local descLabel = Instance.new("TextLabel")
+	descLabel.Name = "Description"
+	descLabel.Size = UDim2.new(1, -12, 0, 36)
+	descLabel.Position = UDim2.new(0, 6, 0, 228)
+	descLabel.BackgroundTransparency = 1
+	descLabel.Text = isLocked and "???" or (config.Description or "No description.")
+	descLabel.TextColor3 = UIConfig.SECONDARY_TEXT_COLOR
+	descLabel.TextSize = 10
+	descLabel.Font = Enum.Font.Gotham
+	descLabel.TextWrapped = true
+	descLabel.TextYAlignment = Enum.TextYAlignment.Top
+	descLabel.Parent = card
+
 	-- ═══════════════════════════════════════════════════════════
 	-- BOTTOM BAR: Price + Owned Badge + Buy (48px)
 	-- ═══════════════════════════════════════════════════════════
@@ -554,8 +466,8 @@ local function createShopCard(unitName: string, config: any, layoutOrder: number
 	priceLabel.Size = UDim2.new(1, 0, 0, 18)
 	priceLabel.Position = UDim2.new(0, 0, 0, 0)
 	priceLabel.BackgroundTransparency = 1
-	priceLabel.Text = isLocked and "LOCKED" or formatMoney(config.BasePrice)
-	priceLabel.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or UI_CONFIG.PRICE_COLOR
+	priceLabel.Text = isLocked and "LOCKED" or FormatUtils.formatMoney(config.BasePrice)
+	priceLabel.TextColor3 = isLocked and UIConfig.LOCKED_TEXT_COLOR or UIConfig.PRICE_COLOR
 	priceLabel.TextSize = 14
 	priceLabel.Font = Enum.Font.GothamBold
 	priceLabel.TextXAlignment = Enum.TextXAlignment.Center
@@ -568,7 +480,7 @@ local function createShopCard(unitName: string, config: any, layoutOrder: number
 	itemCostLabel.Position = UDim2.new(0, 0, 0, 17)
 	itemCostLabel.BackgroundTransparency = 1
 	itemCostLabel.Text = ""
-	itemCostLabel.TextColor3 = UI_CONFIG.ITEM_COST_COLOR
+	itemCostLabel.TextColor3 = UIConfig.ITEM_COST_COLOR
 	itemCostLabel.TextSize = 9
 	itemCostLabel.Font = Enum.Font.Gotham
 	itemCostLabel.TextXAlignment = Enum.TextXAlignment.Center
@@ -593,13 +505,13 @@ local function createShopCard(unitName: string, config: any, layoutOrder: number
 	ownedBadge.Name = "OwnedBadge"
 	ownedBadge.Size = UDim2.new(0, 36, 0, 18)
 	ownedBadge.Position = UDim2.new(0, 0, 1, -20)
-	ownedBadge.BackgroundColor3 = isLocked and UI_CONFIG.LOCKED_COLOR or UI_CONFIG.ACCENT_COLOR
+	ownedBadge.BackgroundColor3 = isLocked and UIConfig.LOCKED_COLOR or UIConfig.ACCENT_COLOR
 	ownedBadge.Text = isLocked and "🔒" or "0"
-	ownedBadge.TextColor3 = isLocked and UI_CONFIG.LOCKED_TEXT_COLOR or Color3.fromRGB(0, 0, 0)
+	ownedBadge.TextColor3 = isLocked and UIConfig.LOCKED_TEXT_COLOR or Color3.fromRGB(0, 0, 0)
 	ownedBadge.TextSize = 11
 	ownedBadge.Font = Enum.Font.GothamBold
 	ownedBadge.Parent = bottomBar
-	addCorner(ownedBadge, 4)
+	UIUtils.addCorner(ownedBadge, 4)
 	
 	local buyIndicator = Instance.new("TextLabel")
 	buyIndicator.Name = "BuyIndicator"
@@ -607,7 +519,7 @@ local function createShopCard(unitName: string, config: any, layoutOrder: number
 	buyIndicator.Position = UDim2.new(1, -70, 1, -20)
 	buyIndicator.BackgroundTransparency = 1
 	buyIndicator.Text = isLocked and "" or "BUY"
-	buyIndicator.TextColor3 = UI_CONFIG.ACCENT_COLOR
+	buyIndicator.TextColor3 = UIConfig.ACCENT_COLOR
 	buyIndicator.TextSize = 12
 	buyIndicator.Font = Enum.Font.GothamBold
 	buyIndicator.TextXAlignment = Enum.TextXAlignment.Right
@@ -620,11 +532,11 @@ local function createShopCard(unitName: string, config: any, layoutOrder: number
 		local overlay = Instance.new("Frame")
 		overlay.Name = "LockedOverlay"
 		overlay.Size = UDim2.new(1, 0, 1, 0)
-		overlay.BackgroundColor3 = UI_CONFIG.LOCKED_OVERLAY_COLOR
+		overlay.BackgroundColor3 = UIConfig.LOCKED_OVERLAY_COLOR
 		overlay.BackgroundTransparency = 0.6
 		overlay.ZIndex = 2
 		overlay.Parent = card
-		addCorner(overlay, UI_CONFIG.CARD_CORNER_RADIUS)
+		UIUtils.addCorner(overlay, UIConfig.CARD_CORNER_RADIUS)
 	end
 	
 	return card
@@ -652,7 +564,7 @@ local function updateButtonPrice(unitName: string, newCount: number)
 	if bottomBar then
 		local priceLabel = bottomBar:FindFirstChild("Price")
 		if priceLabel then
-			priceLabel.Text = formatMoney(newPrice)
+			priceLabel.Text = FormatUtils.formatMoney(newPrice)
 		end
 		
 		local ownedBadge = bottomBar:FindFirstChild("OwnedBadge")
@@ -701,7 +613,7 @@ local function updateButtonPrice(unitName: string, newCount: number)
 						local itemDef = ItemConfig.Items[itemId]
 						if itemDef then
 							tierLabel.Text = itemDef.icon .. " " .. itemDef.displayName
-							tierLabel.TextColor3 = UI_CONFIG.SECONDARY_TEXT_COLOR
+							tierLabel.TextColor3 = UIConfig.SECONDARY_TEXT_COLOR
 						end
 					end
 				end
@@ -780,46 +692,46 @@ local function updateButtonAffordability()
 		if itemCostLabel and itemCostLabel.Visible then
 			local shortfall = getUnitShortfall(unitName)
 			if shortfall and shortfall.hasShortfall then
-				itemCostLabel.TextColor3 = UI_CONFIG.ITEM_NEED_COLOR
+				itemCostLabel.TextColor3 = UIConfig.ITEM_NEED_COLOR
 			else
-				itemCostLabel.TextColor3 = UI_CONFIG.ITEM_HAVE_COLOR
+				itemCostLabel.TextColor3 = UIConfig.ITEM_HAVE_COLOR
 			end
 		end
 		
 		if state == "normal" then
 			-- Has all items, can afford
-			card.BackgroundColor3 = UI_CONFIG.CARD_COLOR
+			card.BackgroundColor3 = UIConfig.CARD_COLOR
 			if buyIndicator then
 				local count = OwnedCounts[unitName] or 0
 				buyIndicator.Text = count > 0 and "UPGRADE" or "BUY"
-				buyIndicator.TextColor3 = UI_CONFIG.ACCENT_COLOR
+				buyIndicator.TextColor3 = UIConfig.ACCENT_COLOR
 				buyIndicator.TextTransparency = 0
 			end
 			if priceLabel then
-				priceLabel.TextColor3 = UI_CONFIG.PRICE_COLOR
+				priceLabel.TextColor3 = UIConfig.PRICE_COLOR
 			end
 		elseif state == "import" then
 			-- Missing items but can auto-buy — gold button
-			card.BackgroundColor3 = UI_CONFIG.CARD_COLOR
+			card.BackgroundColor3 = UIConfig.CARD_COLOR
 			if buyIndicator then
 				buyIndicator.Text = "BUY & IMPORT"
-				buyIndicator.TextColor3 = UI_CONFIG.GOLD_COLOR
+				buyIndicator.TextColor3 = UIConfig.GOLD_COLOR
 				buyIndicator.TextTransparency = 0
 			end
 			if priceLabel then
-				priceLabel.Text = formatMoney(totalCost)
-				priceLabel.TextColor3 = UI_CONFIG.GOLD_COLOR
+				priceLabel.Text = FormatUtils.formatMoney(totalCost)
+				priceLabel.TextColor3 = UIConfig.GOLD_COLOR
 			end
 		else
 			-- Can't afford
-			card.BackgroundColor3 = UI_CONFIG.CARD_DISABLED_COLOR
+			card.BackgroundColor3 = UIConfig.CARD_DISABLED_COLOR
 			if buyIndicator then
-				buyIndicator.Text = "Need " .. formatMoney(totalCost)
-				buyIndicator.TextColor3 = UI_CONFIG.SECONDARY_TEXT_COLOR
+				buyIndicator.Text = "Need " .. FormatUtils.formatMoney(totalCost)
+				buyIndicator.TextColor3 = UIConfig.SECONDARY_TEXT_COLOR
 				buyIndicator.TextTransparency = 0.5
 			end
 			if priceLabel then
-				priceLabel.TextColor3 = UI_CONFIG.SECONDARY_TEXT_COLOR
+				priceLabel.TextColor3 = UIConfig.SECONDARY_TEXT_COLOR
 			end
 		end
 	end
@@ -845,7 +757,7 @@ local function animatePurchase(card: Frame, success: boolean)
 		
 		-- Flash green
 		local originalColor = card.BackgroundColor3
-		card.BackgroundColor3 = UI_CONFIG.ACCENT_COLOR
+		card.BackgroundColor3 = UIConfig.ACCENT_COLOR
 		task.delay(0.1, function()
 			TweenService:Create(card, TweenInfo.new(0.2), {BackgroundColor3 = originalColor}):Play()
 		end)
@@ -877,15 +789,15 @@ local function setupCardClick(card: Frame, unitName: string)
 	-- Hover effects
 	clickArea.MouseEnter:Connect(function()
 		if canAfford(unitName) then
-			TweenService:Create(card, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
-				BackgroundColor3 = UI_CONFIG.CARD_HOVER_COLOR
+			TweenService:Create(card, TweenInfo.new(UIConfig.TWEEN_TIME), {
+				BackgroundColor3 = UIConfig.CARD_HOVER_COLOR
 			}):Play()
 		end
 	end)
 	
 	clickArea.MouseLeave:Connect(function()
-		local targetColor = canAfford(unitName) and UI_CONFIG.CARD_COLOR or UI_CONFIG.CARD_DISABLED_COLOR
-		TweenService:Create(card, TweenInfo.new(UI_CONFIG.TWEEN_TIME), {
+		local targetColor = canAfford(unitName) and UIConfig.CARD_COLOR or UIConfig.CARD_DISABLED_COLOR
+		TweenService:Create(card, TweenInfo.new(UIConfig.TWEEN_TIME), {
 			BackgroundColor3 = targetColor
 		}):Play()
 	end)
@@ -1098,9 +1010,18 @@ local function openShop()
 	ShopVisible = true
 	ShopGui.Enabled = true
 	updateWarningBanner()
-	TweenService:Create(shopPanel, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Position = UI_CONFIG.SHOP_OPEN_POSITION
+	
+	-- Start small and transparent
+	shopPanel.Size = UDim2.new(0, 0, 0, 0)
+	shopPanel.Position = UDim2.new(0.5, 0, 0.5, 50)
+	shopPanel.BackgroundTransparency = 1
+	
+	TweenService:Create(shopPanel, UIConfig.TWEEN_INFO.Open, {
+		Size = UDim2.new(0, UIConfig.SHOP_WIDTH, 0, UIConfig.SHOP_HEIGHT),
+		Position = UDim2.new(0.5, 0, 0.5, 0),
+		BackgroundTransparency = 0
 	}):Play()
+	
 	print("ShopUI: Opened")
 end
 
@@ -1111,8 +1032,10 @@ local function closeShop()
 	if not shopPanel then return end
 	
 	ShopVisible = false
-	local tween = TweenService:Create(shopPanel, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-		Position = UI_CONFIG.SHOP_CLOSED_POSITION
+	local tween = TweenService:Create(shopPanel, UIConfig.TWEEN_INFO.Close, {
+		Size = UDim2.new(0, 0, 0, 0),
+		Position = UDim2.new(0.5, 0, 0.5, 50),
+		BackgroundTransparency = 1
 	})
 	tween:Play()
 	tween.Completed:Connect(function()
@@ -1159,14 +1082,6 @@ local function setupBindableEventListener()
 	print("ShopUI: BindableEvent listener setup complete")
 end
 
--- B key toggle (legacy)
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if input.KeyCode == Enum.KeyCode.B then
-		interaction:Toggle()
-	end
-end)
-
 -- Close button setup
 local function setupCloseButton()
 	if not ShopGui then return end
@@ -1184,13 +1099,13 @@ local function setupCloseButton()
 		
 		closeButton.MouseEnter:Connect(function()
 			TweenService:Create(closeButton, TweenInfo.new(0.1), {
-				BackgroundColor3 = Color3.fromRGB(255, 80, 80)
+				BackgroundColor3 = Color3.fromRGB(225, 80, 90)
 			}):Play()
 		end)
 		
 		closeButton.MouseLeave:Connect(function()
 			TweenService:Create(closeButton, TweenInfo.new(0.1), {
-				BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+				BackgroundColor3 = Color3.fromRGB(210, 55, 65)
 			}):Play()
 		end)
 	end
@@ -1203,3 +1118,4 @@ local UIManager = require(script.Parent:WaitForChild("Managers"):WaitForChild("U
 UIManager.RegisterShop("MachineShop", function()
 	if ShopVisible then closeShop() else openShop() end
 end)
+

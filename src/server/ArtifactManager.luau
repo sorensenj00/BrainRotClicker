@@ -239,6 +239,20 @@ function ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
 	return stats
 end
 
+function ArtifactManager.GetArtifacts(player)
+	local all = getPlayerArtifacts(player)
+	local unequipped = {}
+	for _, artifact in pairs(all) do
+		if not artifact.EquippedTo then
+			table.insert(unequipped, artifact)
+		end
+	end
+	return {
+		all = all,
+		unequipped = unequipped,
+	}
+end
+
 ArtifactManager.GenerateArtifact = generateArtifact
 
 return ArtifactManager

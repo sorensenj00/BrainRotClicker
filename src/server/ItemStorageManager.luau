@@ -221,11 +221,13 @@ function ItemStorageManager.Init(services)
 			if not PlayerStorage[player] then
 				PlayerStorage[player] = {
 					items = data or {},
+					totalItems = getTotalItemCount(data or {}),
 					capacity = currentCap,
 					baseCapacity = baseCap
 				}
 			else
 				PlayerStorage[player].items = data or {}
+				PlayerStorage[player].totalItems = getTotalItemCount(data or {})
 				PlayerStorage[player].capacity = currentCap
 				PlayerStorage[player].baseCapacity = baseCap
 			end
@@ -271,16 +273,17 @@ function ItemStorageManager.AddToStorage(player: Player, itemId: string, count: 
 	local storage = PlayerStorage[player]
 	if not storage then return 0 end
 
-	local current = getTotalItemCount(storage.items)
+	local current = storage.totalItems or getTotalItemCount(storage.items)
 	local available = storage.capacity - current
 	local toAdd = math.min(count, available)
 
 	if toAdd <= 0 then return 0 end
 
 	storage.items[itemId] = (storage.items[itemId] or 0) + toAdd
+	storage.totalItems = current + toAdd
 
 	if not silent then
-		StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), current + toAdd, storage.capacity)
+		StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), storage.totalItems, storage.capacity)
 	end
 	evaluateStorageAchievements(player, storage)
 	return toAdd
@@ -289,7 +292,9 @@ end
 function ItemStorageManager.IsStorageFull(player)
 	local storage = PlayerStorage[player]
 	if not storage then return true end
-	return getTotalItemCount(storage.items) >= storage.capacity
+
+	local current = storage.totalItems or getTotalItemCount(storage.items)
+	return current >= storage.capacity
 end
 
 --[[
@@ -306,7 +311,13 @@ function ItemStorageManager.RemoveFromStorage(player, itemId, count)
 	storage.items[itemId] = inStorage - toRemove
 	if storage.items[itemId] <= 0 then storage.items[itemId] = nil end
 
-	StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), getTotalItemCount(storage.items), storage.capacity)
+	if storage.totalItems then
+		storage.totalItems = math.max(0, storage.totalItems - toRemove)
+	else
+		storage.totalItems = getTotalItemCount(storage.items)
+	end
+
+	StorageUpdatedEvent:FireClient(player, encodeItems(storage.items), storage.totalItems, storage.capacity)
 	evaluateStorageAchievements(player, storage)
 	return toRemove
 end
@@ -321,7 +332,7 @@ function ItemStorageManager.GetStorageCapacity(player)
 end
 
 function ItemStorageManager.SetStorageCapacity(player, cap)
-	if not PlayerStorage[player] then PlayerStorage[player] = { items={}, capacity=cap, baseCapacity=cap } end
+	if not PlayerStorage[player] then PlayerStorage[player] = { items={}, totalItems=0, capacity=cap, baseCapacity=cap } end
 	PlayerStorage[player].baseCapacity = cap
 
 	ItemStorageManager.RefreshCapacity(player)

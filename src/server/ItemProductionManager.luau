@@ -108,7 +108,7 @@ end
 --------------------------------------------------------------------------------
 
 
-local function calculateUnitBonuses(player, brainrot)
+local function calculateUnitBonuses(player, brainrot, ArtifactManager, BonusManager)
 	local bonuses = {
 		speedMult = 1,
 		luckMult = 1,
@@ -124,7 +124,6 @@ local function calculateUnitBonuses(player, brainrot)
 	-- Tile Bonus (REMOVED)
 	
 	-- 1. Artifact Bonus (Per-Unit)
-	local ArtifactManager = rawget(Services, "ArtifactManager")
 	if unitGUID and ArtifactManager and ArtifactManager.CalculateUnitArtifactStats then
 		local artifactStats = ArtifactManager.CalculateUnitArtifactStats(player, unitGUID)
 		bonuses.speedMult = bonuses.speedMult * artifactStats.CycleTimeMult
@@ -133,7 +132,6 @@ local function calculateUnitBonuses(player, brainrot)
 	end
 
 	-- 2. Global Bonus Aggregator (Prestige, Upgrades, Mewing)
-	local BonusManager = rawget(Services, "BonusManager")
 	if BonusManager then
 		bonuses.speedMult = bonuses.speedMult * BonusManager.GetTotalSpeedMultiplier(player)
 		-- Global luck is multiplier-based here for simplicity
@@ -144,8 +142,7 @@ local function calculateUnitBonuses(player, brainrot)
 	return bonuses
 end
 
-local function tryArtifactDrop(player, bonuses)
-	local ArtifactManager = rawget(Services, "ArtifactManager")
+local function tryArtifactDrop(player, bonuses, ArtifactManager)
 	if not ArtifactManager then return end
 	
 	local dropChance = CONFIG.BASE_ARTIFACT_DROP_CHANCE * bonuses.luckMult
@@ -227,6 +224,10 @@ local function produceItems(player)
 	local totalAdded = 0
 	local itemsProducedThisTick = {}
 	
+	local ArtifactManager = rawget(Services, "ArtifactManager")
+	local BonusManager = rawget(Services, "BonusManager")
+	local DroneOpsManager = rawget(Services, "DroneOpsManager")
+
 	-- 3. Iterate each occupied slot
 	for slotIndex, slotData in pairs(gridCache) do
 		local unitModel = slotData.Unit
@@ -238,9 +239,9 @@ local function produceItems(player)
 			if not outputItemId or not outputRate or outputItemId == "SYNERGY_PROVIDER" then continue end
 			
 			-- Apply tile/artifact bonuses
-			local bonuses = calculateUnitBonuses(player, unitModel)
+			local bonuses = calculateUnitBonuses(player, unitModel, ArtifactManager, BonusManager)
 			local adjustedRate = math.max(0.1, outputRate * bonuses.speedMult)
-			local DroneOpsManager = rawget(Services, "DroneOpsManager")
+
 			if DroneOpsManager and DroneOpsManager.GetProductionIntervalMultiplier then
 				-- Drone buffs/nerfs are applied as interval multipliers.
 				adjustedRate = adjustedRate * DroneOpsManager.GetProductionIntervalMultiplier(player, outputItemId)
@@ -291,7 +292,7 @@ local function produceItems(player)
 					unitModel:SetAttribute("LastProductionTime", now)
 					
 					-- Artifact Drop Roll
-					tryArtifactDrop(player, bonuses)
+					tryArtifactDrop(player, bonuses, ArtifactManager)
 				end
 			end
 		end
@@ -428,7 +429,9 @@ function ItemProductionManager.RefreshUnitAttributes(player: Player)
 		end
 		
 		if outputItemId and outputRate then
-			local bonuses = calculateUnitBonuses(player, unitModel)
+			local ArtifactManager = rawget(Services, "ArtifactManager")
+			local BonusManager = rawget(Services, "BonusManager")
+			local bonuses = calculateUnitBonuses(player, unitModel, ArtifactManager, BonusManager)
 			local adjustedRate = math.max(0.1, outputRate * bonuses.speedMult)
 			
 			unitModel:SetAttribute("IncomeInterval", adjustedRate)

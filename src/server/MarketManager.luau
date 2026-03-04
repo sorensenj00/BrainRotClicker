@@ -187,10 +187,12 @@ local function getPlayerSellPrice(player, itemId)
 		multi = BonusManager.GetTotalIncomeMultiplier(player)
 	end
 	
-	return math.floor(basePrice * marketRate * multi)
+	local spread = MarketConfig.CONFIG.BID_ASK_SPREAD or 0.05
+	return math.floor(basePrice * marketRate * multi * (1 - spread))
 end
 
 -- BUY price: raw market rate, no welfare, no bonus multipliers
+-- BUY price: raw market rate, no welfare, scales with multi + buy premium
 local function getBuyPrice(player, itemId)
 	local info = ItemConfig.Items[itemId]
 	if not info then return 0 end
@@ -206,8 +208,14 @@ local function getBuyPrice(player, itemId)
 		marketRate = math.max(marketRate, bailout)
 	end
 	
-	-- Buy price uses raw market rate — no welfare floor, no income bonuses
-	return math.max(1, math.floor(basePrice * marketRate))
+	local multi = 1.0
+	local BonusManager = rawget(Services, "BonusManager")
+	if BonusManager and BonusManager.GetTotalIncomeMultiplier then
+		multi = BonusManager.GetTotalIncomeMultiplier(player)
+	end
+
+	local spread = MarketConfig.CONFIG.BID_ASK_SPREAD or 0.05
+	return math.max(1, math.floor(basePrice * marketRate * multi * (1 + spread)))
 end
 
 -- Adjust AMM pool and apply local shock after a trade
@@ -494,6 +502,13 @@ function MarketManager.GetAllPrices(player)
 	local SM = rawget(Services, "StockMarketManager")
 	local endgame = player and isEndgame(player)
 	
+	local multi = 1.0
+	local BonusManager = rawget(Services, "BonusManager")
+	if BonusManager and BonusManager.GetTotalIncomeMultiplier and player then
+		multi = BonusManager.GetTotalIncomeMultiplier(player)
+	end
+	local spread = MarketConfig.CONFIG.BID_ASK_SPREAD or 0.05
+
 	for id, info in pairs(ItemConfig.Items) do
 		local bp = info.basePrice or 1
 		local sector = getItemSector(id)
@@ -509,10 +524,10 @@ function MarketManager.GetAllPrices(player)
 		local effectiveBuyRate = (endgame == true) and buyRate or math.max(buyRate, bailoutRate)
 		p[id] = {
 			basePrice = bp,
-			currentPrice = math.floor(bp * effectiveRate),  -- Sell price (welfare-aware)
+			currentPrice = math.floor(bp * effectiveRate * multi * (1 - spread)),  -- Sell price (welfare-aware, multi, spread)
 			marketPrice = math.floor(bp * marketRate),
 			bailoutPrice = math.floor(bp * bailoutRate),
-			buyPrice = math.max(1, math.floor(bp * effectiveBuyRate)), -- Buy price (welfare-aware)
+			buyPrice = math.max(1, math.floor(bp * effectiveBuyRate * multi * (1 + spread))), -- Buy price (welfare-aware, multi, spread)
 			tier = info.tier or 1,
 			sector = sector,
 			sectorRate = effectiveRate,

@@ -103,6 +103,12 @@ local ProfileStore = ProfileService.GetProfileStore(
 			HasReachedLockedIn = false,
 			HasReachedGigaChad = false,
 		},
+		PlayerTransport = {
+			unlockedVehicles = {
+				PlayerBike = true,
+			},
+			activeVehicleId = nil,
+		},
 		
 		-- Upgrades & Progress
 		storageCapacity = 2000,

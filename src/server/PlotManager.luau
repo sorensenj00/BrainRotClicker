@@ -11,6 +11,7 @@
 local PlotManager = {}
 local Services = {}
 
+local MainIslandModel
 local PlotsFolder
 local Plots = {} -- {Index, Model, Bridge, Position, Owner, ClaimPart}
 local PlayerToPlot = {}
@@ -52,12 +53,12 @@ local function calculatePlotCFrame(index)
 	return CFrame.new(x, h, z) * CFrame.Angles(0, -(angle + math.pi), 0)
 end
 
-local function calculateBridgeCFrame(plotCFrame)
-	local plotPos = plotCFrame.Position
-	local dir2D = Vector3.new(plotPos.X, 0, plotPos.Z).Unit
-	local hubEdge = Vector3.new(dir2D.X * 100, CONFIG.MAIN_ISLAND_HEIGHT, dir2D.Z * 100)
-	local plotEdge = Vector3.new(plotPos.X - dir2D.X * 60, plotPos.Y, plotPos.Z - dir2D.Z * 60)
-	return CFrame.new((hubEdge + plotEdge) / 2, plotEdge), (plotEdge - hubEdge).Magnitude
+local function calculateStarterBridgeLayout(terrainGenerator, plotModel, plotIndex)
+	if not terrainGenerator or not terrainGenerator.GetStarterBridgeLayout then
+		return nil
+	end
+
+	return terrainGenerator.GetStarterBridgeLayout(MainIslandModel, plotModel, plotIndex)
 end
 
 local function calculateIncomingSide(parentPos, childPos)
@@ -84,7 +85,7 @@ function PlotManager.Init(services)
 	
 	-- Spawn Main Island
 	if TerrainGenerator then
-		TerrainGenerator.SpawnMainIsland(CONFIG.MAIN_ISLAND_HEIGHT)
+		MainIslandModel = TerrainGenerator.SpawnMainIsland(CONFIG.MAIN_ISLAND_HEIGHT)
 	end
 	
 	-- Generate Plots
@@ -100,9 +101,11 @@ function PlotManager.Init(services)
 			pm:PivotTo(cf)
 			pm.Parent = PlotsFolder
 			
-			local bcf, bdist = calculateBridgeCFrame(cf)
-			bm = TerrainGenerator.CreateBridge(bcf, bdist)
-			bm.Name = "Bridge_"..i
+			local bridgeLayout = calculateStarterBridgeLayout(TerrainGenerator, pm, i)
+			bm = TerrainGenerator.CreateBridge(bridgeLayout)
+			if bm then
+				bm.Name = "Bridge_"..i
+			end
 			
 			claimPart = TerrainGenerator.CreateClaimPart(pm)
 		end

@@ -15,6 +15,27 @@ local TerrainGenerator = {}
 local GEN_CONFIG = {
 	TIER_STAIR_WIDTH = 10,
 	TIER_STAIR_HEIGHT = 3,
+	BRIDGE_DECK_WIDTH = 16,
+	BRIDGE_DECK_THICKNESS = 1.2,
+	BRIDGE_SEGMENT_ARC_LENGTH = 12,
+	BRIDGE_SEGMENT_OVERLAP = 1.25,
+	BRIDGE_CURVE_FACTOR = 0.085,
+	BRIDGE_CURVE_MIN = 14,
+	BRIDGE_CURVE_MAX = 28,
+	BRIDGE_TANGENT_FACTOR = 0.22,
+	BRIDGE_TANGENT_MIN = 28,
+	BRIDGE_TANGENT_MAX = 72,
+	BRIDGE_CAP_LENGTH = 12,
+	BRIDGE_CURB_WIDTH = 0.55,
+	BRIDGE_CURB_HEIGHT = 0.8,
+	BRIDGE_CURB_INSET = 0.45,
+	BRIDGE_UNDERBEAM_HEIGHT = 0.8,
+	BRIDGE_UNDERBEAM_WIDTH_SCALE = 0.72,
+	BRIDGE_PLOT_DOCK_LOCAL = Vector3.new(57, 50.4, 0),
+	BRIDGE_HUB_DOCK_INSET = 32,
+	BRIDGE_HUB_DOCK_Y_OFFSET = 0,
+	BRIDGE_SURFACE_CAST_HEIGHT = 120,
+	BRIDGE_SURFACE_CAST_DEPTH = 260,
 }
 
 local BridgeTemplate
@@ -22,6 +43,8 @@ local MainIslandTemplate
 local HFTTerminalTemplate -- [NEW] Reference for the terminal
 local FulfillmentKioskTemplate
 local DroneKioskTemplate
+local TransportPadTemplate
+local TransportKioskTemplate
 
 --------------------------------------------------------------------------------
 -- INITIALIZATION
@@ -38,6 +61,8 @@ function TerrainGenerator.Init()
 	HFTTerminalTemplate = models and models:FindFirstChild("Plot_HFT_Terminal")
 	FulfillmentKioskTemplate = models and models:FindFirstChild("Fulfillment_Kiosk")
 	DroneKioskTemplate = models and models:FindFirstChild("Drone_kiosk")
+	TransportPadTemplate = models and models:FindFirstChild("TransportPad")
+	TransportKioskTemplate = models and models:FindFirstChild("Transport_Kiosk")
 	
 	-- Placeholders if missing
 	if not MainIslandTemplate then
@@ -55,6 +80,156 @@ end
 -- GENERATION FUNCTIONS
 --------------------------------------------------------------------------------
 
+local function createHiddenMarker(name, cframe, parent)
+	local marker = Instance.new("Part")
+	marker.Name = name
+	marker.Size = Vector3.new(1, 1, 1)
+	marker.CFrame = cframe
+	marker.Transparency = 1
+	marker.Anchored = true
+	marker.CanCollide = false
+	marker.CanTouch = false
+	marker.CanQuery = false
+	marker.Parent = parent
+	return marker
+end
+
+local function getHorizontalUnit(vector)
+	local flat = Vector3.new(vector.X, 0, vector.Z)
+	if flat.Magnitude < 0.001 then
+		return nil
+	end
+	return flat.Unit
+end
+
+local function getSurfaceYForModel(model, worldPosition)
+	local rayParams = RaycastParams.new()
+	rayParams.FilterType = Enum.RaycastFilterType.Include
+	rayParams.FilterDescendantsInstances = { model }
+
+	local castHeight = GEN_CONFIG.BRIDGE_SURFACE_CAST_HEIGHT
+	local origin = Vector3.new(worldPosition.X, worldPosition.Y + castHeight, worldPosition.Z)
+	local direction = Vector3.new(0, -GEN_CONFIG.BRIDGE_SURFACE_CAST_DEPTH, 0)
+	local rayResult = workspace:Raycast(origin, direction, rayParams)
+
+	if rayResult then
+		return rayResult.Position.Y
+	end
+
+	local fallbackY = model:GetPivot().Position.Y
+	local _, boundsSize = model:GetBoundingBox()
+	return fallbackY + (boundsSize.Y * 0.5)
+end
+
+local function cubicBezier(p0, p1, p2, p3, t)
+	local invT = 1 - t
+	return (invT ^ 3) * p0
+		+ 3 * (invT ^ 2) * t * p1
+		+ 3 * invT * (t ^ 2) * p2
+		+ (t ^ 3) * p3
+end
+
+local function buildBridgePath(layout)
+	local span = layout.EndPos - layout.StartPos
+	local spanLength = span.Magnitude
+	local sampleCount = math.max(12, math.ceil(spanLength / GEN_CONFIG.BRIDGE_SEGMENT_ARC_LENGTH))
+	local tangentDistance = math.clamp(
+		spanLength * GEN_CONFIG.BRIDGE_TANGENT_FACTOR,
+		GEN_CONFIG.BRIDGE_TANGENT_MIN,
+		GEN_CONFIG.BRIDGE_TANGENT_MAX
+	)
+	local curveMagnitude = math.clamp(
+		spanLength * GEN_CONFIG.BRIDGE_CURVE_FACTOR,
+		GEN_CONFIG.BRIDGE_CURVE_MIN,
+		GEN_CONFIG.BRIDGE_CURVE_MAX
+	) * (layout.CurveSign or 1)
+
+	local startControl = layout.StartPos + (layout.StartTangent * tangentDistance)
+	local endControl = layout.EndPos - (layout.EndTangent * tangentDistance)
+	local points = table.create(sampleCount + 1)
+
+	for index = 0, sampleCount do
+		local alpha = index / sampleCount
+		local basePoint = cubicBezier(layout.StartPos, startControl, endControl, layout.EndPos, alpha)
+		local lateralOffset = layout.CurveNormal * (math.sin(alpha * math.pi) * curveMagnitude)
+		points[index + 1] = basePoint + lateralOffset
+	end
+
+	return points
+end
+
+local function createBridgeDeckPart(name, size, cframe, color, material, parent)
+	local part = Instance.new("Part")
+	part.Name = name
+	part.Size = size
+	part.CFrame = cframe
+	part.Anchored = true
+	part.Material = material
+	part.Color = color
+	part.TopSurface = Enum.SurfaceType.Smooth
+	part.BottomSurface = Enum.SurfaceType.Smooth
+	part.Parent = parent
+	return part
+end
+
+function TerrainGenerator.GetStarterBridgeLayout(mainIsland, plotModel, plotIndex)
+	if not mainIsland or not plotModel then
+		return nil
+	end
+
+	local plotDock = plotModel:FindFirstChild("BridgeDock", true)
+	if not plotDock or not plotDock:IsA("BasePart") then
+		warn("TerrainGenerator: Plot model is missing BridgeDock marker")
+		return nil
+	end
+
+	local plotForward = getHorizontalUnit(plotDock.CFrame.LookVector)
+	if not plotForward then
+		return nil
+	end
+
+	local startSurfaceY = getSurfaceYForModel(plotModel, plotDock.Position)
+	local startPos = Vector3.new(
+		plotDock.Position.X,
+		startSurfaceY - (GEN_CONFIG.BRIDGE_DECK_THICKNESS * 0.5),
+		plotDock.Position.Z
+	)
+
+	local hubCenter = mainIsland:GetPivot().Position
+	local hubDirection = getHorizontalUnit(plotDock.Position - hubCenter) or plotForward
+	local _, hubBounds = mainIsland:GetBoundingBox()
+	local hubRadius = math.max(18, (math.max(hubBounds.X, hubBounds.Z) * 0.5) - GEN_CONFIG.BRIDGE_HUB_DOCK_INSET)
+	local hubDockPos = hubCenter + (hubDirection * hubRadius)
+	local hubSurfaceY = hubCenter.Y + GEN_CONFIG.BRIDGE_HUB_DOCK_Y_OFFSET
+	local endPos = Vector3.new(
+		hubDockPos.X,
+		hubSurfaceY - (GEN_CONFIG.BRIDGE_DECK_THICKNESS * 0.5),
+		hubDockPos.Z
+	)
+
+	local startTangent = getHorizontalUnit(endPos - startPos) or plotForward
+	local endTangent = getHorizontalUnit(hubCenter - endPos) or startTangent
+	local curveNormal = Vector3.new(-startTangent.Z, 0, startTangent.X)
+
+	if curveNormal.Magnitude < 0.001 then
+		curveNormal = Vector3.new(0, 0, 1)
+	else
+		curveNormal = curveNormal.Unit
+	end
+
+	return {
+		StartPos = startPos,
+		EndPos = endPos,
+		StartTangent = startTangent,
+		EndTangent = endTangent,
+		CurveNormal = curveNormal,
+		CurveSign = (plotIndex % 2 == 0) and 1 or -1,
+		DeckWidth = GEN_CONFIG.BRIDGE_DECK_WIDTH,
+		DeckThickness = GEN_CONFIG.BRIDGE_DECK_THICKNESS,
+		CapLength = GEN_CONFIG.BRIDGE_CAP_LENGTH,
+	}
+end
+
 function TerrainGenerator.SpawnMainIsland(height)
 	local mi = MainIslandTemplate:Clone()
 	mi.Name = "MainIsland"
@@ -63,17 +238,148 @@ function TerrainGenerator.SpawnMainIsland(height)
 	return mi
 end
 
-function TerrainGenerator.CreateBridge(cframe, dist)
-	local bm = BridgeTemplate:Clone()
-	bm.Name = "Bridge"
-	for _, part in bm:GetDescendants() do 
-		if part:IsA("BasePart") then 
-			part.Size = Vector3.new(part.Size.X, part.Size.Y, dist) 
-		end 
+function TerrainGenerator.CreateBridge(layout)
+	if not layout then
+		return nil
 	end
-	bm:PivotTo(cframe)
-	bm.Parent = workspace
-	return bm
+
+	local bridgeModel = Instance.new("Model")
+	bridgeModel.Name = "Bridge"
+
+	local points = buildBridgePath(layout)
+	local deckWidth = layout.DeckWidth or GEN_CONFIG.BRIDGE_DECK_WIDTH
+	local deckThickness = layout.DeckThickness or GEN_CONFIG.BRIDGE_DECK_THICKNESS
+	local overlap = GEN_CONFIG.BRIDGE_SEGMENT_OVERLAP
+	local deckColor = Color3.fromRGB(151, 104, 66)
+	local accentColor = Color3.fromRGB(100, 67, 40)
+	local curbCenterOffset = (deckWidth * 0.5) - GEN_CONFIG.BRIDGE_CURB_INSET
+	local primaryPart
+
+	for index = 1, #points - 1 do
+		local fromPoint = points[index]
+		local toPoint = points[index + 1]
+		local segmentVector = toPoint - fromPoint
+		local segmentLength = segmentVector.Magnitude
+
+		if segmentLength > 0.05 then
+			local direction = segmentVector.Unit
+			local segmentCF = CFrame.lookAt((fromPoint + toPoint) * 0.5, toPoint, Vector3.yAxis)
+			local deck = createBridgeDeckPart(
+				string.format("Deck_%02d", index),
+				Vector3.new(deckWidth, deckThickness, segmentLength + overlap),
+				segmentCF,
+				deckColor,
+				Enum.Material.WoodPlanks,
+				bridgeModel
+			)
+
+			if not primaryPart then
+				primaryPart = deck
+				bridgeModel.PrimaryPart = deck
+			end
+
+			CollectionService:AddTag(deck, "BridgeLane")
+
+			local underBeam = createBridgeDeckPart(
+				string.format("UnderBeam_%02d", index),
+				Vector3.new(deckWidth * GEN_CONFIG.BRIDGE_UNDERBEAM_WIDTH_SCALE, GEN_CONFIG.BRIDGE_UNDERBEAM_HEIGHT, segmentLength),
+				segmentCF * CFrame.new(0, -(deckThickness * 0.65), 0),
+				accentColor,
+				Enum.Material.Wood,
+				bridgeModel
+			)
+			underBeam.CanCollide = false
+			underBeam.CanQuery = false
+			underBeam.CanTouch = false
+
+			for _, sign in ipairs({ -1, 1 }) do
+				local curbOffset = Vector3.new(sign * curbCenterOffset, (GEN_CONFIG.BRIDGE_CURB_HEIGHT - deckThickness) * 0.5, 0)
+				createBridgeDeckPart(
+					string.format("Curb_%02d_%s", index, sign < 0 and "L" or "R"),
+					Vector3.new(GEN_CONFIG.BRIDGE_CURB_WIDTH, GEN_CONFIG.BRIDGE_CURB_HEIGHT, segmentLength + overlap * 0.5),
+					segmentCF * CFrame.new(curbOffset),
+					accentColor,
+					Enum.Material.Wood,
+					bridgeModel
+				)
+			end
+
+			if index % 3 == 1 then
+				local postHeight = 3.4
+				for _, sign in ipairs({ -1, 1 }) do
+					local postOffset = Vector3.new(sign * curbCenterOffset, (postHeight * 0.5) + 0.2, 0)
+					local post = createBridgeDeckPart(
+						string.format("Post_%02d_%s", index, sign < 0 and "L" or "R"),
+						Vector3.new(0.45, postHeight, 0.45),
+						segmentCF * CFrame.new(postOffset),
+						Color3.fromRGB(86, 59, 39),
+						Enum.Material.Wood,
+						bridgeModel
+					)
+					post.CanCollide = false
+					post.CanQuery = false
+					post.CanTouch = false
+				end
+			end
+
+			local laneCenter = (fromPoint + toPoint) * 0.5
+			local laneMarker = createBridgeDeckPart(
+				string.format("LaneStripe_%02d", index),
+				Vector3.new(deckWidth * 0.08, 0.08, math.max(2, segmentLength * 0.55)),
+				segmentCF * CFrame.new(0, (deckThickness * 0.5) + 0.04, 0),
+				Color3.fromRGB(255, 223, 96),
+				Enum.Material.Neon,
+				bridgeModel
+			)
+			laneMarker.CanCollide = false
+			laneMarker.CanQuery = false
+			laneMarker.CanTouch = false
+
+			local arrowMarker = createBridgeDeckPart(
+				string.format("ArrowGuide_%02d", index),
+				Vector3.new(deckWidth * 0.04, 0.08, 1.8),
+				CFrame.lookAt(laneCenter + (direction * (segmentLength * 0.18)), toPoint, Vector3.yAxis)
+					* CFrame.new(0, (deckThickness * 0.5) + 0.05, 0),
+				Color3.fromRGB(255, 242, 169),
+				Enum.Material.Neon,
+				bridgeModel
+			)
+			arrowMarker.CanCollide = false
+			arrowMarker.CanQuery = false
+			arrowMarker.CanTouch = false
+		end
+	end
+
+	local capLength = layout.CapLength or GEN_CONFIG.BRIDGE_CAP_LENGTH
+	for _, capData in ipairs({
+		{
+			Name = "PlotCap",
+			Position = layout.StartPos + (layout.StartTangent * (capLength * 0.35)),
+			LookAt = layout.StartPos + layout.StartTangent,
+		},
+		{
+			Name = "HubCap",
+			Position = layout.EndPos + (layout.EndTangent * (capLength * 0.35)),
+			LookAt = layout.EndPos + layout.EndTangent,
+		},
+	}) do
+		local cap = createBridgeDeckPart(
+			capData.Name,
+			Vector3.new(deckWidth + 1.5, deckThickness, capLength),
+			CFrame.lookAt(capData.Position, capData.LookAt, Vector3.yAxis),
+			Color3.fromRGB(171, 126, 80),
+			Enum.Material.WoodPlanks,
+			bridgeModel
+		)
+		CollectionService:AddTag(cap, "BridgeLane")
+		if not primaryPart then
+			primaryPart = cap
+			bridgeModel.PrimaryPart = cap
+		end
+	end
+
+	bridgeModel.Parent = workspace
+	return bridgeModel
 end
 
 function TerrainGenerator.CreateClaimPart(model)
@@ -106,6 +412,12 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 	root.CanCollide = false
 	root.Parent = model
 	model.PrimaryPart = root
+
+	createHiddenMarker(
+		"BridgeDock",
+		CFrame.lookAt(GEN_CONFIG.BRIDGE_PLOT_DOCK_LOCAL, GEN_CONFIG.BRIDGE_PLOT_DOCK_LOCAL + Vector3.new(1, 0, 0)),
+		model
+	)
 
 	-- Folders
 	local visualsFolder = Instance.new("Folder")
@@ -206,6 +518,7 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 
 	-- 5. Glowing Magic Core & Underglow Light
 	local magicCore = Instance.new("Part")
+	magicCore.Name = "MagicCore"
 	magicCore.Shape = Enum.PartType.Block
 	magicCore.Size = Vector3.new(4, 6, 4)
 	magicCore.CFrame = CFrame.new(0, lastY - 2, 0) * CFrame.Angles(rng:NextNumber(0,3), rng:NextNumber(0,3), rng:NextNumber(0,3))
@@ -229,7 +542,7 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 	particles.EmissionDirection = Enum.NormalId.Bottom
 	particles.Parent = magicCore
 
-	-- 6. Floating Debris Halo
+	-- 6. Floating Debris Halo (tagged for client-side animation)
 	for d = 1, rng:NextInteger(12, 18) do
 		local angle = rng:NextNumber(0, math.pi * 2)
 		local dist = (topDiameter / 2) * rng:NextNumber(1.05, 1.6) 
@@ -238,6 +551,7 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 		local dy = topY - rng:NextNumber(15, 45) 
 		
 		local debris = Instance.new("Part")
+		debris.Name = "FloatingDebris"
 		debris.Shape = Enum.PartType.Block
 		local baseSize = rng:NextNumber(3, 9) 
 		debris.Size = Vector3.new(baseSize * rng:NextNumber(0.6, 1.4), baseSize * rng:NextNumber(0.6, 1.4), baseSize * rng:NextNumber(0.6, 1.4))
@@ -245,6 +559,20 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 		debris.Material = Enum.Material.Slate
 		debris.Color = Color3.fromRGB(baseR * 0.8, baseG * 0.8, baseB * 0.8)
 		debris.Anchored = true
+		debris.CanCollide = false
+
+		-- Store orbit metadata as attributes for the client animator
+		debris:SetAttribute("OrbitAngle", angle)
+		debris:SetAttribute("OrbitRadius", dist)
+		debris:SetAttribute("OrbitHeight", dy)
+		debris:SetAttribute("OrbitSpeed", rng:NextNumber(0.04, 0.12))
+		debris:SetAttribute("WobbleSpeed", rng:NextNumber(0.5, 1.5))
+		debris:SetAttribute("WobbleAmount", rng:NextNumber(3.0, 8.0))
+		debris:SetAttribute("TumbleX", rng:NextNumber(-0.5, 0.5))
+		debris:SetAttribute("TumbleY", rng:NextNumber(-0.5, 0.5))
+		debris:SetAttribute("TumbleZ", rng:NextNumber(-0.5, 0.5))
+
+		CollectionService:AddTag(debris, "FloatingDebris")
 		debris.Parent = visualsFolder
 	end
 
@@ -295,7 +623,7 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 		-- Bridge connection is on the +X edge of the plot.
 		-- Place kiosk just behind that connection so it is near the bridge entrance.
 		local kioskX = 50
-		local kioskZ = -7
+		local kioskZ = -13
 		local kioskY = topY + 1.3
 
 		kiosk:PivotTo(CFrame.new(kioskX, kioskY, kioskZ) * CFrame.Angles(0, math.rad(-90), 0))
@@ -313,10 +641,10 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 	if isStarterPlot and DroneKioskTemplate then
 		local droneKiosk = DroneKioskTemplate:Clone()
 
-		-- Fulfillment kiosk uses Z=-7 near bridge entrance.
-		-- Drone kiosk is mirrored to Z=+7, i.e. opposite side of the bridge lane.
+		-- Fulfillment kiosk sits off the left side of the bridge approach.
+		-- Drone kiosk mirrors it on the right side to keep the center lane clear.
 		local kioskX = 50
-		local kioskZ = 7
+		local kioskZ = 13
 		local kioskY = topY + 1.3
 
 		droneKiosk:PivotTo(CFrame.new(kioskX, kioskY, kioskZ) * CFrame.Angles(0, math.rad(-90), 0))
@@ -330,6 +658,62 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 				prompt.Name = "DroneKioskPrompt"
 				prompt.ActionText = "Open Drone Ops"
 				prompt.ObjectText = "Drone Kiosk"
+				prompt.KeyboardKeyCode = Enum.KeyCode.E
+				prompt.RequiresLineOfSight = false
+				prompt.MaxActivationDistance = 12
+				prompt.Parent = attachPart
+			end
+		end
+	end
+
+	if isStarterPlot and TransportPadTemplate then
+		local transportPad = TransportPadTemplate:Clone()
+		transportPad.Name = "PlayerTransportPad"
+
+		local padX = -48
+		local padZ = 0
+		local padY = topY + 2
+
+		transportPad:PivotTo(CFrame.new(padX, padY, padZ) * CFrame.Angles(0, math.rad(90), 0))
+
+		local spawnSource = transportPad:FindFirstChild("Spawn", true)
+		if spawnSource and spawnSource:IsA("BasePart") then
+			local runtimeSpawn = Instance.new("Part")
+			runtimeSpawn.Name = "RuntimeSpawnMarker"
+			runtimeSpawn.Anchored = true
+			runtimeSpawn.CanCollide = false
+			runtimeSpawn.CanQuery = false
+			runtimeSpawn.CanTouch = false
+			runtimeSpawn.Transparency = 1
+			runtimeSpawn.Size = Vector3.new(1, 1, 1)
+			runtimeSpawn.CFrame = spawnSource.CFrame
+			runtimeSpawn.Parent = transportPad
+		else
+			warn("TerrainGenerator: TransportPad template is missing Spawn part")
+		end
+
+		transportPad.Parent = model
+	end
+
+	if isStarterPlot and TransportKioskTemplate then
+		local transportKiosk = TransportKioskTemplate:Clone()
+		transportKiosk.Name = "PlayerTransportKiosk"
+
+		local kioskX = -42
+		local kioskZ = -10
+		local kioskY = topY + 1.3
+
+		transportKiosk:PivotTo(CFrame.new(kioskX, kioskY, kioskZ) * CFrame.Angles(0, math.rad(55), 0))
+		transportKiosk.Parent = model
+
+		local attachPart = transportKiosk.PrimaryPart or transportKiosk:FindFirstChildWhichIsA("BasePart", true)
+		if attachPart then
+			local prompt = attachPart:FindFirstChild("PlayerTransportKioskPrompt")
+			if not prompt then
+				prompt = Instance.new("ProximityPrompt")
+				prompt.Name = "PlayerTransportKioskPrompt"
+				prompt.ActionText = "Open Transport Kiosk"
+				prompt.ObjectText = "Transport Kiosk"
 				prompt.KeyboardKeyCode = Enum.KeyCode.E
 				prompt.RequiresLineOfSight = false
 				prompt.MaxActivationDistance = 12

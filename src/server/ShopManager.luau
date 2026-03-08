@@ -15,6 +15,7 @@ local RarityConfig
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ShortfallCalc = require(Shared:WaitForChild("ShortfallCalc"))
 local MarketConfig = require(Shared:WaitForChild("MarketConfig"))
+local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 
 local function getConfigs()
 	if not ShopConfig then
@@ -29,9 +30,17 @@ local RemoteEvents = ReplicatedStorage:FindFirstChild("RemoteEvents") or Instanc
 RemoteEvents.Name = "RemoteEvents"
 RemoteEvents.Parent = ReplicatedStorage
 
+local RemoteFunctions = ReplicatedStorage:FindFirstChild("RemoteFunctions") or Instance.new("Folder")
+RemoteFunctions.Name = "RemoteFunctions"
+RemoteFunctions.Parent = ReplicatedStorage
+
 local BuyUnitRemote = RemoteEvents:FindFirstChild("BuyUnit") or Instance.new("RemoteFunction")
 BuyUnitRemote.Name = "BuyUnit"
 BuyUnitRemote.Parent = RemoteEvents
+
+local UpgradeUnitFromHUDRemote = RemoteFunctions:FindFirstChild("UpgradeUnitFromHUD") or Instance.new("RemoteFunction")
+UpgradeUnitFromHUDRemote.Name = "UpgradeUnitFromHUD"
+UpgradeUnitFromHUDRemote.Parent = RemoteFunctions
 
 local OwnershipChangedEvent = RemoteEvents:FindFirstChild("OwnershipChanged") or Instance.new("RemoteEvent")
 OwnershipChangedEvent.Name = "OwnershipChanged"
@@ -132,55 +141,47 @@ local function recordAchievements(player, goalType, amount)
 	end
 end
 
+local function isPlayerNearUnitShop(player)
+	local mainIsland = workspace:FindFirstChild("MainIsland")
+	local shopsFolder = mainIsland and mainIsland:FindFirstChild("Shops")
+	local shopVendor = shopsFolder and shopsFolder:FindFirstChild("UnitShop")
 
+	if not shopVendor or not player.Character then
+		return false
+	end
 
---------------------------------------------------------------------------------
--- PUBLIC API & CORE LOGIC
---------------------------------------------------------------------------------
-
-function ShopManager.Init(services)
-	print("   ShopManager (Module) - Initializing")
-	Services = services or {}
-
-	Players.PlayerAdded:Connect(initializePlayerData)
-	Players.PlayerRemoving:Connect(cleanupPlayerData)
-
-	-- Preload Configs
-	getConfigs()
-
-	task.spawn(setupShopVendor)
-
-	for _, p in Players:GetPlayers() do initializePlayerData(p) end
-
-	BuyUnitRemote.OnServerInvoke = ShopManager.HandleBuyUnit
-	GetOwnershipRemote.OnServerInvoke = ShopManager.GetPlayerOwnership
-
-	print("✓ ShopManager Initialized")
+	local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+	return hrp and (hrp.Position - shopVendor:GetPivot().Position).Magnitude <= 20
 end
 
-function ShopManager.GetOwnedCount(player, unitName)
-	local InvMgr = rawget(Services, "InventoryManager")
-	if InvMgr then return InvMgr.GetUnitLevel(player, unitName) end
-	return 0
+local function getUnitOutputInfo(unitName)
+	local production = ItemConfig.GetModeProduction(unitName, 1, 1)
+	local itemId = production and production.itemId
+	local itemDef = itemId and ItemConfig.Items[itemId]
+	return {
+		itemId = itemId,
+		itemName = itemDef and (itemDef.displayName or itemId) or itemId,
+		itemIcon = itemDef and (itemDef.icon or "") or "",
+		cycleTime = production and production.rate or nil,
+	}
 end
 
-function ShopManager.GetUnlockProgress(player)
-	return PlayerUnlockProgress[player] or ShopConfig.INITIAL_UNLOCKED
-end
-
-function ShopManager.HandleBuyUnit(player, unitName)
-	-- Distance Check (bypassed for admins / Studio)
-	if not isAdmin(player) then
-		local mainIsland = workspace:FindFirstChild("MainIsland")
-		local shopsFolder = mainIsland and mainIsland:FindFirstChild("Shops")
-		local shopVendor = shopsFolder and shopsFolder:FindFirstChild("UnitShop")
-
-		if shopVendor and player.Character then
-			local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-			if hrp and (hrp.Position - shopVendor:GetPivot().Position).Magnitude > 20 then
-				return false, "Too far from shop!"
-			end
+local function getNewlyUnlockedUnitName(previousProgress, newProgress)
+	local shopConfig = getConfigs()
+	local sortedUnits = shopConfig.GetAllUnitsSorted()
+	for index = previousProgress + 1, math.min(newProgress, #sortedUnits) do
+		local unitData = sortedUnits[index]
+		if unitData then
+			return unitData.name
 		end
+	end
+	return nil
+end
+
+local function executeUnitPurchase(player, unitName, skipDistanceCheck)
+	-- Distance Check (bypassed for admins / Studio)
+	if not skipDistanceCheck and not isAdmin(player) and not isPlayerNearUnitShop(player) then
+		return false, "Too far from shop!"
 	end
 
 	if not ShopConfig.GetConfig(unitName) then return false, "Unknown Unit" end
@@ -209,7 +210,12 @@ function ShopManager.HandleBuyUnit(player, unitName)
 
 		-- Calculate shortfall cost with slippage
 		local maxBuy = MarketConfig.CONFIG.MAX_BUY_PER_TRANSACTION or 100
-		local getBuyPriceFn = (MarketMgr and MarketMgr.GetBuyPrice) or function() return 0 end
+		local getBuyPriceFn = MarketMgr and MarketMgr.GetBuyPrice
+		if not getBuyPriceFn then
+			getBuyPriceFn = function()
+				return 0
+			end
+		end
 		shortfall = ShortfallCalc.Calculate(itemCost, playerItems, getBuyPriceFn, maxBuy)
 
 		if shortfall.hasShortfall then
@@ -222,9 +228,7 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	local playerMoney = getMoney(player)
 	if playerMoney < totalCost then
 		if shortfall and shortfall.hasShortfall then
-			-- Explicit error for price fluctuation / shortfall
 			local needed = math.ceil(totalCost)
-			local _have = math.floor(playerMoney)
 			return false, string.format("Market price fluctuated! You need $%s (Unit $%s + Import $%s)",
 				tostring(needed), tostring(unitPrice), tostring(shortfall.totalTaxed))
 		else
@@ -232,13 +236,11 @@ function ShopManager.HandleBuyUnit(player, unitName)
 		end
 	end
 
-	-- === EXECUTE TRANSACTION ===
+	-- Execute transaction
 	if not deductMoney(player, totalCost) then return false, "Transaction failed" end
 
-	-- Consume physical items (burn from storage/backpack)
 	if itemCost and ISM then
 		for itemId, needed in pairs(itemCost) do
-			-- Only consume from storage
 			local toConsume = shortfall and shortfall.perItem[itemId]
 				and math.min(needed, shortfall.perItem[itemId].have) or needed
 			if toConsume > 0 then
@@ -247,7 +249,6 @@ function ShopManager.HandleBuyUnit(player, unitName)
 		end
 	end
 
-	-- Register virtual imports in AMM (raw cost only — tax was burned above)
 	if shortfall and shortfall.hasShortfall and MarketMgr then
 		MarketMgr.ExecuteShortfallBuy(shortfall.perItem)
 	end
@@ -263,22 +264,87 @@ function ShopManager.HandleBuyUnit(player, unitName)
 	local newLevel = newData.level
 	recordAchievements(player, "units_purchased", 1)
 
-
-
-	-- Update client
 	local newPrice = ShopConfig.CalculatePrice(unitName, newLevel)
 	OwnershipChangedEvent:FireClient(player, unitName, newLevel, newPrice)
 
-	-- Increment Unlock ONLY when buying a NEW unit type for the first time
 	local total = ShopConfig.GetTotalUnits()
+	local updatedProgress = progress
+	local newUnlockName = nil
 	if owned == 0 and progress < total then
 		PlayerUnlockProgress[player] = progress + 1
+		updatedProgress = PlayerUnlockProgress[player]
+		newUnlockName = getNewlyUnlockedUnitName(progress, updatedProgress)
 		local uv = player:FindFirstChild("UnlockProgress")
-		if uv then uv.Value = PlayerUnlockProgress[player] end
+		if uv then
+			uv.Value = PlayerUnlockProgress[player]
+		end
 		UnlockProgressChangedEvent:FireClient(player, PlayerUnlockProgress[player])
 	end
 
-	return true, "Purchased!"
+	local outputInfo = getUnitOutputInfo(unitName)
+
+	return true, "Purchased!", {
+		unitName = unitName,
+		ownedBefore = owned,
+		newLevel = newLevel,
+		newPrice = newPrice,
+		amountPaid = math.floor(totalCost),
+		unlockProgress = updatedProgress,
+		newUnlockName = newUnlockName,
+		outputItemId = outputInfo.itemId,
+		outputItemName = outputInfo.itemName,
+		outputItemIcon = outputInfo.itemIcon,
+		outputCycleTime = outputInfo.cycleTime,
+	}
+end
+
+
+
+--------------------------------------------------------------------------------
+-- PUBLIC API & CORE LOGIC
+--------------------------------------------------------------------------------
+
+function ShopManager.Init(services)
+	print("   ShopManager (Module) - Initializing")
+	Services = services or {}
+
+	Players.PlayerAdded:Connect(initializePlayerData)
+	Players.PlayerRemoving:Connect(cleanupPlayerData)
+
+	-- Preload Configs
+	getConfigs()
+
+	task.spawn(setupShopVendor)
+
+	for _, p in Players:GetPlayers() do
+		initializePlayerData(p)
+	end
+
+	BuyUnitRemote.OnServerInvoke = ShopManager.HandleBuyUnit
+	UpgradeUnitFromHUDRemote.OnServerInvoke = ShopManager.HandleHUDUpgrade
+	GetOwnershipRemote.OnServerInvoke = ShopManager.GetPlayerOwnership
+
+	print("✓ ShopManager Initialized")
+end
+
+function ShopManager.GetOwnedCount(player, unitName)
+	local InvMgr = rawget(Services, "InventoryManager")
+	if InvMgr then
+		return InvMgr.GetUnitLevel(player, unitName)
+	end
+	return 0
+end
+
+function ShopManager.GetUnlockProgress(player)
+	return PlayerUnlockProgress[player] or ShopConfig.INITIAL_UNLOCKED
+end
+
+function ShopManager.HandleBuyUnit(player, unitName)
+	return executeUnitPurchase(player, unitName, false)
+end
+
+function ShopManager.HandleHUDUpgrade(player, unitName)
+	return executeUnitPurchase(player, unitName, true)
 end
 
 function ShopManager.GetPlayerOwnership(player)
@@ -297,7 +363,9 @@ function ShopManager.SetPlayerData(player, ownedUnits, unlockProgress)
 	PlayerUnlockProgress[player] = unlockProgress
 
 	local uv = player:FindFirstChild("UnlockProgress")
-	if uv then uv.Value = unlockProgress end
+	if uv then
+		uv.Value = unlockProgress
+	end
 
 
 
@@ -314,7 +382,9 @@ end
 ShopManager.ResetPlayerData = function(player)
 	PlayerUnlockProgress[player] = ShopConfig.INITIAL_UNLOCKED
 	local uv = player:FindFirstChild("UnlockProgress")
-	if uv then uv.Value = ShopConfig.INITIAL_UNLOCKED end
+	if uv then
+		uv.Value = ShopConfig.INITIAL_UNLOCKED
+	end
 
 	UnlockProgressChangedEvent:FireClient(player, ShopConfig.INITIAL_UNLOCKED)
 end

@@ -3,7 +3,9 @@
 local AchievementsConfig = {}
 
 export type GoalType =
-	"first_brainrot_placed"
+	"units_purchased"
+	| "first_brainrot_placed"
+	| "first_market_sale"
 	| "grid_slots_unlocked"
 	| "islands_purchased"
 	| "items_produced_total"
@@ -50,9 +52,192 @@ export type AchievementDefinition = {
 	GoalType: GoalType,
 	TargetValue: number,
 	Rewards: {Reward},
+	AutoClaim: boolean?,
+	OnboardingOrder: number?,
 }
 
 AchievementsConfig.List = {
+	{
+		Id = "onboarding_buy_first_unit",
+		Title = "Buy Your First Unit",
+		Description = "Pick up your first Brainrot.",
+		Category = "Onboarding",
+		Order = 1,
+		OnboardingOrder = 1,
+		GoalType = "units_purchased",
+		TargetValue = 1,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 100,
+			},
+		},
+	},
+	{
+		Id = "onboarding_place_first_unit",
+		Title = "Place Your First Unit",
+		Description = "Drop your first Brainrot onto the grid.",
+		Category = "Onboarding",
+		Order = 2,
+		OnboardingOrder = 2,
+		GoalType = "first_brainrot_placed",
+		TargetValue = 1,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 150,
+			},
+		},
+	},
+	{
+		Id = "onboarding_first_batch",
+		Title = "Produce Your First Batch",
+		Description = "Let your setup produce 20 items.",
+		Category = "Onboarding",
+		Order = 3,
+		OnboardingOrder = 3,
+		GoalType = "items_produced_total",
+		TargetValue = 20,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 200,
+			},
+		},
+	},
+	{
+		Id = "onboarding_first_sale",
+		Title = "Cash Out Once",
+		Description = "Sell your stored stock once.",
+		Category = "Onboarding",
+		Order = 4,
+		OnboardingOrder = 4,
+		GoalType = "first_market_sale",
+		TargetValue = 1,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 250,
+			},
+		},
+	},
+	{
+		Id = "onboarding_reinvest",
+		Title = "Reinvest Profits",
+		Description = "Buy a second unit to grow your setup.",
+		Category = "Onboarding",
+		Order = 5,
+		OnboardingOrder = 5,
+		GoalType = "units_purchased",
+		TargetValue = 2,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 300,
+			},
+		},
+	},
+	{
+		Id = "midgame_targeted_seller",
+		Title = "Target 3 Terminal Sales",
+		Description = "Use the market terminal to make 3 targeted cart sales.",
+		Category = "Midgame",
+		Order = 6,
+		GoalType = "first_cart_sale",
+		TargetValue = 3,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 1500,
+			},
+		},
+	},
+	{
+		Id = "midgame_expand_line",
+		Title = "Run 4 Producers",
+		Description = "Own 4 total producers to widen your cash-out windows.",
+		Category = "Midgame",
+		Order = 7,
+		GoalType = "units_purchased",
+		TargetValue = 4,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 2000,
+			},
+		},
+	},
+	{
+		Id = "midgame_full_cart",
+		Title = "Ship a Full Cart",
+		Description = "Fill the cart completely before pushing it to market.",
+		Category = "Midgame",
+		Order = 8,
+		GoalType = "cart_fully_loaded",
+		TargetValue = 1,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 2500,
+			},
+		},
+	},
+	{
+		Id = "midgame_first_synergy",
+		Title = "Trigger Your First Synergy",
+		Description = "Pair the right weird units and create your first synergy output.",
+		Category = "Midgame",
+		Order = 9,
+		GoalType = "synergy_activated",
+		TargetValue = 1,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 3500,
+			},
+		},
+	},
+	{
+		Id = "midgame_cart_tier_two",
+		Title = "Upgrade Cart to Tier 2",
+		Description = "Boost throughput so your next cash-outs land harder.",
+		Category = "Midgame",
+		Order = 10,
+		GoalType = "cart_tier_unlocked",
+		TargetValue = 2,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 5000,
+			},
+		},
+	},
+	{
+		Id = "midgame_first_contract",
+		Title = "Finish a Flash Order",
+		Description = "Close out your first contract finisher for a premium payout.",
+		Category = "Midgame",
+		Order = 11,
+		GoalType = "flash_order_finisher",
+		TargetValue = 1,
+		AutoClaim = true,
+		Rewards = {
+			{
+				Type = "money",
+				Amount = 7500,
+			},
+		},
+	},
 	{
 		Id = "first_steps",
 		Title = "First Steps",

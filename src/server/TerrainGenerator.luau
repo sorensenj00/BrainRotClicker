@@ -26,13 +26,15 @@ local GEN_CONFIG = {
 	BRIDGE_TANGENT_MIN = 28,
 	BRIDGE_TANGENT_MAX = 72,
 	BRIDGE_CAP_LENGTH = 12,
+	BRIDGE_ANCHOR_STRIP_LENGTH = 1,
+	BRIDGE_SEAM_OVERLAP = 0.3,
 	BRIDGE_CURB_WIDTH = 0.55,
 	BRIDGE_CURB_HEIGHT = 0.8,
 	BRIDGE_CURB_INSET = 0.45,
 	BRIDGE_UNDERBEAM_HEIGHT = 0.8,
 	BRIDGE_UNDERBEAM_WIDTH_SCALE = 0.72,
-	BRIDGE_PLOT_DOCK_LOCAL = Vector3.new(57, 50.4, 0),
-	BRIDGE_HUB_DOCK_INSET = 32,
+	BRIDGE_PLOT_DOCK_LOCAL = Vector3.new(50, 50.4, 0),
+	BRIDGE_HUB_DOCK_INSET = 46,
 	BRIDGE_HUB_DOCK_Y_OFFSET = 0,
 	BRIDGE_SURFACE_CAST_HEIGHT = 120,
 	BRIDGE_SURFACE_CAST_DEPTH = 260,
@@ -45,6 +47,8 @@ local FulfillmentKioskTemplate
 local DroneKioskTemplate
 local TransportPadTemplate
 local TransportKioskTemplate
+
+local SPAWN_ADVANCED_STARTER_FEATURES = false
 
 --------------------------------------------------------------------------------
 -- INITIALIZATION
@@ -80,10 +84,10 @@ end
 -- GENERATION FUNCTIONS
 --------------------------------------------------------------------------------
 
-local function createHiddenMarker(name, cframe, parent)
+local function createHiddenMarker(name, cframe, parent, size)
 	local marker = Instance.new("Part")
 	marker.Name = name
-	marker.Size = Vector3.new(1, 1, 1)
+	marker.Size = size or Vector3.new(1, 1, 1)
 	marker.CFrame = cframe
 	marker.Transparency = 1
 	marker.Anchored = true
@@ -130,7 +134,7 @@ local function cubicBezier(p0, p1, p2, p3, t)
 end
 
 local function buildBridgePath(layout)
-	local span = layout.EndPos - layout.StartPos
+	local span = layout.PathEndPos - layout.PathStartPos
 	local spanLength = span.Magnitude
 	local sampleCount = math.max(12, math.ceil(spanLength / GEN_CONFIG.BRIDGE_SEGMENT_ARC_LENGTH))
 	local tangentDistance = math.clamp(
@@ -144,13 +148,13 @@ local function buildBridgePath(layout)
 		GEN_CONFIG.BRIDGE_CURVE_MAX
 	) * (layout.CurveSign or 1)
 
-	local startControl = layout.StartPos + (layout.StartTangent * tangentDistance)
-	local endControl = layout.EndPos - (layout.EndTangent * tangentDistance)
+	local startControl = layout.PathStartPos + (layout.StartTangent * tangentDistance)
+	local endControl = layout.PathEndPos - (layout.EndTangent * tangentDistance)
 	local points = table.create(sampleCount + 1)
 
 	for index = 0, sampleCount do
 		local alpha = index / sampleCount
-		local basePoint = cubicBezier(layout.StartPos, startControl, endControl, layout.EndPos, alpha)
+		local basePoint = cubicBezier(layout.PathStartPos, startControl, endControl, layout.PathEndPos, alpha)
 		local lateralOffset = layout.CurveNormal * (math.sin(alpha * math.pi) * curveMagnitude)
 		points[index + 1] = basePoint + lateralOffset
 	end
@@ -188,12 +192,14 @@ function TerrainGenerator.GetStarterBridgeLayout(mainIsland, plotModel, plotInde
 		return nil
 	end
 
+	local stripLength = GEN_CONFIG.BRIDGE_ANCHOR_STRIP_LENGTH
 	local startSurfaceY = getSurfaceYForModel(plotModel, plotDock.Position)
-	local startPos = Vector3.new(
+	local startAnchorCenter = Vector3.new(
 		plotDock.Position.X,
 		startSurfaceY - (GEN_CONFIG.BRIDGE_DECK_THICKNESS * 0.5),
 		plotDock.Position.Z
 	)
+	local startAnchorCFrame = CFrame.lookAt(startAnchorCenter, startAnchorCenter + plotForward, Vector3.yAxis)
 
 	local hubCenter = mainIsland:GetPivot().Position
 	local hubDirection = getHorizontalUnit(plotDock.Position - hubCenter) or plotForward
@@ -201,14 +207,16 @@ function TerrainGenerator.GetStarterBridgeLayout(mainIsland, plotModel, plotInde
 	local hubRadius = math.max(18, (math.max(hubBounds.X, hubBounds.Z) * 0.5) - GEN_CONFIG.BRIDGE_HUB_DOCK_INSET)
 	local hubDockPos = hubCenter + (hubDirection * hubRadius)
 	local hubSurfaceY = hubCenter.Y + GEN_CONFIG.BRIDGE_HUB_DOCK_Y_OFFSET
-	local endPos = Vector3.new(
+	local endAnchorCenter = Vector3.new(
 		hubDockPos.X,
 		hubSurfaceY - (GEN_CONFIG.BRIDGE_DECK_THICKNESS * 0.5),
 		hubDockPos.Z
 	)
+	local endAnchorForward = getHorizontalUnit(hubCenter - endAnchorCenter) or plotForward
+	local endAnchorCFrame = CFrame.lookAt(endAnchorCenter, endAnchorCenter + endAnchorForward, Vector3.yAxis)
 
-	local startTangent = getHorizontalUnit(endPos - startPos) or plotForward
-	local endTangent = getHorizontalUnit(hubCenter - endPos) or startTangent
+	local startTangent = getHorizontalUnit(endAnchorCenter - startAnchorCenter) or plotForward
+	local endTangent = endAnchorForward
 	local curveNormal = Vector3.new(-startTangent.Z, 0, startTangent.X)
 
 	if curveNormal.Magnitude < 0.001 then
@@ -218,15 +226,19 @@ function TerrainGenerator.GetStarterBridgeLayout(mainIsland, plotModel, plotInde
 	end
 
 	return {
-		StartPos = startPos,
-		EndPos = endPos,
+		StartPos = startAnchorCenter,
+		EndPos = endAnchorCenter,
+		StartAnchorCFrame = startAnchorCFrame,
+		EndAnchorCFrame = endAnchorCFrame,
 		StartTangent = startTangent,
 		EndTangent = endTangent,
+		PathStartPos = startAnchorCenter + (startTangent * ((stripLength * 0.5) - GEN_CONFIG.BRIDGE_SEAM_OVERLAP)),
+		PathEndPos = endAnchorCenter - (endTangent * ((stripLength * 0.5) - GEN_CONFIG.BRIDGE_SEAM_OVERLAP)),
 		CurveNormal = curveNormal,
 		CurveSign = (plotIndex % 2 == 0) and 1 or -1,
 		DeckWidth = GEN_CONFIG.BRIDGE_DECK_WIDTH,
 		DeckThickness = GEN_CONFIG.BRIDGE_DECK_THICKNESS,
-		CapLength = GEN_CONFIG.BRIDGE_CAP_LENGTH,
+		CapLength = stripLength,
 	}
 end
 
@@ -350,28 +362,30 @@ function TerrainGenerator.CreateBridge(layout)
 		end
 	end
 
-	local capLength = layout.CapLength or GEN_CONFIG.BRIDGE_CAP_LENGTH
+	local capLength = layout.CapLength or GEN_CONFIG.BRIDGE_ANCHOR_STRIP_LENGTH
 	for _, capData in ipairs({
 		{
 			Name = "PlotCap",
-			Position = layout.StartPos + (layout.StartTangent * (capLength * 0.35)),
-			LookAt = layout.StartPos + layout.StartTangent,
+			CFrame = layout.StartAnchorCFrame or CFrame.lookAt(layout.StartPos, layout.StartPos + layout.StartTangent, Vector3.yAxis),
+			Hidden = true,
 		},
 		{
 			Name = "HubCap",
-			Position = layout.EndPos + (layout.EndTangent * (capLength * 0.35)),
-			LookAt = layout.EndPos + layout.EndTangent,
+			CFrame = layout.EndAnchorCFrame or CFrame.lookAt(layout.EndPos, layout.EndPos + layout.EndTangent, Vector3.yAxis),
 		},
 	}) do
 		local cap = createBridgeDeckPart(
 			capData.Name,
 			Vector3.new(deckWidth + 1.5, deckThickness, capLength),
-			CFrame.lookAt(capData.Position, capData.LookAt, Vector3.yAxis),
+			capData.CFrame,
 			Color3.fromRGB(171, 126, 80),
 			Enum.Material.WoodPlanks,
 			bridgeModel
 		)
 		CollectionService:AddTag(cap, "BridgeLane")
+		if capData.Hidden then
+			cap.Transparency = 1
+		end
 		if not primaryPart then
 			primaryPart = cap
 			bridgeModel.PrimaryPart = cap
@@ -416,7 +430,8 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 	createHiddenMarker(
 		"BridgeDock",
 		CFrame.lookAt(GEN_CONFIG.BRIDGE_PLOT_DOCK_LOCAL, GEN_CONFIG.BRIDGE_PLOT_DOCK_LOCAL + Vector3.new(1, 0, 0)),
-		model
+		model,
+		Vector3.new(GEN_CONFIG.BRIDGE_DECK_WIDTH + 1.5, 0.2, GEN_CONFIG.BRIDGE_ANCHOR_STRIP_LENGTH)
 	)
 
 	-- Folders
@@ -590,7 +605,7 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 	-- =========================================================
 	-- [NEW] 8. Spawn HFT Terminal on Starter Plot Only
 	-- =========================================================
-	if isStarterPlot and HFTTerminalTemplate then
+	if isStarterPlot and SPAWN_ADVANCED_STARTER_FEATURES and HFTTerminalTemplate then
 		local terminal = HFTTerminalTemplate:Clone()
 		
 		-- Place it off to the side of the bridge connection
@@ -617,7 +632,7 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 	end
 
 	-- 9. Spawn Fulfillment Kiosk on Starter Plot Only
-	if isStarterPlot and FulfillmentKioskTemplate then
+	if isStarterPlot and SPAWN_ADVANCED_STARTER_FEATURES and FulfillmentKioskTemplate then
 		local kiosk = FulfillmentKioskTemplate:Clone()
 
 		-- Bridge connection is on the +X edge of the plot.
@@ -638,7 +653,7 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 	end
 
 	-- 10. Spawn Drone Kiosk on starter plot opposite bridge side from storage kiosk
-	if isStarterPlot and DroneKioskTemplate then
+	if isStarterPlot and SPAWN_ADVANCED_STARTER_FEATURES and DroneKioskTemplate then
 		local droneKiosk = DroneKioskTemplate:Clone()
 
 		-- Fulfillment kiosk sits off the left side of the bridge approach.
@@ -666,7 +681,7 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 		end
 	end
 
-	if isStarterPlot and TransportPadTemplate then
+	if isStarterPlot and SPAWN_ADVANCED_STARTER_FEATURES and TransportPadTemplate then
 		local transportPad = TransportPadTemplate:Clone()
 		transportPad.Name = "PlayerTransportPad"
 
@@ -695,7 +710,7 @@ function TerrainGenerator.CreatePlotModel(isStarterPlot)
 		transportPad.Parent = model
 	end
 
-	if isStarterPlot and TransportKioskTemplate then
+	if isStarterPlot and SPAWN_ADVANCED_STARTER_FEATURES and TransportKioskTemplate then
 		local transportKiosk = TransportKioskTemplate:Clone()
 		transportKiosk.Name = "PlayerTransportKiosk"
 

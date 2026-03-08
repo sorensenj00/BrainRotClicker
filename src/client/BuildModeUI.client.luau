@@ -9,6 +9,8 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local UserInputService = game:GetService("UserInputService")
 local Players = game:GetService("Players")
+local CollectionService = game:GetService("CollectionService")
+local RunService = game:GetService("RunService")
 
 -- Helper Modules
 local BuildGridVisualizer = require(script.Parent:WaitForChild("BuildGridVisualizer"))
@@ -41,6 +43,7 @@ local inventoryPreviews = {}
 local isRefreshingInventory = false
 local lastDragStart = 0
 local uiConnections = {}
+local statusLockUntil = 0
 
 local function cleanupConnections()
 	for _, conn in ipairs(uiConnections) do
@@ -64,6 +67,131 @@ local CONFIG = {
 local function updateStatus(text)
 	if buildModeGui and buildModeGui:FindFirstChild("BottomBar") then
 		buildModeGui.BottomBar.Status.Text = text
+	end
+end
+
+local function setLockedStatus(text, duration)
+	updateStatus(text)
+	statusLockUntil = tick() + (duration or 1.5)
+end
+
+local function formatUnitName(unitName)
+	return tostring(unitName or ""):gsub("_", " ")
+end
+
+local function getOwnedBuildUnits()
+	local owned = {}
+
+	for _, unit in CollectionService:GetTagged("ActiveBrainrot") do
+		if unit:GetAttribute("OwnerId") == Players.LocalPlayer.UserId then
+			local unitType = unit:GetAttribute("UnitType")
+			if type(unitType) == "string" and unitType ~= "" then
+				owned[unitType] = true
+			end
+		end
+	end
+
+	if not GetInventoryRemote then
+		return owned
+	end
+
+	local success, inv = pcall(function()
+		return GetInventoryRemote:InvokeServer()
+	end)
+	if success and type(inv) == "table" and type(inv.units) == "table" then
+		for unitName, unitData in pairs(inv.units) do
+			if type(unitData) == "table" and (tonumber(unitData.level) or 0) > 0 then
+				owned[unitName] = true
+			end
+		end
+	end
+
+	return owned
+end
+
+local function getRecommendedBuildSynergy()
+	if Players.LocalPlayer:GetAttribute("SynergyUnlocked") ~= true then
+		return nil
+	end
+	if Players.LocalPlayer:GetAttribute("FirstSynergyActivated") == true then
+		return nil
+	end
+
+	local fallback = nil
+	local ownedUnits = getOwnedBuildUnits()
+	for _, synergy in ipairs(ItemConfig.Synergies or {}) do
+		if (synergy.unitA == "Avocadini Guffo" and synergy.unitB == "Bambini_Crostini")
+			or (synergy.unitA == "Bambini_Crostini" and synergy.unitB == "Avocadini Guffo")
+		then
+			fallback = synergy
+		end
+		if ownedUnits[synergy.unitA] and ownedUnits[synergy.unitB] then
+			return synergy
+		end
+	end
+
+	return fallback or (ItemConfig.Synergies and ItemConfig.Synergies[1]) or nil
+end
+
+local function getClusterIndex(slot)
+	if type(slot) ~= "number" then
+		return nil
+	end
+	return math.floor((slot - 1) / 4)
+end
+
+local function getActivePartnerClusters(unitType)
+	local clusters = {}
+	for _, unit in CollectionService:GetTagged("ActiveBrainrot") do
+		if unit:GetAttribute("OwnerId") == Players.LocalPlayer.UserId
+			and unit:GetAttribute("UnitType") == unitType
+		then
+			local slot = tonumber(unit:GetAttribute("GridSlot"))
+			local cluster = getClusterIndex(slot)
+			if cluster ~= nil then
+				clusters[cluster] = true
+			end
+		end
+	end
+	return clusters
+end
+
+local function updateContextualBuildStatus()
+	if not isInBuildMode or tick() < statusLockUntil then
+		return
+	end
+
+	local recommendation = getRecommendedBuildSynergy()
+	if not recommendation then
+		if not BuildInteractionService.IsDragging() then
+			updateStatus("Build Mode Active")
+		end
+		return
+	end
+
+	if not BuildInteractionService.IsDragging() then
+		updateStatus(string.format(
+			"Starter hybrid: %s + %s. Place both in the same 2x2 cluster.",
+			formatUnitName(recommendation.unitA),
+			formatUnitName(recommendation.unitB)
+		))
+		return
+	end
+
+	local draggedUnitName = BuildInteractionService.GetDraggedUnitName()
+	if draggedUnitName ~= recommendation.unitA and draggedUnitName ~= recommendation.unitB then
+		return
+	end
+
+	local partnerName = draggedUnitName == recommendation.unitA and recommendation.unitB or recommendation.unitA
+	local hoveredSlot = BuildInteractionService.GetHoveredSlot()
+	local hoveredCluster = getClusterIndex(hoveredSlot)
+	local partnerClusters = getActivePartnerClusters(partnerName)
+
+	if hoveredCluster ~= nil and partnerClusters[hoveredCluster] then
+		updateStatus("Hybrid pair ready. Release to place near " .. formatUnitName(partnerName) .. ".")
+	else
+		updateStatus("Place near " .. formatUnitName(partnerName) .. " in the same 2x2 cluster.")
 	end
 end
 
@@ -241,6 +369,7 @@ end
 local function exitBuildMode()
 	if not isInBuildMode then return end
 	isInBuildMode = false
+	statusLockUntil = 0
 	
 	BuildCameraController.TweenToNormalMode()
 	BuildGridVisualizer.Destroy()
@@ -286,7 +415,7 @@ local function enterBuildMode()
 	local DRAGGING_CURSOR = "rbxassetid://12465244192" -- Closed hand
 	local DEFAULT_CURSOR = ""
 	
-	table.insert(uiConnections, game:GetService("RunService").RenderStepped:Connect(function()
+	table.insert(uiConnections, RunService.RenderStepped:Connect(function()
 		if not isInBuildMode then 
 			UserInputService.MouseIcon = DEFAULT_CURSOR
 			return 
@@ -305,6 +434,7 @@ local function enterBuildMode()
 				UserInputService.MouseIcon = DEFAULT_CURSOR
 			end
 		end
+		updateContextualBuildStatus()
 	end))
 
 	-- Listeners
@@ -319,6 +449,7 @@ local function enterBuildMode()
 				local newPos = BuildGridVisualizer.Render(newState)
 				-- Refresh inventory
 				refreshInventory()
+				statusLockUntil = tick() + 1.75
 			else
 				updateStatus("✗ " .. (msg or "Placement failed"))
 			end

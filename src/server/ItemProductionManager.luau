@@ -41,6 +41,8 @@ local CONFIG = {
 	STORAGE_FULL_CHECK_INTERVAL = 5,
 	BASE_ARTIFACT_DROP_CHANCE = 0.001,
 	MAX_ARTIFACT_DROP_CHANCE = 0.05,
+	FIRST_ARTIFACT_PITY_ITEMS = 60,
+	FIRST_ARTIFACT_BOOSTED_DROP_CHANCE = 0.08,
 }
 
 -- Module Table
@@ -76,6 +78,7 @@ local function initPlayerCache(player)
 		lastStorageFullWarning = 0,
 		lastStorageSnapshot = nil,
 		lastStorageCapacity = nil,
+		firstArtifactPityProgress = 0,
 	}
 end
 
@@ -144,17 +147,60 @@ local function calculateUnitBonuses(player, brainrot)
 	return bonuses
 end
 
-local function tryArtifactDrop(player, bonuses)
+local function playerHasAnyArtifact(player)
+	local ArtifactManager = rawget(Services, "ArtifactManager")
+	if not ArtifactManager or not ArtifactManager.GetArtifacts then
+		return false
+	end
+
+	local artifactState = ArtifactManager.GetArtifacts(player)
+	return type(artifactState) == "table"
+		and type(artifactState.all) == "table"
+		and next(artifactState.all) ~= nil
+end
+
+local function tryArtifactDrop(player, bonuses, cache)
+	if player:GetAttribute("ArtifactsUnlocked") ~= true then
+		if cache then
+			cache.firstArtifactPityProgress = 0
+		end
+		return
+	end
 	local ArtifactManager = rawget(Services, "ArtifactManager")
 	if not ArtifactManager then return end
 	
 	local dropChance = CONFIG.BASE_ARTIFACT_DROP_CHANCE * bonuses.luckMult
 	dropChance = math.min(dropChance, CONFIG.MAX_ARTIFACT_DROP_CHANCE)
+
+	local hasAnyArtifact = player:GetAttribute("FirstArtifactFound") == true
+	if not hasAnyArtifact then
+		hasAnyArtifact = playerHasAnyArtifact(player)
+	end
+	if not hasAnyArtifact and cache then
+		cache.firstArtifactPityProgress = (cache.firstArtifactPityProgress or 0) + 1
+		local boostedChance = math.max(dropChance, CONFIG.FIRST_ARTIFACT_BOOSTED_DROP_CHANCE)
+		local guaranteed = cache.firstArtifactPityProgress >= CONFIG.FIRST_ARTIFACT_PITY_ITEMS
+
+		if guaranteed or math.random() < boostedChance then
+			local artifact = ArtifactManager.GenerateArtifact("Uncommon")
+			if artifact then
+				ArtifactManager.AddArtifact(player, artifact)
+				cache.firstArtifactPityProgress = 0
+			end
+		end
+		return
+	end
+	if cache then
+		cache.firstArtifactPityProgress = 0
+	end
 	
 	if math.random() < dropChance then
 		local artifact = ArtifactManager.GenerateArtifact()
 		if artifact then
 			ArtifactManager.AddArtifact(player, artifact)
+			if cache then
+				cache.firstArtifactPityProgress = 0
+			end
 		end
 	end
 end
@@ -291,7 +337,7 @@ local function produceItems(player)
 					unitModel:SetAttribute("LastProductionTime", now)
 					
 					-- Artifact Drop Roll
-					tryArtifactDrop(player, bonuses)
+					tryArtifactDrop(player, bonuses, cache)
 				end
 			end
 		end

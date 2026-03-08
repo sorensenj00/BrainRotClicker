@@ -19,6 +19,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local ItemConfig = require(Shared:WaitForChild("ItemConfig"))
 local ArtifactConfig = require(Shared:WaitForChild("ArtifactConfig"))
+local ShopConfig = require(Shared:WaitForChild("ShopConfig"))
 local ViewportPreview = require(Shared:WaitForChild("ViewportPreview"))
 
 -- Remotes
@@ -33,6 +34,14 @@ local SetUnitModeFunction = RemoteFunctions:WaitForChild("SetUnitMode")
 local GetArtifacts = RemoteFunctions:WaitForChild("GetArtifacts")
 local EquipArtifact = RemoteFunctions:WaitForChild("EquipArtifact")
 local UnequipArtifact = RemoteFunctions:WaitForChild("UnequipArtifact")
+local UpgradeUnitFromHUDFunction = RemoteFunctions:WaitForChild("UpgradeUnitFromHUD")
+local GetInventoryRemote = RemoteFunctions:FindFirstChild("GetInventory")
+if not GetInventoryRemote then
+	GetInventoryRemote = RemoteEvents:FindFirstChild("GetInventory")
+end
+if not GetInventoryRemote then
+	GetInventoryRemote = RemoteFunctions:WaitForChild("GetInventory", 10)
+end
 
 -- Assets
 local BrainrotsFolder = ReplicatedStorage:WaitForChild("Brainrots")
@@ -152,6 +161,108 @@ local function getRarityColor(rarity)
 	return ArtifactConfig.RarityColors[rarity] or COLORS.TEXT_DIM
 end
 
+local function formatNumber(value)
+	local numberValue = math.floor(tonumber(value) or 0)
+	return tostring(numberValue):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+end
+
+local function buildUpgradeSummary(unitType, level)
+	if not unitType then
+		return "Upgrade unavailable"
+	end
+
+	local price = ShopConfig.CalculatePrice(unitType, math.max(0, tonumber(level) or 0))
+	local itemCost = ShopConfig.GetItemCost(unitType)
+	local parts = { "$" .. formatNumber(price) }
+
+	if itemCost then
+		local itemParts = {}
+		for itemId, amount in pairs(itemCost) do
+			local itemDef = ItemConfig.Items[itemId]
+			local icon = itemDef and itemDef.icon or ""
+			table.insert(itemParts, string.format("%s%s %s", icon ~= "" and (icon .. " ") or "", tostring(amount), itemId))
+		end
+		table.sort(itemParts)
+		table.insert(parts, table.concat(itemParts, "  |  "))
+	end
+
+	return "Next upgrade: " .. table.concat(parts, "  +  ")
+end
+
+local function isFirstSynergyActivated(): boolean
+	return player:GetAttribute("FirstSynergyActivated") == true
+end
+
+local function isSynergyReferenceUnlocked(): boolean
+	return player:GetAttribute("SynergyReferenceUnlocked") == true
+end
+
+local function isFirstArtifactFound(): boolean
+	return player:GetAttribute("FirstArtifactFound") == true
+end
+
+local function isFirstArtifactEquipped(): boolean
+	return player:GetAttribute("FirstArtifactEquipped") == true
+end
+
+local function getArtifactPriorityScore(artifact)
+	if type(artifact) ~= "table" then
+		return 0
+	end
+
+	local stats = ArtifactConfig.CalculateArtifactStats(artifact)
+	local score = 0
+	score += math.max(0, (1 - (tonumber(stats.CycleTimeMult) or 1)) * 100)
+	score += math.max(0, (tonumber(stats.LuckBonus) or 0) * 120)
+	score += math.max(0, (tonumber(stats.ItemTierBonus) or 0) * 75)
+	score += math.max(0, (tonumber(stats.SynergyRangeBonus) or 0) * 40)
+
+	local rarityWeights = {
+		Common = 1,
+		Uncommon = 2,
+		Rare = 3,
+		Epic = 4,
+		Legendary = 5,
+	}
+	score += (rarityWeights[tostring(artifact.Rarity or "")] or 0) * 25
+	return score
+end
+
+local function getOwnedUnitMap(): {[string]: boolean}
+	local owned = {}
+
+	for _, unit in CollectionService:GetTagged("ActiveBrainrot") do
+		if unit:GetAttribute("OwnerId") == player.UserId then
+			local unitType = unit:GetAttribute("UnitType")
+			if type(unitType) == "string" and unitType ~= "" then
+				owned[unitType] = true
+			end
+		end
+	end
+
+	if not GetInventoryRemote then
+		return owned
+	end
+
+	local success, inventory = pcall(function()
+		return GetInventoryRemote:InvokeServer()
+	end)
+	if not success or type(inventory) ~= "table" then
+		return owned
+	end
+
+	for unitName, unitData in pairs(inventory.units or {}) do
+		if type(unitName) == "string" and type(unitData) == "table" then
+			local level = tonumber(unitData.level) or 0
+			if level > 0 then
+				owned[unitName] = true
+			end
+		end
+	end
+
+	return owned
+end
+
 --------------------------------------------------------------------------------
 -- MAIN UI CONSTRUCTION
 --------------------------------------------------------------------------------
@@ -211,7 +322,7 @@ local function buildUI()
 		Name = "Header",
 		Color = COLORS.PANEL,
 		Transparency = 1,
-		Size = UDim2.new(1, -32, 0, 60),
+		Size = UDim2.new(1, -32, 0, 96),
 		Position = UDim2.new(0, 16, 0, 16),
 		Parent = panel,
 	})
@@ -230,10 +341,34 @@ local function buildUI()
 		Text = "Lv. 1 • Normal",
 		Color = COLORS.TEXT_DIM,
 		Size = 14,
-		FrameSize = UDim2.new(1, 0, 0, 20),
+		FrameSize = UDim2.new(1, -170, 0, 20),
 		Position = UDim2.new(0, 0, 0, 30),
 		Parent = header,
 	})
+
+	local upgradeSummaryLabel = createLabel({
+		Name = "UpgradeSummary",
+		Text = "Next upgrade: $0",
+		Color = COLORS.ACCENT_GOLD,
+		Size = 12,
+		FrameSize = UDim2.new(1, -170, 0, 20),
+		Position = UDim2.new(0, 0, 0, 58),
+		Parent = header,
+	})
+
+	local upgradeBtn = createButton({
+		Name = "UpgradeBtn",
+		Text = "Upgrade",
+		Color = COLORS.ACCENT_GOLD,
+		TextColor = COLORS.BG,
+		Font = FONT.TITLE,
+		Size = 14,
+		FrameSize = UDim2.new(0, 150, 0, 34),
+		Position = UDim2.new(1, 0, 1, 0),
+		Corner = 10,
+		Parent = header,
+	})
+	upgradeBtn.AnchorPoint = Vector2.new(1, 1)
 	
 	-- Close button
 	local closeBtn = createButton({
@@ -256,7 +391,7 @@ local function buildUI()
 		Color = COLORS.BG,
 		Transparency = 1,
 		Size = UDim2.new(1, -32, 0, 36),
-		Position = UDim2.new(0, 16, 0, 80),
+		Position = UDim2.new(0, 16, 0, 118),
 		Parent = panel,
 	})
 	
@@ -300,8 +435,8 @@ local function buildUI()
 	local contentArea = createFrame({
 		Name = "ContentArea",
 		Transparency = 1,
-		Size = UDim2.new(1, -32, 1, -140),
-		Position = UDim2.new(0, 16, 0, 126),
+		Size = UDim2.new(1, -32, 1, -178),
+		Position = UDim2.new(0, 16, 0, 164),
 		Parent = panel,
 	})
 	
@@ -485,6 +620,8 @@ local function buildUI()
 		panel = panel,
 		titleLabel = titleLabel,
 		subtitleLabel = subtitleLabel,
+		upgradeSummaryLabel = upgradeSummaryLabel,
+		upgradeBtn = upgradeBtn,
 		closeBtn = closeBtn,
 		prodTab = prodTab,
 		equipTab = equipTab,
@@ -509,6 +646,28 @@ end
 local ui = buildUI()
 local selectedMode = 1
 local modeCards = {}
+
+local function refreshHeader()
+	if not currentData then
+		ui.titleLabel.Text = "⚙️ Production Config"
+		ui.subtitleLabel.Text = "Lv. 1 • Normal"
+		ui.upgradeSummaryLabel.Text = "Next upgrade: $0"
+		ui.upgradeBtn.Text = "Upgrade"
+		ui.upgradeBtn.Active = false
+		ui.upgradeBtn.AutoButtonColor = false
+		ui.upgradeBtn.BackgroundColor3 = COLORS.TEXT_DIM
+		return
+	end
+
+	local currentLevel = tonumber(currentData.level) or 1
+	ui.titleLabel.Text = "⚙️ " .. (currentData.unitType or "Unknown")
+	ui.subtitleLabel.Text = string.format("Lv. %d • %s", currentLevel, currentData.rarity or "Normal")
+	ui.upgradeSummaryLabel.Text = buildUpgradeSummary(currentData.unitType, currentLevel)
+	ui.upgradeBtn.Text = string.format("Upgrade to Lv. %d", currentLevel + 1)
+	ui.upgradeBtn.Active = true
+	ui.upgradeBtn.AutoButtonColor = true
+	ui.upgradeBtn.BackgroundColor3 = COLORS.ACCENT_GOLD
+end
 
 -- Helper to switch tabs
 local function switchTab(tabName)
@@ -841,6 +1000,127 @@ function refreshSynergies()
 		})
 		return
 	end
+
+	local ownedUnits = getOwnedUnitMap()
+	table.sort(possibleSynergies, function(a, b)
+		local aActive = activeNeighbors[a.partner] == true
+		local bActive = activeNeighbors[b.partner] == true
+		if aActive ~= bActive then
+			return aActive
+		end
+
+		local aOwned = ownedUnits[a.partner] == true
+		local bOwned = ownedUnits[b.partner] == true
+		if aOwned ~= bOwned then
+			return aOwned
+		end
+
+		local aValue = (ItemConfig.Items[a.data.synergyItem] and ItemConfig.Items[a.data.synergyItem].basePrice) or 0
+		local bValue = (ItemConfig.Items[b.data.synergyItem] and ItemConfig.Items[b.data.synergyItem].basePrice) or 0
+		if aValue ~= bValue then
+			return aValue > bValue
+		end
+
+		return tostring(a.partner) < tostring(b.partner)
+	end)
+
+	if not isFirstSynergyActivated() and not isSynergyReferenceUnlocked() then
+		createLabel({
+			Text = "Starter Pair",
+			Font = FONT.TITLE,
+			Size = 16,
+			Color = COLORS.SYNERGY,
+			FrameSize = UDim2.new(1, -4, 0, 24),
+			Parent = ui.synScroll,
+		})
+
+		createLabel({
+			Text = "Start with one hybrid combo. Place both units in the same 2x2 cluster.",
+			Size = 12,
+			Color = COLORS.TEXT_DIM,
+			FrameSize = UDim2.new(1, -4, 0, 32),
+			Parent = ui.synScroll,
+		})
+
+		local starterSyn = possibleSynergies[1]
+		local outItem = ItemConfig.Items[starterSyn.data.synergyItem]
+		local outName = outItem and outItem.displayName or "Unknown"
+		local outIcon = outItem and outItem.icon or "Item"
+		local card = createFrame({
+			Name = "StarterSynCard",
+			Color = activeNeighbors[starterSyn.partner] and COLORS.CARD_SELECTED or COLORS.CARD,
+			Size = UDim2.new(1, -10, 0, 92),
+			Position = UDim2.new(0, 5, 0, 0),
+			Corner = 8,
+			Stroke = activeNeighbors[starterSyn.partner] and COLORS.SYNERGY or COLORS.BORDER,
+			Parent = ui.synScroll,
+		})
+
+		createLabel({
+			Text = outIcon,
+			Size = 32,
+			AlignX = Enum.TextXAlignment.Center,
+			FrameSize = UDim2.new(0, 60, 1, 0),
+			Parent = card,
+		})
+
+		createLabel({
+			Text = string.format("Hybrid: %s %s", outIcon, outName),
+			Font = FONT.TITLE,
+			Size = 14,
+			Color = COLORS.TEXT,
+			FrameSize = UDim2.new(1, -150, 0, 20),
+			Position = UDim2.new(0, 60, 0, 10),
+			Parent = card,
+		})
+
+		createLabel({
+			Text = string.format("Pair with: %s", tostring(starterSyn.partner):gsub("_", " ")),
+			Size = 12,
+			Color = COLORS.TEXT_DIM,
+			FrameSize = UDim2.new(1, -150, 0, 16),
+			Position = UDim2.new(0, 60, 0, 32),
+			Parent = card,
+		})
+
+		local starterStatus = "Rule: same 2x2 cluster"
+		if activeNeighbors[starterSyn.partner] then
+			starterStatus = "Hybrid pair active now"
+		elseif ownedUnits[starterSyn.partner] == true then
+			starterStatus = "You already own the partner"
+		end
+		createLabel({
+			Text = starterStatus,
+			Size = 12,
+			Color = activeNeighbors[starterSyn.partner] and COLORS.SYNERGY or COLORS.ACCENT_GREEN,
+			FrameSize = UDim2.new(1, -150, 0, 16),
+			Position = UDim2.new(0, 60, 0, 52),
+			Parent = card,
+		})
+
+		createLabel({
+			Name = "StarterStatus",
+			Text = activeNeighbors[starterSyn.partner] and "ACTIVE" or "TRY THIS",
+			Font = FONT.TITLE,
+			Size = 12,
+			Color = activeNeighbors[starterSyn.partner] and COLORS.SYNERGY or COLORS.ACCENT_GOLD,
+			AlignX = Enum.TextXAlignment.Right,
+			FrameSize = UDim2.new(0, 84, 0, 20),
+			Position = UDim2.new(1, -98, 0.5, -10),
+			Parent = card,
+		})
+
+		createLabel({
+			Text = "More pairings reveal after your first hybrid.",
+			Size = 12,
+			Color = COLORS.TEXT_LOCKED,
+			FrameSize = UDim2.new(1, -4, 0, 24),
+			Parent = ui.synScroll,
+		})
+
+		ui.synScroll.CanvasSize = UDim2.new(0, 0, 0, ui.synLayout.AbsoluteContentSize.Y + 10)
+		return
+	end
 	
 	for i, pSyn in ipairs(possibleSynergies) do
 		local isActive = activeNeighbors[pSyn.partner] == true
@@ -973,6 +1253,10 @@ local function refreshEquipment()
 	for _, c in ui.invScroll:GetChildren() do
 		if c:IsA("Frame") then c:Destroy() end
 	end
+
+	local artifactUnlocked = player:GetAttribute("ArtifactsUnlocked") == true
+	local firstArtifactFound = isFirstArtifactFound()
+	local firstArtifactEquipped = isFirstArtifactEquipped()
 	
 	-- 1. EQUIPMENT SLOTS & STATS CALCULATION
 	local equippedToUnit = {}
@@ -1041,6 +1325,55 @@ local function refreshEquipment()
 			table.insert(parts, string.format("💎+%d Tier", stats.ItemTierBonus))
 		end
 		return table.concat(parts, " • ")
+	end
+
+	local function createEquipmentHint(titleText, bodyText, accentColor)
+		local hintFrame = createFrame({
+			Name = "ArtifactHint",
+			Color = COLORS.BG,
+			Size = UDim2.new(1, 0, 0, 58),
+			Corner = 8,
+			Stroke = accentColor,
+			Parent = ui.slotsFrame,
+		})
+		hintFrame.LayoutOrder = -1
+
+		createLabel({
+			Text = titleText,
+			Font = FONT.TITLE,
+			Size = 12,
+			Color = accentColor,
+			FrameSize = UDim2.new(1, -14, 0, 18),
+			Position = UDim2.new(0, 8, 0, 6),
+			Parent = hintFrame,
+		})
+
+		local body = createLabel({
+			Text = bodyText,
+			Size = 11,
+			Color = COLORS.TEXT_DIM,
+			FrameSize = UDim2.new(1, -14, 0, 28),
+			Position = UDim2.new(0, 8, 0, 24),
+			Parent = hintFrame,
+		})
+		body.TextWrapped = true
+		body.TextYAlignment = Enum.TextYAlignment.Top
+	end
+
+	if artifactUnlocked then
+		if not firstArtifactFound then
+			createEquipmentHint(
+				"Relics are online",
+				"Your first relic should drop soon. Keep producing, then slot it into any matching gear slot here.",
+				COLORS.ACCENT_GOLD
+			)
+		elseif not firstArtifactEquipped then
+			createEquipmentHint(
+				"First relic",
+				"Equip one relic on a producer. Speed, luck, tier, and synergy bonuses apply immediately.",
+				COLORS.ACCENT_GOLD
+			)
+		end
 	end
 
 	for i, slotName in ipairs({"Head", "Body", "Accessory"}) do
@@ -1132,17 +1465,22 @@ local function refreshEquipment()
 	
 	-- 2. INVENTORY LIST
 	local unequipped = data.unequipped or {}
+	table.sort(unequipped, function(a, b)
+		return getArtifactPriorityScore(a) > getArtifactPriorityScore(b)
+	end)
 	
 	if #unequipped == 0 then
 		createLabel({
-			Text = "No artifacts available...",
+			Text = artifactUnlocked and not firstArtifactFound
+				and "Your first relic should drop soon..."
+				or "No artifacts available...",
 			Color = COLORS.TEXT_DIM,
 			Size = 12,
 			AlignX = Enum.TextXAlignment.Center,
 			Parent = ui.invScroll,
 		})
 	else
-		for _, artifact in ipairs(unequipped) do
+		for index, artifact in ipairs(unequipped) do
 			local itemFrame = createFrame({
 				Name = "Artifact",
 				Color = COLORS.CARD,
@@ -1201,8 +1539,8 @@ local function refreshEquipment()
 			end
 			
 			local equipBtn = createButton({
-				Text = "Equip",
-				Color = COLORS.ACCENT,
+				Text = (not firstArtifactEquipped and index == 1) and "Try This" or "Equip",
+				Color = (not firstArtifactEquipped and index == 1) and COLORS.ACCENT_GOLD or COLORS.ACCENT,
 				Size = 10,
 				FrameSize = UDim2.new(0, 50, 0, 24),
 				Position = UDim2.new(1, -55, 0.5, -12),
@@ -1229,9 +1567,7 @@ local function openUI(unitData)
 	currentData = unitData
 	selectedMode = unitData.currentMode or 1
 	
-	-- Update header
-	ui.titleLabel.Text = "⚙️ " .. (unitData.unitType or "Unknown")
-	ui.subtitleLabel.Text = string.format("Lv. %d • %s", unitData.level or 1, unitData.rarity or "Normal")
+	refreshHeader()
 	
 	-- Setup both tabs
 	refreshModeCards()
@@ -1251,6 +1587,7 @@ local function closeUI()
 	ui.gui.Enabled = false
 	isOpen = false
 	currentData = nil
+	refreshHeader()
 	if previewInstance then
 		previewInstance:Destroy()
 		previewInstance = nil
@@ -1290,6 +1627,45 @@ local function applyMode()
 	end
 end
 
+local function upgradeUnit()
+	if not currentData or not currentData.unitType then
+		return
+	end
+
+	ui.upgradeBtn.Text = "Upgrading..."
+	ui.upgradeBtn.Active = false
+	ui.upgradeBtn.AutoButtonColor = false
+
+	local success, message, result = UpgradeUnitFromHUDFunction:InvokeServer(currentData.unitType)
+
+	if success then
+		currentData.level = (result and result.newLevel) or ((tonumber(currentData.level) or 1) + 1)
+		refreshHeader()
+		refreshModeCards()
+		refreshEquipment()
+		refreshSynergies()
+
+		ui.upgradeBtn.Text = string.format("Lv. %d unlocked!", tonumber(currentData.level) or 1)
+		ui.upgradeBtn.BackgroundColor3 = COLORS.ACCENT_GREEN
+		task.delay(1.25, function()
+			if currentData then
+				refreshHeader()
+			elseif ui.upgradeBtn then
+				ui.upgradeBtn.Text = "Upgrade"
+				ui.upgradeBtn.BackgroundColor3 = COLORS.TEXT_DIM
+			end
+		end)
+	else
+		ui.upgradeBtn.Text = "✕ " .. tostring(message)
+		ui.upgradeBtn.BackgroundColor3 = COLORS.DANGER
+		task.delay(2, function()
+			if ui.upgradeBtn then
+				refreshHeader()
+			end
+		end)
+	end
+end
+
 --------------------------------------------------------------------------------
 -- CONNECTIONS
 --------------------------------------------------------------------------------
@@ -1304,6 +1680,7 @@ ui.backdrop.InputBegan:Connect(function(input)
 	end
 end)
 ui.applyBtn.MouseButton1Click:Connect(applyMode)
+ui.upgradeBtn.MouseButton1Click:Connect(upgradeUnit)
 
 OpenUnitUIEvent.OnClientEvent:Connect(function(unitData)
 	if isOpen then
@@ -1336,3 +1713,28 @@ ArtifactEquippedEvent.OnClientEvent:Connect(function()
 		refreshEquipment()
 	end
 end)
+
+for _, attributeName in ipairs({
+	"FirstSynergyActivated",
+	"SynergyReferenceUnlocked",
+}) do
+	player:GetAttributeChangedSignal(attributeName):Connect(function()
+		if not isOpen or not currentData then
+			return
+		end
+		refreshModeCards()
+		refreshSynergies()
+	end)
+end
+
+for _, attributeName in ipairs({
+	"ArtifactsUnlocked",
+	"FirstArtifactFound",
+	"FirstArtifactEquipped",
+}) do
+	player:GetAttributeChangedSignal(attributeName):Connect(function()
+		if isOpen and currentTab == "Equipment" then
+			refreshEquipment()
+		end
+	end)
+end

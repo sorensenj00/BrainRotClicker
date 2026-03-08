@@ -25,7 +25,10 @@ local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")
 local RemoteFunctions = ReplicatedStorage:WaitForChild("RemoteFunctions")
 
 local StorageUpdatedEvent = RemoteEvents:WaitForChild("StorageUpdated")
+local PushCartRemote = RemoteEvents:WaitForChild("PushCart")
+local ReturnCartRemote = RemoteEvents:WaitForChild("ReturnCart")
 local GetStorageFunction = RemoteFunctions:WaitForChild("GetStorage")
+local LoadMaxFromStorageFunction = RemoteFunctions:WaitForChild("LoadMaxFromStorage")
 local GetMarketPricesFunction = RemoteFunctions:WaitForChild("GetMarketPrices")
 local BuyToCartFunction = RemoteFunctions:WaitForChild("BuyToCart")
 local SellFromCartFunction = RemoteFunctions:WaitForChild("SellFromCart")
@@ -103,6 +106,8 @@ local contractRowPool = {}      -- {[number] = TextButton}
 local rowDefaultColors = {}     -- {[rowName] = Color3}
 local rowFlashDebounce = {}     -- {[rowName] = boolean}
 local prevLocalPrices = {}      -- {[itemId] = number}
+local hasShownIntroToast = false
+local hasAutoFocusedRecommendedItemThisOpen = false
 
 -- UI refs
 local screenGui, mainFrame
@@ -113,6 +118,16 @@ local inspectorFrame
 local tabTradingBtn, tabContractsBtn
 local contractsPanel, contractsList, contractsDetail
 local refreshContractsList
+local topBarTitleLabel, topBarStatusLabel, topBarRateNameLabel
+local leftHeaderLabel, inspectorHeaderLabel
+local isDetailedMarketUnlocked
+local areContractsUnlocked
+local refreshUnlockState
+local isTerminalIntroComplete
+local isGuidedTerminalMode
+local isSellFocusedTerminalMode
+local syncGuidedRecommendation
+local updateTopBarChrome
 
 local function getContractTemplate(templateId)
 	for _, t in ipairs(ContractConfig.FlashOrderTemplates) do
@@ -147,7 +162,27 @@ local function setTab(tabName: string)
 		inspectorFrame.Visible = tabName == "TRADING"
 	end
 	if contractsPanel then
-		contractsPanel.Visible = tabName == "CONTRACTS"
+		contractsPanel.Visible = tabName == "CONTRACTS" and areContractsUnlocked() and not isGuidedTerminalMode()
+	end
+end
+
+isDetailedMarketUnlocked = function(): boolean
+	return Player:GetAttribute("DetailedMarketUnlocked") == true
+end
+
+areContractsUnlocked = function(): boolean
+	return Player:GetAttribute("ContractsUnlocked") == true
+end
+
+refreshUnlockState = function()
+	if tabContractsBtn then
+		tabContractsBtn.Visible = areContractsUnlocked() and not isGuidedTerminalMode()
+	end
+	if (not areContractsUnlocked() or isGuidedTerminalMode()) and activeTab == "CONTRACTS" then
+		setTab("TRADING")
+	end
+	if contractsPanel then
+		contractsPanel.Visible = areContractsUnlocked() and not isGuidedTerminalMode() and activeTab == "CONTRACTS"
 	end
 end
 
@@ -268,6 +303,32 @@ local addCorner = UIUtils.addCorner
 local addStroke = UIUtils.addStroke
 local formatMoney = FormatUtils.formatMoney
 local decodeItems = UIUtils.decodeItems
+
+isTerminalIntroComplete = function(): boolean
+	return Player:GetAttribute("TerminalIntroComplete") == true
+end
+
+isSellFocusedTerminalMode = function(): boolean
+	return isDetailedMarketUnlocked() and Player:GetAttribute("SynergyUnlocked") ~= true
+end
+
+isGuidedTerminalMode = function(): boolean
+	return isSellFocusedTerminalMode() and not isTerminalIntroComplete()
+end
+
+local function notifyToast(message: string, typeKey: string?, duration: number?)
+	local notificationManager = _G.NotificationManager
+	if notificationManager and notificationManager.ShowToast then
+		notificationManager.ShowToast(message, typeKey or "info", duration or 4)
+	end
+end
+
+local function notifyBanner(message: string, color: Color3?, duration: number?)
+	local notificationManager = _G.NotificationManager
+	if notificationManager and notificationManager.ShowBanner then
+		notificationManager.ShowBanner(message, color or C.gold, duration or 4.5)
+	end
+end
 
 local function makeLabel(parent, props)
 	local l = Instance.new("TextLabel")
@@ -522,6 +583,149 @@ local function getPlayerMoney()
 	return m and m.Value or 0
 end
 
+local function getTotalOwned(itemId: string): number
+	return (currentStorage[itemId] or 0) + (cartInventory[itemId] or 0)
+end
+
+local function getGuidedPriorityCount(itemId: string): (number, string)
+	local cartCount = cartInventory[itemId] or 0
+	local storageCount = currentStorage[itemId] or 0
+
+	if cartState == "at_market" and cartCount > 0 then
+		return cartCount, "cart"
+	end
+	if storageCount > 0 then
+		return storageCount, "storage"
+	end
+	if cartCount > 0 then
+		return cartCount, "cart"
+	end
+
+	return 0, "none"
+end
+
+local function getGuidedOfferCopy(rate: number): (string, Color3)
+	if rate >= 1.15 then
+		return "Strong local offer. Cash out this stack now.", C.green
+	elseif rate <= 0.9 then
+		return "Weak offer. Hold this stack if you can.", C.red
+	end
+	return "Decent offer. Sell if you want faster reinvestment.", C.gold
+end
+
+local function getGuidedRecommendedItem()
+	local bestEntry = nil
+
+	for itemId, _ in pairs(ItemConfig.Items) do
+		local count, source = getGuidedPriorityCount(itemId)
+		if count > 0 then
+			local localPrice = getLocalPrice(itemId)
+			local totalValue = localPrice * count
+			local info = ItemConfig.Items[itemId] or {}
+			local candidate = {
+				id = itemId,
+				count = count,
+				source = source,
+				totalValue = totalValue,
+				localPrice = localPrice,
+				rate = getLocalRate(itemId),
+				displayName = info.displayName or itemId,
+				icon = info.icon or "?",
+			}
+			if not bestEntry
+				or candidate.totalValue > bestEntry.totalValue
+				or (candidate.totalValue == bestEntry.totalValue and candidate.displayName < bestEntry.displayName) then
+				bestEntry = candidate
+			end
+		end
+	end
+
+	return bestEntry
+end
+
+syncGuidedRecommendation = function(forceSelection: boolean?)
+	if not isGuidedTerminalMode() then
+		return
+	end
+
+	local recommended = getGuidedRecommendedItem()
+	if not recommended then
+		if forceSelection then
+			inspectedItem = nil
+		end
+		return
+	end
+
+	local currentCount = inspectedItem and select(1, getGuidedPriorityCount(inspectedItem)) or 0
+	local shouldReplace = forceSelection == true
+		or not inspectedItem
+		or currentCount <= 0
+		or (cartState == "at_market" and (cartInventory[inspectedItem] or 0) <= 0)
+
+	if shouldReplace then
+		inspectedItem = recommended.id
+		hasAutoFocusedRecommendedItemThisOpen = true
+	end
+end
+
+local function getGuidedStatusText(): string
+	if cartState == "rolling_to_market" then
+		return "Cart arriving at market"
+	end
+	if cartState == "at_market" and cartItemCount > 0 then
+		return "Best sell ready"
+	end
+	if cartState == "idle" and cartItemCount > 0 then
+		return "Send cart to market"
+	end
+	if storageUsage > 0 then
+		return "Load stock to cart"
+	end
+	return "Ready to target your best stock"
+end
+
+updateTopBarChrome = function(blinkOn: boolean?)
+	local guidedMode = isGuidedTerminalMode()
+	local sellFocusedMode = isSellFocusedTerminalMode()
+	if topBarTitleLabel then
+		topBarTitleLabel.Text = sellFocusedMode and "MARKET TERMINAL" or "HFT TERMINAL v4.0"
+	end
+	if topBarRateNameLabel then
+		topBarRateNameLabel.Visible = not sellFocusedMode
+		if not sellFocusedMode then
+			topBarRateNameLabel.Text = stockMarketFolder:GetAttribute("RateName") or ""
+		else
+			topBarRateNameLabel.Text = ""
+		end
+	end
+	if topBarStatusLabel then
+		if guidedMode then
+			topBarStatusLabel.Text = getGuidedStatusText()
+			topBarStatusLabel.TextColor3 = C_WHITE
+		elseif sellFocusedMode then
+			local dot = blinkOn == false and utf8.char(0x25CB) or utf8.char(0x25CF)
+			topBarStatusLabel.Text = dot .. " SELL WINDOWS LIVE"
+			topBarStatusLabel.TextColor3 = C.gold
+		else
+			local dot = blinkOn == false and utf8.char(0x25CB) or utf8.char(0x25CF)
+			topBarStatusLabel.Text = dot .. " MARKET LIVE"
+			topBarStatusLabel.TextColor3 = C.green
+		end
+	end
+	if leftHeaderLabel then
+		leftHeaderLabel.Text = sellFocusedMode and "YOUR STOCK" or "ORDER BOOK"
+	end
+	if inspectorHeaderLabel then
+		if guidedMode then
+			inspectorHeaderLabel.Text = "BEST SELL"
+		elseif sellFocusedMode then
+			inspectorHeaderLabel.Text = "SELL DESK"
+		else
+			inspectorHeaderLabel.Text = "TRADING INSPECTOR"
+		end
+	end
+end
+
 -- Data parsing
 local function parseSectorRates()
 	local raw = stockMarketFolder:GetAttribute("SectorRates")
@@ -613,7 +817,7 @@ local function createContainer()
 	topBar.Parent = mainFrame
 	addCorner(topBar, UDim.new(0, 10))
 
-	makeLabel(topBar, {
+	topBarTitleLabel = makeLabel(topBar, {
 		Name = "Title", Text = "HFT TERMINAL v4.0",
 		Color = C_WHITE, Font = FONT_BOLD, Size = 15,
 		UDim2Size = UDim2.new(0, 300, 1, 0),
@@ -627,8 +831,9 @@ local function createContainer()
 		Position = UDim2.new(0.5, -100, 0, 0),
 		XAlign = Enum.TextXAlignment.Center,
 	})
+	topBarStatusLabel = statusLabel
 
-	makeLabel(topBar, {
+	topBarRateNameLabel = makeLabel(topBar, {
 		Name = "RateName", Text = "",
 		Color = C_WHITE, Font = FONT_MONO, Size = 11,
 		UDim2Size = UDim2.new(0, 200, 1, 0),
@@ -704,7 +909,7 @@ local function createLeftColumn(parent)
 	addStroke(col, C.border, 1.5)
 
 	-- Header
-	makeLabel(col, {
+	leftHeaderLabel = makeLabel(col, {
 		Name = "Header", Text = "ORDER BOOK",
 		Color = C.gold, Font = FONT_BOLD, Size = 14,
 		UDim2Size = UDim2.new(1, -12, 0, 28),
@@ -986,7 +1191,7 @@ local function createRightColumn(parent)
 	addStroke(col, C.border, 1.5)
 
 	-- Header
-	makeLabel(col, {
+	inspectorHeaderLabel = makeLabel(col, {
 		Name = "Header", Text = "TRADING INSPECTOR",
 		Color = C.gold, Font = FONT_BOLD, Size = 14,
 		UDim2Size = UDim2.new(1, -12, 0, 28),
@@ -1165,6 +1370,73 @@ local function createRightColumn(parent)
 
 		table.insert(qtyButtons, btn)
 	end
+
+	local guidedHint = makeLabel(tradingFrame, {
+		Name = "GuidedHint",
+		Text = "",
+		Color = C_MUTED,
+		Font = FONT_REG,
+		Size = 11,
+		UDim2Size = UDim2.new(1, 0, 0, 28),
+		Position = UDim2.new(0, 0, 0, 34),
+	})
+	guidedHint.Visible = false
+	guidedHint.TextWrapped = true
+
+	local guidedActionBtn = Instance.new("TextButton")
+	guidedActionBtn.Name = "GuidedActionBtn"
+	guidedActionBtn.Size = UDim2.new(1, 0, 0, 42)
+	guidedActionBtn.Position = UDim2.new(0, 0, 0, 68)
+	guidedActionBtn.BackgroundColor3 = C.gold
+	guidedActionBtn.Text = "LOAD STOCK TO CART"
+	guidedActionBtn.TextColor3 = C.bg
+	guidedActionBtn.TextSize = 14
+	guidedActionBtn.Font = FONT_BOLD
+	guidedActionBtn.AutoButtonColor = false
+	guidedActionBtn.Visible = false
+	guidedActionBtn.Parent = tradingFrame
+	addCorner(guidedActionBtn, UDim.new(0, 8))
+	addStroke(guidedActionBtn, C.border, 1)
+	wireHoverGrow(guidedActionBtn, guidedActionBtn.Size, guidedActionBtn.Position, 2)
+
+	guidedActionBtn.MouseButton1Click:Connect(function()
+		if not isGuidedTerminalMode() then
+			return
+		end
+
+		local guidedActionState = tostring(guidedActionBtn:GetAttribute("ActionState") or "none")
+
+		if guidedActionState == "load" then
+			LoadMaxFromStorageFunction:InvokeServer()
+			task.spawn(fetchData)
+			task.wait(0.1)
+			syncGuidedRecommendation(true)
+			updateInspector()
+			updateLeftColumn()
+		elseif guidedActionState == "push" then
+			PushCartRemote:FireServer()
+		elseif guidedActionState == "return" then
+			ReturnCartRemote:FireServer()
+		elseif guidedActionState == "sell" and inspectedItem then
+			local qty = cartInventory[inspectedItem] or 0
+			if qty <= 0 then
+				return
+			end
+			guidedActionBtn.Text = "..."
+			local sold, _earned = SellFromCartFunction:InvokeServer(inspectedItem, qty)
+			if sold and sold > 0 then
+				notifyBanner("TARGETED SELL COMPLETE", C.gold, 4.5)
+				notifyToast("You sold with control, not a blind dump.", "success", 4)
+				notifyToast("You cashed out your best stack first. The terminal gives you more control than quick-sell.", "info", 4.5)
+				task.spawn(fetchData)
+				task.wait(0.1)
+				syncGuidedRecommendation(true)
+				updateInspector()
+				updateLeftColumn()
+			end
+			guidedActionBtn.Text = "SELL RECOMMENDED"
+		end
+	end)
 
 	-- BUY section
 	local buyFrame = Instance.new("Frame")
@@ -1449,19 +1721,37 @@ end
 
 function updateInspector()
 	if not inspectorFrame then return end
+	updateTopBarChrome(true)
 
 	local placeholder = inspectorFrame:FindFirstChild("Placeholder")
 	local watermark = inspectorFrame:FindFirstChild("Watermark")
 	local itemName = inspectorFrame:FindFirstChild("ItemName")
+	local localPriceHeader = inspectorFrame:FindFirstChild("LblLocalPrice")
 	local localPriceLabel = inspectorFrame:FindFirstChild("LocalPrice")
+	local globalPriceHeader = inspectorFrame:FindFirstChild("LblGlobalPrice")
 	local globalPriceLabel = inspectorFrame:FindFirstChild("GlobalPrice")
 	local sectorInfo = inspectorFrame:FindFirstChild("SectorInfo")
 	local arbAlert = inspectorFrame:FindFirstChild("ArbAlert")
 	local spreadPill = inspectorFrame:FindFirstChild("SpreadPill")
+	local graphContainer = inspectorFrame:FindFirstChild("GraphContainer")
+	local positionHeader = inspectorFrame:FindFirstChild("LblPosition")
 	local posText = inspectorFrame:FindFirstChild("PosText")
 	local tradingFrame = inspectorFrame:FindFirstChild("TradingFrame")
+	local guidedMode = isGuidedTerminalMode()
+	local sellFocusedMode = isSellFocusedTerminalMode()
 
 	if not inspectedItem then
+		if guidedMode and placeholder then
+			if storageUsage > 0 or cartItemCount > 0 then
+				placeholder.Text = "Pick the highlighted stack and follow the next step below."
+			else
+				placeholder.Text = "Build stock, then use the terminal to target your best stack first."
+			end
+		elseif sellFocusedMode and placeholder then
+			placeholder.Text = "Pick an owned stack and cash out the best sell window first."
+		elseif placeholder then
+			placeholder.Text = "Select an item from your order book"
+		end
 		if placeholder then placeholder.Visible = true end
 		if watermark then watermark.Visible = true end
 		for _, child in inspectorFrame:GetChildren() do
@@ -1490,78 +1780,200 @@ function updateInspector()
 	local isArb = isArbOpportunity(inspectedItem)
 	local ownedInCart = cartInventory[inspectedItem] or 0
 	local ownedInStorage = currentStorage[inspectedItem] or 0
+	local guidedCount, guidedSource = getGuidedPriorityCount(inspectedItem)
+	local offerCopy, offerColor = getGuidedOfferCopy(localRate)
 
 	-- Item name
 	if itemName then
 		itemName.Text = (itemInfo.icon or "") .. " " .. (itemInfo.displayName or inspectedItem)
 	end
 
-	if localPriceLabel then
-		localPriceLabel.Text = formatMoney(localPrice)
-		localPriceLabel.TextColor3 = C.gold
-		localPriceLabel.Font = FONT_MONO
-	end
-
-	if globalPriceLabel then
-		globalPriceLabel.Text = formatMoney(globalPrice)
-		globalPriceLabel.Font = FONT_MONO
-	end
-
-	if sectorInfo then
-		sectorInfo.Text = string.format("SECTOR: %s | RATE: x%.2f", string.upper(sector), localRate)
-		sectorInfo.TextColor3 = localRate >= 1.0 and C.green or C.red
-		sectorInfo.Font = FONT_MONO
-	end
-
-	if spreadPill and spreadPill:IsA("Frame") then
-		local spreadLabel = spreadPill:FindFirstChild("SpreadLabel")
-		local spreadPct = 0
-		if globalRate ~= 0 then
-			spreadPct = ((localRate / globalRate) - 1) * 100
+	if guidedMode then
+		if localPriceHeader then
+			localPriceHeader.Text = "ESTIMATED CASH-OUT"
 		end
-		if spreadPct > 0 then
-			spreadPill.BackgroundColor3 = C.red
-			if spreadLabel and spreadLabel:IsA("TextLabel") then
-				spreadLabel.TextColor3 = C_WHITE
+		if localPriceLabel then
+			localPriceLabel.Text = formatMoney(localPrice * guidedCount)
+			localPriceLabel.TextColor3 = C.gold
+			localPriceLabel.Font = FONT_MONO
+		end
+		if globalPriceHeader then
+			globalPriceHeader.Text = "OFFER STRENGTH"
+		end
+		if globalPriceLabel then
+			globalPriceLabel.Text = localRate >= 1.15 and "Strong offer"
+				or (localRate <= 0.9 and "Weak offer" or "Decent offer")
+			globalPriceLabel.TextColor3 = offerColor
+			globalPriceLabel.Font = FONT_BOLD
+			globalPriceLabel.TextSize = 18
+			globalPriceLabel.TextWrapped = false
+		end
+		if sectorInfo then
+			local ownedText = guidedSource == "cart" and "in cart"
+				or (guidedSource == "storage" and "in storage" or "owned")
+			sectorInfo.Size = UDim2.new(1, 0, 0, 34)
+			sectorInfo.Position = UDim2.new(0, 0, 0, 84)
+			sectorInfo.Text = string.format("You own x%d %s. %s", guidedCount, ownedText, offerCopy)
+			sectorInfo.TextColor3 = C_WHITE
+			sectorInfo.Font = FONT_REG
+			sectorInfo.TextWrapped = true
+		end
+		if spreadPill then
+			spreadPill.Visible = false
+		end
+		if arbAlert then
+			arbAlert.Visible = false
+		end
+		if graphContainer then
+			graphContainer.Visible = false
+		end
+		if positionHeader then
+			positionHeader.Visible = false
+		end
+		if posText then
+			posText.Visible = false
+		end
+	elseif sellFocusedMode then
+		if localPriceHeader then
+			localPriceHeader.Text = "SELL PRICE"
+		end
+		if localPriceLabel then
+			localPriceLabel.Text = formatMoney(localPrice)
+			localPriceLabel.TextColor3 = C.gold
+			localPriceLabel.Font = FONT_MONO
+			localPriceLabel.TextSize = 36
+		end
+		if globalPriceHeader then
+			globalPriceHeader.Text = "OFFER"
+		end
+		if globalPriceLabel then
+			globalPriceLabel.Text = localRate >= 1.15 and "Strong offer"
+				or (localRate <= 0.9 and "Weak offer" or "Decent offer")
+			globalPriceLabel.TextColor3 = offerColor
+			globalPriceLabel.Font = FONT_BOLD
+			globalPriceLabel.TextSize = 20
+			globalPriceLabel.TextWrapped = false
+		end
+		if sectorInfo then
+			sectorInfo.Size = UDim2.new(1, 0, 0, 34)
+			sectorInfo.Position = UDim2.new(0, 0, 0, 84)
+			sectorInfo.Text = string.format(
+				"Cart x%d | Storage x%d | Total cash-out %s",
+				ownedInCart,
+				ownedInStorage,
+				formatMoney((ownedInCart + ownedInStorage) * localPrice)
+			)
+			sectorInfo.TextColor3 = C_WHITE
+			sectorInfo.Font = FONT_REG
+			sectorInfo.TextWrapped = true
+		end
+		if spreadPill then
+			spreadPill.Visible = false
+		end
+		if arbAlert then
+			arbAlert.Visible = false
+		end
+		if graphContainer then
+			graphContainer.Visible = false
+		end
+		if positionHeader then
+			positionHeader.Visible = true
+		end
+		if posText then
+			posText.Visible = true
+			posText.Text = string.format(
+				"Best timing matters more than breadth here. Sell stacks first, buy-side tools unlock later."
+			)
+			posText.Font = FONT_REG
+		end
+	else
+		if localPriceHeader then
+			localPriceHeader.Text = "LOCAL PRICE"
+		end
+		if localPriceLabel then
+			localPriceLabel.Text = formatMoney(localPrice)
+			localPriceLabel.TextColor3 = C.gold
+			localPriceLabel.Font = FONT_MONO
+			localPriceLabel.TextSize = 36
+		end
+		if globalPriceHeader then
+			globalPriceHeader.Text = "GLOBAL PRICE"
+		end
+		if globalPriceLabel then
+			globalPriceLabel.Text = formatMoney(globalPrice)
+			globalPriceLabel.TextColor3 = C_CYAN
+			globalPriceLabel.Font = FONT_MONO
+			globalPriceLabel.TextSize = 20
+			globalPriceLabel.TextWrapped = false
+		end
+		if sectorInfo then
+			sectorInfo.Size = UDim2.new(0.5, 0, 0, 16)
+			sectorInfo.Position = UDim2.new(0.5, 10, 0, 76)
+			sectorInfo.Text = string.format("SECTOR: %s | RATE: x%.2f", string.upper(sector), localRate)
+			sectorInfo.TextColor3 = localRate >= 1.0 and C.green or C.red
+			sectorInfo.Font = FONT_MONO
+			sectorInfo.TextWrapped = false
+		end
+
+		if spreadPill and spreadPill:IsA("Frame") then
+			spreadPill.Visible = true
+			local spreadLabel = spreadPill:FindFirstChild("SpreadLabel")
+			local spreadPct = 0
+			if globalRate ~= 0 then
+				spreadPct = ((localRate / globalRate) - 1) * 100
 			end
-		elseif spreadPct < 0 then
-			spreadPill.BackgroundColor3 = C.green
-			if spreadLabel and spreadLabel:IsA("TextLabel") then
-				spreadLabel.TextColor3 = Color3.new(0, 0, 0)
+			if spreadPct > 0 then
+				spreadPill.BackgroundColor3 = C.red
+				if spreadLabel and spreadLabel:IsA("TextLabel") then
+					spreadLabel.TextColor3 = C_WHITE
+				end
+			elseif spreadPct < 0 then
+				spreadPill.BackgroundColor3 = C.green
+				if spreadLabel and spreadLabel:IsA("TextLabel") then
+					spreadLabel.TextColor3 = Color3.new(0, 0, 0)
+				end
+			else
+				spreadPill.BackgroundColor3 = C.card
+				if spreadLabel and spreadLabel:IsA("TextLabel") then
+					spreadLabel.TextColor3 = C_WHITE
+				end
 			end
-		else
-			spreadPill.BackgroundColor3 = C.card
 			if spreadLabel and spreadLabel:IsA("TextLabel") then
-				spreadLabel.TextColor3 = C_WHITE
+				spreadLabel.Text = string.format("Spread %+.2f%%", spreadPct)
+				spreadLabel.Font = FONT_MONO
 			end
 		end
-		if spreadLabel and spreadLabel:IsA("TextLabel") then
-			spreadLabel.Text = string.format("Spread %+.2f%%", spreadPct)
-			spreadLabel.Font = FONT_MONO
+
+		if arbAlert then
+			arbAlert.Visible = isArb
+			if isArb then
+				local deviation = ((getLocalRate(inspectedItem) / getGlobalRate(inspectedItem)) - 1) * 100
+				local direction = deviation > 0 and "OVERPRICED" or "UNDERPRICED"
+				arbAlert.Text = string.format("ARBITRAGE: %s by %+.1f%%", direction, deviation)
+			end
 		end
-	end
 
-	if arbAlert then
-		arbAlert.Visible = isArb
-		if isArb then
-			local deviation = ((getLocalRate(inspectedItem) / getGlobalRate(inspectedItem)) - 1) * 100
-			local direction = deviation > 0 and "OVERPRICED" or "UNDERPRICED"
-			arbAlert.Text = string.format("ARBITRAGE: %s by %+.1f%%", direction, deviation)
+		if positionHeader then
+			positionHeader.Visible = true
 		end
-	end
+		if posText then
+			local basePrice = itemInfo.basePrice or 1
+			local totalOwned = ownedInCart + ownedInStorage
+			local value = totalOwned * localPrice
+			posText.Visible = true
+			posText.Text = string.format("Cart: %d  |  Storage: %d  |  Value: %s  |  Base: %s",
+				ownedInCart, ownedInStorage, formatMoney(value), formatMoney(basePrice))
+			posText.Font = FONT_MONO
+		end
 
-	if posText then
-		local basePrice = itemInfo.basePrice or 1
-		local totalOwned = ownedInCart + ownedInStorage
-		local value = totalOwned * localPrice
-		posText.Text = string.format("Cart: %d  |  Storage: %d  |  Value: %s  |  Base: %s",
-			ownedInCart, ownedInStorage, formatMoney(value), formatMoney(basePrice))
-		posText.Font = FONT_MONO
-	end
+		if graphContainer then
+			graphContainer.Visible = true
+		end
 
-	local history = itemHistories[inspectedItem]
-	if itemSparkline and history and #history >= 2 then
-		itemSparkline:Update(history, C.green, C.red)
+		local history = itemHistories[inspectedItem]
+		if itemSparkline and history and #history >= 2 then
+			itemSparkline:Update(history, C.green, C.red)
+		end
 	end
 
 	if tradingFrame then
@@ -1574,49 +1986,174 @@ function updateInspector()
 
 		local tradeStateLabel = tradingFrame:FindFirstChild("TradeState")
 		local cartItemQtyLabel = tradingFrame:FindFirstChild("CartItemQty")
-		local buyQtyLabel = tradingFrame:FindFirstChild("BuyFrame") and tradingFrame.BuyFrame:FindFirstChild("BuyQty")
-		local buyCostLabel = tradingFrame:FindFirstChild("BuyFrame") and tradingFrame.BuyFrame:FindFirstChild("BuyCost")
-		local buyBtn = tradingFrame:FindFirstChild("BuyFrame") and tradingFrame.BuyFrame:FindFirstChild("BuyBtn")
-		local sellQtyLabel = tradingFrame:FindFirstChild("SellFrame") and tradingFrame.SellFrame:FindFirstChild("SellQty")
-		local sellEarnLabel = tradingFrame:FindFirstChild("SellFrame") and tradingFrame.SellFrame:FindFirstChild("SellEarn")
-		local sellBtn = tradingFrame:FindFirstChild("SellFrame") and tradingFrame.SellFrame:FindFirstChild("SellBtn")
+		local qtyLabel = tradingFrame:FindFirstChild("LblQty")
+		local qtyRow = tradingFrame:FindFirstChild("QtyRow")
+		local guidedHint = tradingFrame:FindFirstChild("GuidedHint")
+		local guidedActionBtn = tradingFrame:FindFirstChild("GuidedActionBtn")
+		local buyFrame = tradingFrame:FindFirstChild("BuyFrame")
+		local buyQtyLabel = buyFrame and buyFrame:FindFirstChild("BuyQty")
+		local buyCostLabel = buyFrame and buyFrame:FindFirstChild("BuyCost")
+		local buyBtn = buyFrame and buyFrame:FindFirstChild("BuyBtn")
+		local sellFrame = tradingFrame:FindFirstChild("SellFrame")
+		local sellQtyLabel = sellFrame and sellFrame:FindFirstChild("SellQty")
+		local sellEarnLabel = sellFrame and sellFrame:FindFirstChild("SellEarn")
+		local sellBtn = sellFrame and sellFrame:FindFirstChild("SellBtn")
 
-		if tradeStateLabel and tradeStateLabel:IsA("TextLabel") then
-			if isAtMarket then
-				tradeStateLabel.Text = "CART AT MARKET - TRADING ENABLED"
-				tradeStateLabel.TextColor3 = C.green
-			else
-				tradeStateLabel.Text = "CART NOT AT MARKET - TRADING DISABLED"
-				tradeStateLabel.TextColor3 = C.red
+		if guidedMode then
+			local actionState = "none"
+			local actionText = "BUILD STOCK FIRST"
+			local actionHint = "Build stock to get a recommendation."
+			local actionColor = Color3.fromRGB(95, 50, 55)
+			local actionEnabled = false
+
+			if cartState == "rolling_to_market" then
+				actionState = "wait"
+				actionText = "CART EN ROUTE..."
+				actionHint = "Wait for the cart to arrive, then cash out the highlighted winner."
+			elseif cartState == "rolling_to_plot" then
+				actionState = "wait"
+				actionText = "RETURNING TO PLOT..."
+				actionHint = "Wait for the cart to return so you can load more stock."
+			elseif cartState == "at_market" and (cartInventory[inspectedItem] or 0) > 0 then
+				actionState = "sell"
+				actionText = "SELL RECOMMENDED"
+				actionHint = "Cash out the highlighted winner first."
+				actionColor = C.red
+				actionEnabled = true
+			elseif cartState == "at_market" then
+				actionState = "return"
+				actionText = "RETURN CART"
+				actionHint = "No sellable stock left in cart. Return for another load."
+				actionColor = C.gold
+				actionEnabled = true
+			elseif cartState == "idle" and cartItemCount > 0 then
+				actionState = "push"
+				actionText = "SEND CART TO MARKET"
+				actionHint = "Your best stack is packed. Send the cart to market to trade it."
+				actionColor = C.gold
+				actionEnabled = true
+			elseif storageUsage > 0 then
+				actionState = "load"
+				actionText = "LOAD STOCK TO CART"
+				actionHint = "Load your storage into the cart so the terminal can trade it."
+				actionColor = C.gold
+				actionEnabled = true
 			end
-		end
 
-		if cartItemQtyLabel and cartItemQtyLabel:IsA("TextLabel") then
-			cartItemQtyLabel.Text = string.format("In cart: %d", inCart)
-		end
+			if tradeStateLabel and tradeStateLabel:IsA("TextLabel") then
+				tradeStateLabel.Text = string.upper(getGuidedStatusText())
+				tradeStateLabel.TextColor3 = actionEnabled and C.gold or C_MUTED
+			end
+			if cartItemQtyLabel and cartItemQtyLabel:IsA("TextLabel") then
+				cartItemQtyLabel.Text = string.format("Best stack: %s x%d", itemInfo.displayName or inspectedItem, guidedCount)
+				cartItemQtyLabel.TextColor3 = C_WHITE
+			end
+			if qtyLabel then qtyLabel.Visible = false end
+			if qtyRow then qtyRow.Visible = false end
+			if buyFrame then buyFrame.Visible = false end
+			if sellFrame then sellFrame.Visible = false end
+			if guidedHint then
+				guidedHint.Visible = true
+				guidedHint.Text = actionHint
+			end
+			if guidedActionBtn and guidedActionBtn:IsA("TextButton") then
+				guidedActionBtn.Visible = true
+				guidedActionBtn:SetAttribute("ActionState", actionState)
+				guidedActionBtn.Active = actionEnabled
+				guidedActionBtn.AutoButtonColor = actionEnabled
+				guidedActionBtn.BackgroundColor3 = actionEnabled and actionColor or Color3.fromRGB(70, 55, 75)
+				guidedActionBtn.TextColor3 = actionState == "sell" and C_WHITE or C.bg
+				if not actionEnabled then
+					guidedActionBtn.TextColor3 = C_WHITE
+				end
+				guidedActionBtn.Text = actionText
+			end
+		elseif sellFocusedMode then
+			if tradeStateLabel and tradeStateLabel:IsA("TextLabel") then
+				if isAtMarket then
+					tradeStateLabel.Text = "CART AT MARKET - READY TO SELL"
+					tradeStateLabel.TextColor3 = C.green
+				elseif cartState == "rolling_to_market" then
+					tradeStateLabel.Text = "CART EN ROUTE TO MARKET..."
+					tradeStateLabel.TextColor3 = C.gold
+				else
+					tradeStateLabel.Text = "SEND CART TO MARKET TO SELL"
+					tradeStateLabel.TextColor3 = C.red
+				end
+			end
 
-		if buyQtyLabel then buyQtyLabel.Text = buyQty .. " items" end
-		if buyCostLabel then buyCostLabel.Text = "Cost: " .. formatMoney(buyCost) end
-		if sellQtyLabel then sellQtyLabel.Text = sellQty .. " items" end
-		if sellEarnLabel then sellEarnLabel.Text = "Earn: " .. formatMoney(sellEarn) end
+			if cartItemQtyLabel and cartItemQtyLabel:IsA("TextLabel") then
+				cartItemQtyLabel.Text = string.format("Ready in cart: %d", inCart)
+				cartItemQtyLabel.TextColor3 = C_MUTED
+			end
 
-		local canBuy = isAtMarket and buyQty > 0
-		local canSell = isAtMarket and sellQty > 0
+			if qtyLabel then qtyLabel.Visible = true end
+			if qtyRow then qtyRow.Visible = true end
+			if buyFrame then buyFrame.Visible = false end
+			if sellFrame then sellFrame.Visible = true end
+			if guidedHint then
+				guidedHint.Visible = true
+				guidedHint.Text = "Cash out winners first. Buy-side tools unlock after synergies."
+			end
+			if guidedActionBtn then guidedActionBtn.Visible = false end
 
-		if buyBtn and buyBtn:IsA("TextButton") then
-			buyBtn.Active = canBuy
-			buyBtn.AutoButtonColor = canBuy
-			buyBtn.BackgroundColor3 = canBuy and C.green or Color3.fromRGB(60, 90, 65)
-			buyBtn.Text = canBuy and "BUY" or "BUY (UNAVAILABLE)"
-			buyBtn.TextColor3 = canBuy and Color3.new(0, 0, 0) or C_WHITE
-		end
+			if sellQtyLabel then sellQtyLabel.Text = sellQty .. " items" end
+			if sellEarnLabel then sellEarnLabel.Text = "Earn: " .. formatMoney(sellEarn) end
 
-		if sellBtn and sellBtn:IsA("TextButton") then
-			sellBtn.Active = canSell
-			sellBtn.AutoButtonColor = canSell
-			sellBtn.BackgroundColor3 = canSell and C.red or Color3.fromRGB(95, 50, 55)
-			sellBtn.Text = canSell and "SELL" or "SELL (UNAVAILABLE)"
-			sellBtn.TextColor3 = C_WHITE
+			local canSell = isAtMarket and sellQty > 0
+			if sellBtn and sellBtn:IsA("TextButton") then
+				sellBtn.Active = canSell
+				sellBtn.AutoButtonColor = canSell
+				sellBtn.BackgroundColor3 = canSell and C.red or Color3.fromRGB(95, 50, 55)
+				sellBtn.Text = canSell and "SELL" or "SELL (UNAVAILABLE)"
+				sellBtn.TextColor3 = C_WHITE
+			end
+		else
+			if tradeStateLabel and tradeStateLabel:IsA("TextLabel") then
+				if isAtMarket then
+					tradeStateLabel.Text = "CART AT MARKET - TRADING ENABLED"
+					tradeStateLabel.TextColor3 = C.green
+				else
+					tradeStateLabel.Text = "CART NOT AT MARKET - TRADING DISABLED"
+					tradeStateLabel.TextColor3 = C.red
+				end
+			end
+
+			if cartItemQtyLabel and cartItemQtyLabel:IsA("TextLabel") then
+				cartItemQtyLabel.Text = string.format("In cart: %d", inCart)
+				cartItemQtyLabel.TextColor3 = C_MUTED
+			end
+
+			if qtyLabel then qtyLabel.Visible = true end
+			if qtyRow then qtyRow.Visible = true end
+			if buyFrame then buyFrame.Visible = true end
+			if sellFrame then sellFrame.Visible = true end
+			if guidedHint then guidedHint.Visible = false end
+			if guidedActionBtn then guidedActionBtn.Visible = false end
+
+			if buyQtyLabel then buyQtyLabel.Text = buyQty .. " items" end
+			if buyCostLabel then buyCostLabel.Text = "Cost: " .. formatMoney(buyCost) end
+			if sellQtyLabel then sellQtyLabel.Text = sellQty .. " items" end
+			if sellEarnLabel then sellEarnLabel.Text = "Earn: " .. formatMoney(sellEarn) end
+
+			local canBuy = isAtMarket and buyQty > 0
+			local canSell = isAtMarket and sellQty > 0
+
+			if buyBtn and buyBtn:IsA("TextButton") then
+				buyBtn.Active = canBuy
+				buyBtn.AutoButtonColor = canBuy
+				buyBtn.BackgroundColor3 = canBuy and C.green or Color3.fromRGB(60, 90, 65)
+				buyBtn.Text = canBuy and "BUY" or "BUY (UNAVAILABLE)"
+				buyBtn.TextColor3 = canBuy and Color3.new(0, 0, 0) or C_WHITE
+			end
+
+			if sellBtn and sellBtn:IsA("TextButton") then
+				sellBtn.Active = canSell
+				sellBtn.AutoButtonColor = canSell
+				sellBtn.BackgroundColor3 = canSell and C.red or Color3.fromRGB(95, 50, 55)
+				sellBtn.Text = canSell and "SELL" or "SELL (UNAVAILABLE)"
+				sellBtn.TextColor3 = C_WHITE
+			end
 		end
 	end
 end
@@ -1627,6 +2164,7 @@ end
 
 function updateLeftColumn()
 	if not leftScroll then return end
+	updateTopBarChrome(true)
 
 	-- Hide all existing (Object Pooling)
 	for _, child in leftScroll:GetChildren() do
@@ -1636,6 +2174,250 @@ function updateLeftColumn()
 		if isAssetRow or isSectionLabel then
 			child.Visible = false
 		end
+	end
+
+	local guidedMode = isGuidedTerminalMode()
+	local sellFocusedMode = isSellFocusedTerminalMode()
+	if assetSearchBox then
+		assetSearchBox.Visible = not sellFocusedMode
+	end
+	if leftScroll then
+		if sellFocusedMode then
+			leftScroll.Position = UDim2.new(0, 4, 0, 150)
+			leftScroll.Size = UDim2.new(1, -8, 1, -154)
+		else
+			leftScroll.Position = UDim2.new(0, 4, 0, 184)
+			leftScroll.Size = UDim2.new(1, -8, 1, -188)
+		end
+	end
+
+	if guidedMode then
+		local entries = {}
+		for itemId, _ in pairs(ItemConfig.Items) do
+			local count, source = getGuidedPriorityCount(itemId)
+			if count > 0 then
+				local displayName = ((ItemConfig.Items[itemId] or {}).displayName) or itemId
+				table.insert(entries, {
+					id = itemId,
+					displayName = displayName,
+					cartCount = cartInventory[itemId] or 0,
+					storageCount = currentStorage[itemId] or 0,
+					ownedCount = getTotalOwned(itemId),
+					count = count,
+					source = source,
+					value = count * getLocalPrice(itemId),
+				})
+			end
+		end
+
+		table.sort(entries, function(a, b)
+			if a.value == b.value then
+				if a.displayName == b.displayName then
+					return a.id < b.id
+				end
+				return a.displayName < b.displayName
+			end
+			return a.value > b.value
+		end)
+
+		local totalAssetValue = 0
+		local rowPoolIndex = 0
+		local layoutOrder = 0
+
+		if #entries > 0 then
+			layoutOrder += 1
+			createOrUpdateSectionLabel(leftScroll, "SectionOwned", "BEST STOCK", layoutOrder, C.gold)
+		else
+			layoutOrder += 1
+			createOrUpdateSectionLabel(leftScroll, "SectionEmpty", "BUILD STOCK TO GET A RECOMMENDATION", layoutOrder, C.gold)
+		end
+
+		for _, item in ipairs(entries) do
+			rowPoolIndex += 1
+			layoutOrder += 1
+			local row = getOrCreateAssetRow(leftScroll, rowPoolIndex)
+			row.LayoutOrder = layoutOrder
+			updateAssetRow(row, item.id, item.count, item.cartCount, item.storageCount)
+
+			local currentPrice = getLocalPrice(item.id)
+			local previousPrice = prevLocalPrices[item.id]
+			if previousPrice and previousPrice ~= currentPrice then
+				flashRow(row, currentPrice > previousPrice)
+			end
+			prevLocalPrices[item.id] = currentPrice
+			totalAssetValue += currentPrice * item.ownedCount
+		end
+
+		if stoCapFill then
+			local ratio = math.clamp(cartItemCount / math.max(1, cartCapacity), 0, 1)
+			TweenService:Create(stoCapFill, TweenInfo.new(0.3), {Size = UDim2.new(ratio, 0, 1, 0)}):Play()
+			stoCapFill.BackgroundColor3 = ratio >= 1 and C.red or C.gold
+		end
+		if stoCapText then
+			stoCapText.Text = string.format("%d/%d", cartItemCount, cartCapacity)
+		end
+
+		if cartStatusBanner then
+			local bt = cartStatusBanner:FindFirstChild("BannerText")
+			if bt and bt:IsA("TextLabel") then
+				if cartState == "at_market" then
+					bt.Text = "CART AT MARKET - READY TO SELL"
+					bt.TextColor3 = C.green
+					cartStatusBanner.BackgroundColor3 = Color3.fromRGB(20, 55, 30)
+				elseif cartState == "rolling_to_market" then
+					bt.Text = "CART EN ROUTE TO MARKET..."
+					bt.TextColor3 = C.gold
+					cartStatusBanner.BackgroundColor3 = C_DIM_BG
+				elseif cartState == "rolling_to_plot" then
+					bt.Text = "CART RETURNING TO PLOT..."
+					bt.TextColor3 = C.gold
+					cartStatusBanner.BackgroundColor3 = C_DIM_BG
+				elseif cartItemCount > 0 then
+					bt.Text = "CART LOADED - SEND TO MARKET"
+					bt.TextColor3 = C.gold
+					cartStatusBanner.BackgroundColor3 = Color3.fromRGB(55, 45, 20)
+				else
+					bt.Text = "LOAD STOCK TO CART TO TRADE"
+					bt.TextColor3 = C.red
+					cartStatusBanner.BackgroundColor3 = Color3.fromRGB(55, 20, 25)
+				end
+			end
+		end
+
+		if portfolioLiquidLabel then
+			portfolioLiquidLabel.Text = formatMoney(getPlayerMoney())
+		end
+		if portfolioAssetsLabel then
+			portfolioAssetsLabel.Text = formatMoney(totalAssetValue)
+		end
+
+		syncGuidedRecommendation(not hasAutoFocusedRecommendedItemThisOpen)
+		return
+	end
+
+	if sellFocusedMode then
+		local market = {}
+		local owned = {}
+		local totalAssetValue = 0
+		local rowPoolIndex = 0
+		local layoutOrder = 0
+
+		for itemId, _ in pairs(ItemConfig.Items) do
+			local cartCount = cartInventory[itemId] or 0
+			local storageCount = currentStorage[itemId] or 0
+			local ownedCount = cartCount + storageCount
+			if ownedCount > 0 then
+				local displayName = ((ItemConfig.Items[itemId] or {}).displayName) or itemId
+				local entry = {
+					id = itemId,
+					displayName = displayName,
+					cartCount = cartCount,
+					storageCount = storageCount,
+					ownedCount = ownedCount,
+					value = ownedCount * getLocalPrice(itemId),
+				}
+				if cartCount > 0 and cartState == "at_market" then
+					table.insert(market, entry)
+				else
+					table.insert(owned, entry)
+				end
+			end
+		end
+
+		table.sort(market, function(a, b)
+			if a.value == b.value then
+				return a.displayName < b.displayName
+			end
+			return a.value > b.value
+		end)
+		table.sort(owned, function(a, b)
+			if a.value == b.value then
+				return a.displayName < b.displayName
+			end
+			return a.value > b.value
+		end)
+
+		if #market > 0 then
+			layoutOrder += 1
+			createOrUpdateSectionLabel(leftScroll, "SectionMarket", string.format("READY TO SELL (%d)", #market), layoutOrder, C.green)
+		end
+
+		for _, item in ipairs(market) do
+			rowPoolIndex += 1
+			layoutOrder += 1
+			local row = getOrCreateAssetRow(leftScroll, rowPoolIndex)
+			row.LayoutOrder = layoutOrder
+			updateAssetRow(row, item.id, item.cartCount, item.cartCount, item.storageCount)
+			totalAssetValue += getLocalPrice(item.id) * item.ownedCount
+		end
+
+		if #owned > 0 then
+			layoutOrder += 1
+			createOrUpdateSectionLabel(leftScroll, "SectionOwned", string.format("YOUR STOCK (%d)", #owned), layoutOrder, C.gold)
+		elseif #market == 0 then
+			layoutOrder += 1
+			createOrUpdateSectionLabel(leftScroll, "SectionEmpty", "BUILD STOCK TO PICK YOUR NEXT CASH-OUT", layoutOrder, C.gold)
+		end
+
+		for _, item in ipairs(owned) do
+			rowPoolIndex += 1
+			layoutOrder += 1
+			local row = getOrCreateAssetRow(leftScroll, rowPoolIndex)
+			row.LayoutOrder = layoutOrder
+			updateAssetRow(row, item.id, item.ownedCount, item.cartCount, item.storageCount)
+			totalAssetValue += getLocalPrice(item.id) * item.ownedCount
+		end
+
+		if stoCapFill then
+			local ratio = math.clamp(cartItemCount / math.max(1, cartCapacity), 0, 1)
+			TweenService:Create(stoCapFill, TweenInfo.new(0.3), {Size = UDim2.new(ratio, 0, 1, 0)}):Play()
+			stoCapFill.BackgroundColor3 = ratio >= 1 and C.red or C.gold
+		end
+		if stoCapText then
+			stoCapText.Text = string.format("%d/%d", cartItemCount, cartCapacity)
+		end
+
+		if cartStatusBanner then
+			local bt = cartStatusBanner:FindFirstChild("BannerText")
+			if bt and bt:IsA("TextLabel") then
+				if cartState == "at_market" then
+					bt.Text = "CART AT MARKET - PICK A WINNER"
+					bt.TextColor3 = C.green
+					cartStatusBanner.BackgroundColor3 = Color3.fromRGB(20, 55, 30)
+				elseif cartState == "rolling_to_market" then
+					bt.Text = "CART EN ROUTE TO MARKET..."
+					bt.TextColor3 = C.gold
+					cartStatusBanner.BackgroundColor3 = C_DIM_BG
+				elseif cartState == "rolling_to_plot" then
+					bt.Text = "CART RETURNING TO PLOT..."
+					bt.TextColor3 = C.gold
+					cartStatusBanner.BackgroundColor3 = C_DIM_BG
+				elseif cartItemCount > 0 then
+					bt.Text = "CART LOADED - SEND IT OUT"
+					bt.TextColor3 = C.gold
+					cartStatusBanner.BackgroundColor3 = Color3.fromRGB(55, 45, 20)
+				else
+					bt.Text = "BUILD STOCK TO PLAN THE NEXT SELL"
+					bt.TextColor3 = C.red
+					cartStatusBanner.BackgroundColor3 = Color3.fromRGB(55, 20, 25)
+				end
+			end
+		end
+
+		if portfolioLiquidLabel then
+			portfolioLiquidLabel.Text = formatMoney(getPlayerMoney())
+		end
+		if portfolioAssetsLabel then
+			portfolioAssetsLabel.Text = formatMoney(totalAssetValue)
+		end
+
+		if not inspectedItem and #market > 0 then
+			inspectedItem = market[1].id
+		elseif not inspectedItem and #owned > 0 then
+			inspectedItem = owned[1].id
+		end
+
+		return
 	end
 
 	local market = {}
@@ -1826,23 +2608,41 @@ end
 --------------------------------------------------------------------------------
 
 local function openUI()
+	if not isDetailedMarketUnlocked() then return end
 	if isOpen then return end
 	isOpen = true
+	hasAutoFocusedRecommendedItemThisOpen = false
 
 	task.spawn(fetchData)
-	task.spawn(fetchContracts)
+	if areContractsUnlocked() then
+		task.spawn(fetchContracts)
+	end
 	task.wait(0.1)
 
+	if isSellFocusedTerminalMode() then
+		activeTab = "TRADING"
+	end
+	if isGuidedTerminalMode() then
+		syncGuidedRecommendation(true)
+	end
+
+	refreshUnlockState()
 	updateLeftColumn()
 	updateInspector()
 	refreshContractsList()
 	setTab(activeTab)
+	updateTopBarChrome(true)
 
 	mainFrame.Visible = true
 	mainFrame.BackgroundTransparency = 1
 	TweenService:Create(mainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad), {
 		BackgroundTransparency = 0,
 	}):Play()
+
+	if isGuidedTerminalMode() and not hasShownIntroToast then
+		hasShownIntroToast = true
+		notifyToast("Load stock, send your cart, then cash out the best stack first.", "info", 4.5)
+	end
 end
 
 local function closeUI()
@@ -1866,6 +2666,7 @@ local function initialize()
 	createLeftColumn(content)
 	createRightColumn(content)
 	setTab("TRADING")
+	refreshUnlockState()
 
 	closeBtn.MouseButton1Click:Connect(closeUI)
 	if tabTradingBtn then
@@ -1875,6 +2676,9 @@ local function initialize()
 	end
 	if tabContractsBtn then
 		tabContractsBtn.MouseButton1Click:Connect(function()
+			if not areContractsUnlocked() then
+				return
+			end
 			setTab("CONTRACTS")
 			refreshContractsList()
 		end)
@@ -1897,6 +2701,7 @@ local function initialize()
 			storageCapacity = Player:GetAttribute("StorageCapacity") or capacity or 0
 		end
 		if isOpen then
+			syncGuidedRecommendation(false)
 			updateLeftColumn()
 			if inspectedItem then updateInspector() end
 		end
@@ -1909,6 +2714,7 @@ local function initialize()
 		cartCapacity = capacity
 		cartItemCount = count
 		if isOpen then
+			syncGuidedRecommendation(state == "at_market")
 			updateLeftColumn()
 			if inspectedItem then updateInspector() end
 		end
@@ -1917,6 +2723,7 @@ local function initialize()
 	stockMarketFolder:GetAttributeChangedSignal("ItemRates"):Connect(function()
 		if isOpen then
 			parseGlobalItemRates()
+			syncGuidedRecommendation(false)
 			updateLeftColumn()
 			if inspectedItem then updateInspector() end
 		end
@@ -1925,6 +2732,7 @@ local function initialize()
 	stockMarketFolder:GetAttributeChangedSignal("LocalItemRates"):Connect(function()
 		if isOpen then
 			parseLocalItemRates()
+			syncGuidedRecommendation(false)
 			updateLeftColumn()
 			if inspectedItem then updateInspector() end
 		end
@@ -1938,11 +2746,7 @@ local function initialize()
 
 	stockMarketFolder:GetAttributeChangedSignal("RateName"):Connect(function()
 		if not isOpen or not mainFrame then return end
-		local topBar = mainFrame:FindFirstChild("TopBar")
-		if topBar then
-			local rateName = topBar:FindFirstChild("RateName")
-			if rateName then rateName.Text = stockMarketFolder:GetAttribute("RateName") or "" end
-		end
+		updateTopBarChrome(true)
 	end)
 
 	ContractEvent.OnClientEvent:Connect(function(payload)
@@ -1978,6 +2782,9 @@ local function initialize()
 		stockToggle.Parent = ReplicatedStorage
 	end
 	stockToggle.Event:Connect(function()
+		if not isDetailedMarketUnlocked() then
+			return
+		end
 		if isOpen then closeUI() else openUI() end
 	end)
 
@@ -1986,7 +2793,39 @@ local function initialize()
 	ProximityPromptService.PromptTriggered:Connect(function(prompt, player)
 		if player == Player then
 			if prompt.Name == "MarketPrompt" or prompt.Name == "HFTTerminalPrompt" then
+				if not isDetailedMarketUnlocked() then
+					return
+				end
 				openUI()
+			end
+		end
+	end)
+
+	Player:GetAttributeChangedSignal("DetailedMarketUnlocked"):Connect(function()
+		if not isDetailedMarketUnlocked() and isOpen then
+			closeUI()
+		end
+	end)
+	Player:GetAttributeChangedSignal("TerminalIntroComplete"):Connect(function()
+		refreshUnlockState()
+		if isOpen then
+			updateTopBarChrome(true)
+			updateLeftColumn()
+			if inspectedItem then
+				updateInspector()
+			end
+		end
+	end)
+	Player:GetAttributeChangedSignal("ContractsUnlocked"):Connect(function()
+		refreshUnlockState()
+	end)
+	Player:GetAttributeChangedSignal("SynergyUnlocked"):Connect(function()
+		refreshUnlockState()
+		if isOpen then
+			updateTopBarChrome(true)
+			updateLeftColumn()
+			if inspectedItem then
+				updateInspector()
 			end
 		end
 	end)
@@ -1995,9 +2834,8 @@ local function initialize()
 	task.spawn(function()
 		local dot = true
 		while true do
-			if statusLabel and isOpen then
-				statusLabel.Text = dot and (utf8.char(0x25CF) .. " MARKET LIVE") or (utf8.char(0x25CB) .. " MARKET LIVE")
-				statusLabel.TextColor3 = C.green
+			if isOpen then
+				updateTopBarChrome(dot)
 			end
 			if isOpen and activeTab == "CONTRACTS" then
 				refreshContractsList()
@@ -2030,12 +2868,3 @@ local function initialize()
 end
 
 initialize()
-
-
-
-
-
-
-
-
-

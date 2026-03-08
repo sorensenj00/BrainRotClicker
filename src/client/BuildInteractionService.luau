@@ -20,6 +20,7 @@ export type BuildInteractionService = {
 	Stop: () -> (),
 	CancelDrag: () -> (),
 	IsDragging: () -> boolean,
+	GetDraggedUnitName: () -> string?,
 	GetHoveredSlot: () -> number?,
 	GetDraggedFromSlot: () -> number?,
 	StatusChanged: RBXScriptSignal,
@@ -452,6 +453,10 @@ end
 
 function BuildInteractionService.IsDragging()
 	return isDragging
+end
+
+function BuildInteractionService.GetDraggedUnitName()
+	return draggedUnit and draggedUnit.name or nil
 end
 
 function BuildInteractionService.GetHoveredSlot()

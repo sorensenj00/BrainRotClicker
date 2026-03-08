@@ -27,6 +27,7 @@ local GetVehicleInfoFunction = RemoteFunctions:WaitForChild("GetVehicleInfo")
 
 -- Shared
 local Shared = ReplicatedStorage:WaitForChild("Shared")
+local RadioController = require(script.Parent:WaitForChild("Controllers"):WaitForChild("RadioController"))
 
 
 --------------------------------------------------------------------------------
@@ -75,6 +76,13 @@ local capBarFill, capBarText
 local recallBtn, sendBtn
 local storageBtn, marketBtn
 local statusLabel
+local radioInfoBtn, radioTitleLabel, radioStationLabel
+local radioPrevBtn, radioNextBtn
+local hudRoot
+
+local function isManualLogisticsUnlocked(): boolean
+	return Player:GetAttribute("ManualLogisticsUnlocked") == true
+end
 
 --------------------------------------------------------------------------------
 -- HELPERS
@@ -86,6 +94,26 @@ local UIUtils = require(Shared:WaitForChild("Utils"):WaitForChild("UIUtils"))
 local addCorner = UIUtils.addCorner
 local addStroke = UIUtils.addStroke
 local decodeItems = UIUtils.decodeItems
+
+local function getOrCreateRadioToggleEvent(): BindableEvent
+	local existing = ReplicatedStorage:FindFirstChild("RadioToggleEvent")
+	if existing and existing:IsA("BindableEvent") then
+		return existing
+	end
+
+	local toggleEvent = Instance.new("BindableEvent")
+	toggleEvent.Name = "RadioToggleEvent"
+	toggleEvent.Parent = ReplicatedStorage
+	return toggleEvent
+end
+
+local function trimText(value: string, maxLength: number): string
+	if #value <= maxLength then
+		return value
+	end
+
+	return string.sub(value, 1, maxLength - 3) .. "..."
+end
 
 -- Returns 0..1 position along the track (0 = Market, 1 = Plot)
 local function getCartTrackPosition(): number
@@ -116,6 +144,18 @@ local function getStatusColor(): Color3
 	return C.muted
 end
 
+local function getRadioAccent(state): (Color3, Color3, Color3)
+	if state.isLoading then
+		return C.amber, C.amberDim, Color3.fromRGB(48, 34, 14)
+	end
+
+	if state.isOff then
+		return Color3.fromRGB(240, 140, 205), Color3.fromRGB(170, 90, 140), C.panel
+	end
+
+	return Color3.fromRGB(245, 150, 215), Color3.fromRGB(175, 100, 150), Color3.fromRGB(50, 18, 42)
+end
+
 --------------------------------------------------------------------------------
 -- BUILD UI
 --------------------------------------------------------------------------------
@@ -136,11 +176,12 @@ local function buildHUD()
 	-- Main container — appended to bottom of MoneyHUD
 	local main = Instance.new("Frame")
 	main.Name = "CartHUD"
-	main.Size = UDim2.new(1, 0, 0, 130)
-	main.Position = UDim2.new(0, 0, 1, -140)
+	main.Size = UDim2.new(1, 0, 0, 166)
+	main.Position = UDim2.new(0, 0, 1, -176)
 	main.BackgroundTransparency = 1
 	main.BorderSizePixel = 0
 	main.Parent = hudPanel
+	hudRoot = main
 
 	-- ═══ TOP: Track area ═══
 
@@ -270,12 +311,96 @@ local function buildHUD()
 	capBarText.ZIndex = 2
 	capBarText.Parent = capBarBg
 
+	local radioRow = Instance.new("Frame")
+	radioRow.Name = "RadioRow"
+	radioRow.Size = UDim2.new(1, 0, 0, 28)
+	radioRow.Position = UDim2.new(0, 0, 0, 72)
+	radioRow.BackgroundTransparency = 1
+	radioRow.Parent = main
+
+	radioInfoBtn = Instance.new("TextButton")
+	radioInfoBtn.Name = "RadioInfoBtn"
+	radioInfoBtn.Size = UDim2.new(1, -72, 1, 0)
+	radioInfoBtn.Position = UDim2.new(0, 0, 0, 0)
+	radioInfoBtn.BackgroundColor3 = C.panel
+	radioInfoBtn.Text = ""
+	radioInfoBtn.AutoButtonColor = false
+	radioInfoBtn.BorderSizePixel = 0
+	radioInfoBtn.Parent = radioRow
+	addCorner(radioInfoBtn, UDim.new(0, 4))
+	addStroke(radioInfoBtn, Color3.fromRGB(170, 90, 140), 1)
+
+	local radioIconLabel = Instance.new("TextLabel")
+	radioIconLabel.Name = "Icon"
+	radioIconLabel.Size = UDim2.new(0, 18, 1, 0)
+	radioIconLabel.Position = UDim2.new(0, 8, 0, 0)
+	radioIconLabel.BackgroundTransparency = 1
+	radioIconLabel.Text = "♫"
+	radioIconLabel.TextColor3 = Color3.fromRGB(245, 150, 215)
+	radioIconLabel.TextSize = 13
+	radioIconLabel.Font = FONT_BOLD
+	radioIconLabel.Parent = radioInfoBtn
+
+	radioTitleLabel = Instance.new("TextLabel")
+	radioTitleLabel.Name = "Title"
+	radioTitleLabel.Size = UDim2.new(0, 48, 0, 11)
+	radioTitleLabel.Position = UDim2.new(0, 28, 0, 3)
+	radioTitleLabel.BackgroundTransparency = 1
+	radioTitleLabel.Text = "RADIO"
+	radioTitleLabel.TextColor3 = Color3.fromRGB(245, 150, 215)
+	radioTitleLabel.TextSize = 10
+	radioTitleLabel.Font = FONT_BOLD
+	radioTitleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	radioTitleLabel.Parent = radioInfoBtn
+
+	radioStationLabel = Instance.new("TextLabel")
+	radioStationLabel.Name = "Station"
+	radioStationLabel.Size = UDim2.new(1, -36, 0, 12)
+	radioStationLabel.Position = UDim2.new(0, 28, 0, 14)
+	radioStationLabel.BackgroundTransparency = 1
+	radioStationLabel.Text = "OFF"
+	radioStationLabel.TextColor3 = C.white
+	radioStationLabel.TextSize = 10
+	radioStationLabel.Font = FONT_REG
+	radioStationLabel.TextXAlignment = Enum.TextXAlignment.Left
+	radioStationLabel.Parent = radioInfoBtn
+
+	radioPrevBtn = Instance.new("TextButton")
+	radioPrevBtn.Name = "RadioPrevBtn"
+	radioPrevBtn.Size = UDim2.new(0, 32, 1, 0)
+	radioPrevBtn.Position = UDim2.new(1, -68, 0, 0)
+	radioPrevBtn.BackgroundColor3 = C.panel
+	radioPrevBtn.Text = "◀"
+	radioPrevBtn.TextColor3 = Color3.fromRGB(245, 150, 215)
+	radioPrevBtn.TextSize = 12
+	radioPrevBtn.Font = FONT_BOLD
+	radioPrevBtn.AutoButtonColor = true
+	radioPrevBtn.BorderSizePixel = 0
+	radioPrevBtn.Parent = radioRow
+	addCorner(radioPrevBtn, UDim.new(0, 4))
+	addStroke(radioPrevBtn, Color3.fromRGB(170, 90, 140), 1)
+
+	radioNextBtn = Instance.new("TextButton")
+	radioNextBtn.Name = "RadioNextBtn"
+	radioNextBtn.Size = UDim2.new(0, 32, 1, 0)
+	radioNextBtn.Position = UDim2.new(1, -32, 0, 0)
+	radioNextBtn.BackgroundColor3 = C.panel
+	radioNextBtn.Text = "▶"
+	radioNextBtn.TextColor3 = Color3.fromRGB(245, 150, 215)
+	radioNextBtn.TextSize = 12
+	radioNextBtn.Font = FONT_BOLD
+	radioNextBtn.AutoButtonColor = true
+	radioNextBtn.BorderSizePixel = 0
+	radioNextBtn.Parent = radioRow
+	addCorner(radioNextBtn, UDim.new(0, 4))
+	addStroke(radioNextBtn, Color3.fromRGB(170, 90, 140), 1)
+
 	-- ═══ BOTTOM: Recall & Send buttons ═══
 
 	local buttonRowTop = Instance.new("Frame")
 	buttonRowTop.Name = "ButtonRowTop"
 	buttonRowTop.Size = UDim2.new(1, 0, 0, 26)
-	buttonRowTop.Position = UDim2.new(0, 0, 0, 72)
+	buttonRowTop.Position = UDim2.new(0, 0, 0, 104)
 	buttonRowTop.BackgroundTransparency = 1
 	buttonRowTop.Parent = main
 
@@ -313,7 +438,7 @@ local function buildHUD()
 	local buttonRowBottom = Instance.new("Frame")
 	buttonRowBottom.Name = "ButtonRowBottom"
 	buttonRowBottom.Size = UDim2.new(1, 0, 0, 26)
-	buttonRowBottom.Position = UDim2.new(0, 0, 0, 104)
+	buttonRowBottom.Position = UDim2.new(0, 0, 0, 136)
 	buttonRowBottom.BackgroundTransparency = 1
 	buttonRowBottom.Parent = main
 
@@ -437,11 +562,42 @@ local function updateButtons()
 	setButtonState(marketBtn, isAtMarket, Color3.fromRGB(10, 30, 40), C.marketDot, C.marketDot)
 end
 
+local function updateRadioControls()
+	if not radioInfoBtn or not radioTitleLabel or not radioStationLabel or not radioPrevBtn or not radioNextBtn then
+		return
+	end
+
+	local state = RadioController.GetState()
+	local accent, accentStroke, backgroundColor = getRadioAccent(state)
+	local stationName = "OFF"
+
+	if state.isLoading then
+		stationName = "TUNING..."
+	elseif state.station then
+		stationName = trimText(string.upper(state.station.displayName), 18)
+	end
+
+	radioInfoBtn.BackgroundColor3 = backgroundColor
+	radioTitleLabel.TextColor3 = accent
+	radioStationLabel.Text = stationName
+	radioStationLabel.TextColor3 = if state.isLoading then C.amber else C.white
+
+	local infoStroke = radioInfoBtn:FindFirstChildWhichIsA("UIStroke")
+	if infoStroke then
+		infoStroke.Color = accentStroke
+		infoStroke.Transparency = 0
+	end
+
+	setButtonState(radioPrevBtn, true, C.panel, accent, accentStroke)
+	setButtonState(radioNextBtn, true, C.panel, accent, accentStroke)
+end
+
 local function updateAll()
 	updateCartIcon()
 	updateStatus()
 	updateCapacityBar()
 	updateButtons()
+	updateRadioControls()
 end
 
 --------------------------------------------------------------------------------
@@ -497,6 +653,10 @@ end
 
 local function initialize()
 	buildHUD()
+	if hudRoot then
+		hudRoot.Visible = isManualLogisticsUnlocked()
+	end
+	updateRadioControls()
 
 	-- Initial data fetch
 	task.spawn(function()
@@ -559,6 +719,24 @@ local function initialize()
 	end)
 
 	-- ═══ ACTIONS ═══
+
+	local radioToggle = getOrCreateRadioToggleEvent()
+
+	radioInfoBtn.MouseButton1Click:Connect(function()
+		radioToggle:Fire()
+	end)
+
+	radioPrevBtn.MouseButton1Click:Connect(function()
+		RadioController.PreviousStation()
+	end)
+
+	radioNextBtn.MouseButton1Click:Connect(function()
+		RadioController.NextStation()
+	end)
+
+	RadioController.Changed:Connect(function()
+		updateRadioControls()
+	end)
 	
 	marketBtn.MouseButton1Click:Connect(function()
 		if cartState ~= "at_market" then return end
@@ -592,5 +770,11 @@ local function initialize()
 
 	print("✓ CartLocationHUD initialized")
 end
+
+Player:GetAttributeChangedSignal("ManualLogisticsUnlocked"):Connect(function()
+	if hudRoot then
+		hudRoot.Visible = isManualLogisticsUnlocked()
+	end
+end)
 
 initialize()

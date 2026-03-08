@@ -89,6 +89,7 @@ screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 screenGui.DisplayOrder = 5
 screenGui.Parent = PlayerGui
 screenGui.IgnoreGuiInset = true
+screenGui.Enabled = Player:GetAttribute("MarketIntelUnlocked") == true
 
 -- Top bar
 local tickerBar = Instance.new("Frame")
@@ -355,5 +356,9 @@ updateModeIndicator()
 stockMarketFolder:GetAttributeChangedSignal("SectorRates"):Connect(onMarketUpdate)
 stockMarketFolder:GetAttributeChangedSignal("SectorHistories"):Connect(onMarketUpdate)
 
+
+Player:GetAttributeChangedSignal("MarketIntelUnlocked"):Connect(function()
+	screenGui.Enabled = Player:GetAttribute("MarketIntelUnlocked") == true
+end)
 
 print("✓ StockTickerHUD initialized")

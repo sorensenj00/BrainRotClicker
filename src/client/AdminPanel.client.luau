@@ -16,6 +16,17 @@ local TweenService = game:GetService("TweenService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+local ADMIN_USER_IDS = {
+	[1340966465] = true,
+}
+
+local isAllowedAdmin = RunService:IsStudio()
+	or player.UserId == game.CreatorId
+	or ADMIN_USER_IDS[player.UserId] == true
+
+if not isAllowedAdmin then
+	return
+end
 
 -- Wait for RemoteEvents
 local RemoteEvents = ReplicatedStorage:WaitForChild("RemoteEvents")

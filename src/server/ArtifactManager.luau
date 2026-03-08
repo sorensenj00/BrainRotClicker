@@ -57,6 +57,13 @@ local function recordAchievement(player, goalType, amount)
 	end
 end
 
+local function refreshAchievementAttributes(player)
+	local achievementManager = rawget(Services, "AchievementsManager")
+	if achievementManager and achievementManager.RefreshPlayerUnlockAttributes then
+		achievementManager.RefreshPlayerUnlockAttributes(player)
+	end
+end
+
 -- Getter for DataService (to avoid circular require)
 local function getDataService()
 	if not DataService then
@@ -167,6 +174,7 @@ function ArtifactManager.AddArtifact(player, artifact)
 	if artifact.Rarity == "Legendary" then
 		recordAchievement(player, "legendary_artifact_drop", 1)
 	end
+	refreshAchievementAttributes(player)
 	return true
 end
 
@@ -186,6 +194,7 @@ function ArtifactManager.RestoreArtifact(player, artifact)
 
 	local inv = getPlayerArtifacts(player)
 	inv[artifact.GUID] = artifact
+	refreshAchievementAttributes(player)
 	return true
 end
 
@@ -225,6 +234,8 @@ function ArtifactManager.EquipArtifact(player, unitGUID, artifactGUID, slot)
 	if equippedCount >= 3 then
 		recordAchievement(player, "unit_fully_equipped", 1)
 	end
+
+	refreshAchievementAttributes(player)
 	
 	return true
 end
@@ -247,6 +258,8 @@ function ArtifactManager.UnequipArtifact(player, unitGUID, slot)
 	if ItemProductionManager and ItemProductionManager.RefreshUnitAttributes then
 		ItemProductionManager.RefreshUnitAttributes(player)
 	end
+
+	refreshAchievementAttributes(player)
 	
 	return true
 end

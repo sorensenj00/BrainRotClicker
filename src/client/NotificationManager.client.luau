@@ -13,6 +13,8 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 local Debris = game:GetService("Debris")
+local HttpService = game:GetService("HttpService")
+local CollectionService = game:GetService("CollectionService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -60,6 +62,127 @@ local ScreenGui = nil
 local ToastContainer = nil
 local BannerContainer = nil
 local ActiveBanner = nil
+
+local function isUnlocked(attributeName: string): boolean
+	return Player:GetAttribute(attributeName) == true
+end
+
+local ItemConfigCache = nil
+local lastArtifactDropName = nil
+
+local function getItemConfig()
+	if ItemConfigCache then
+		return ItemConfigCache
+	end
+
+	local shared = ReplicatedStorage:FindFirstChild("Shared")
+	local itemConfigModule = shared and shared:FindFirstChild("ItemConfig")
+	if not itemConfigModule then
+		return nil
+	end
+
+	local ok, result = pcall(require, itemConfigModule)
+	if ok then
+		ItemConfigCache = result
+	end
+	return ItemConfigCache
+end
+
+local function getLocalItemRates(): {[string]: number}
+	local rates = {}
+	local stockMarketFolder = ReplicatedStorage:FindFirstChild("StockMarket")
+	if not stockMarketFolder then
+		return rates
+	end
+
+	local encoded = stockMarketFolder:GetAttribute("LocalItemRates")
+	if not encoded then
+		return rates
+	end
+
+	local ok, decoded = pcall(function()
+		return HttpService:JSONDecode(encoded)
+	end)
+	if ok and type(decoded) == "table" then
+		rates = decoded
+	end
+	return rates
+end
+
+local function getItemDisplayName(itemId: string): string
+	local itemConfig = getItemConfig()
+	local itemDef = itemConfig and itemConfig.Items and itemConfig.Items[itemId]
+	return itemDef and (itemDef.displayName or itemId) or itemId
+end
+
+local function getActiveHybridItemName(): string?
+	local itemConfig = getItemConfig()
+	if not itemConfig or not itemConfig.GetSynergyOverride then
+		return nil
+	end
+
+	local slotToUnit = {}
+	for _, unit in CollectionService:GetTagged("ActiveBrainrot") do
+		if unit:GetAttribute("OwnerId") == Player.UserId then
+			local slot = tonumber(unit:GetAttribute("GridSlot"))
+			if slot then
+				slotToUnit[slot] = unit
+			end
+		end
+	end
+
+	local seen = {}
+	for slotIndex, unit in pairs(slotToUnit) do
+		local unitType = unit:GetAttribute("UnitType")
+		if type(unitType) == "string" then
+			local clusterIdx = math.floor((slotIndex - 1) / 4)
+			local baseSlot = clusterIdx * 4 + 1
+			for _, neighborSlot in ipairs({ baseSlot, baseSlot + 1, baseSlot + 2, baseSlot + 3 }) do
+				if neighborSlot ~= slotIndex and slotToUnit[neighborSlot] then
+					local neighborType = slotToUnit[neighborSlot]:GetAttribute("UnitType")
+					if type(neighborType) == "string" then
+						local syn = itemConfig.GetSynergyOverride(unitType, neighborType)
+						if syn and not seen[syn.synergyItem] then
+							seen[syn.synergyItem] = true
+							return getItemDisplayName(syn.synergyItem)
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return nil
+end
+
+local function getBestSoldItem(inventory): (string?, number, number)
+	if type(inventory) ~= "table" then
+		return nil, 0, 1.0
+	end
+
+	local localRates = getLocalItemRates()
+	local itemConfig = getItemConfig()
+	local bestItemId = nil
+	local bestCount = 0
+	local bestValue = -1
+	local bestRate = 1.0
+
+	for itemId, count in pairs(inventory) do
+		if type(itemId) == "string" and type(count) == "number" and count > 0 then
+			local itemDef = itemConfig and itemConfig.Items and itemConfig.Items[itemId]
+			local localRate = tonumber(localRates[itemId]) or 1.0
+			local value = count * ((itemDef and itemDef.basePrice) or 1) * localRate
+			if value > bestValue then
+				bestValue = value
+				bestItemId = itemId
+				bestCount = count
+				bestRate = localRate
+			end
+		end
+	end
+
+	return bestItemId, bestCount, bestRate
+end
 
 local function initializeUI()
 	if ScreenGui then return end
@@ -449,28 +572,21 @@ local StockMarketFolder = ReplicatedStorage:WaitForChild("StockMarket")
 
 StorageUpdatedEvent.OnClientEvent:Connect(function(items, total, capacity)
 	if total >= capacity then
-		ShowToast("Storage is FULL! Units have stopped producing.", "error", 5)
+		ShowToast("Storage full. Sell stock to keep producing.", "warning", 5)
 	end
 end)
 
 ItemSoldEvent.OnClientEvent:Connect(function(itemId, count, earned)
 	if earned > 0 then
-		-- Try to get the friendly name
-		local displayName = itemId
-		local Shared = ReplicatedStorage:FindFirstChild("Shared")
-		if Shared then
-			local success, IC = pcall(function() return require(Shared:WaitForChild("ItemConfig")) end)
-			if success and IC and IC.Items[itemId] then
-				displayName = IC.Items[itemId].displayName or itemId
-			end
-		end
+		local displayName = getItemDisplayName(itemId)
+		local localRate = tonumber(getLocalItemRates()[itemId]) or 1.0
 		
-		local msg = string.format("+$%d for selling %dx %s", earned, count, displayName)
+		local msg = string.format("+$%d for selling %dx %s at %.2fx", earned, count, displayName, localRate)
 		ShowToast(msg, "gold", 2.5)
 	end
 end)
 
-CartSoldEvent.OnClientEvent:Connect(function(earned, inventory)
+CartSoldEvent.OnClientEvent:Connect(function(earned, inventory, source)
 	if earned > 0 then
 		local function formatMoney(amount)
 			if amount >= 1000000000 then return string.format("$%.2fB", amount / 1000000000)
@@ -480,7 +596,24 @@ CartSoldEvent.OnClientEvent:Connect(function(earned, inventory)
 		end
 		
 		local msg = string.format("🛒 CART SOLD! +%s", formatMoney(earned))
+		if source == "storage" then
+			local currentRate = StockMarketFolder:GetAttribute("CurrentRate") or 1.0
+			local prefix = currentRate >= 1.25 and "Hot market cash-out"
+				or (currentRate <= 0.85 and "Weak market cash-out")
+				or "Sold stock"
+			msg = string.format("%s +%s", prefix, formatMoney(earned))
+		end
 		ShowBanner(msg, THEME.success, 5)
+		local bestItemId, bestCount, bestRate = getBestSoldItem(inventory)
+		if bestItemId then
+			local followup = string.format(
+				"Best mover: %s x%d at %.2fx",
+				getItemDisplayName(bestItemId),
+				bestCount,
+				bestRate
+			)
+			ShowToast(followup, bestRate >= 1.1 and "success" or "info", 3.5)
+		end
 	end
 end)
 
@@ -500,7 +633,12 @@ BackpackLoadedEvent.OnClientEvent:Connect(function(itemId, count)
 end)
 
 ArtifactDroppedEvent.OnClientEvent:Connect(function(artifact)
+	if not isUnlocked("ArtifactsUnlocked") then return end
 	if not artifact or not artifact.Name then return end
+	if Player:GetAttribute("FirstArtifactFound") ~= true then
+		lastArtifactDropName = artifact.Name
+		return
+	end
 
 	local rarity = artifact.Rarity or "Common"
 	
@@ -542,6 +680,7 @@ DroneOpsNotifyEvent.OnClientEvent:Connect(function(payload)
 end)
 
 ContractEventRemote.OnClientEvent:Connect(function(payload)
+	if not isUnlocked("ContractsUnlocked") then return end
 	if type(payload) ~= "table" then return end
 	local action = payload.Action
 	if action == "Spawned" then
@@ -563,7 +702,32 @@ AchievementNotifyEvent.OnClientEvent:Connect(function(payload)
 	if type(payload) ~= "table" then return end
 	local action = payload.Action
 	local title = tostring(payload.Title or "Achievement")
-	if action == "Unlocked" then
+	local achievementId = tostring(payload.AchievementId or "")
+	if action == "ObjectiveComplete" then
+		local rewards = payload.Rewards
+		local rewardText = ""
+		if type(rewards) == "table" then
+			for _, reward in ipairs(rewards) do
+				if type(reward) == "table" and reward.Type == "money" then
+					rewardText = rewardText .. " +" .. formatMoneyShort(tonumber(reward.Amount) or 0)
+				elseif type(reward) == "table" and reward.Type == "braincells" then
+					rewardText = rewardText .. " +" .. tostring(math.floor(tonumber(reward.Amount) or 0)) .. " Braincells"
+				end
+			end
+		end
+		if achievementId == "midgame_first_synergy" then
+			ShowToast("Objective complete: " .. title .. rewardText, "success", 4)
+			return
+		end
+		if string.find(achievementId, "^onboarding_") or string.find(achievementId, "^midgame_") then
+			ShowBanner("OBJECTIVE COMPLETE: " .. title, THEME.success, 4)
+		end
+		ShowToast("Objective complete: " .. title .. rewardText, "success", 4)
+	elseif action == "Unlocked" then
+		if achievementId == "matchmaker" then
+			ShowToast("Achievement unlocked: " .. title, "info", 3.5)
+			return
+		end
 		ShowBanner("ACHIEVEMENT UNLOCKED: " .. title, THEME.gold, 4.5)
 	elseif action == "Claimed" then
 		local rewards = payload.Rewards
@@ -583,6 +747,11 @@ end)
 
 local lastRate = 1.0
 StockMarketFolder:GetAttributeChangedSignal("CurrentRate"):Connect(function()
+	if not isUnlocked("MarketIntelUnlocked") then
+		lastRate = StockMarketFolder:GetAttribute("CurrentRate") or 1.0
+		return
+	end
+
 	local newRate = StockMarketFolder:GetAttribute("CurrentRate") or 1.0
 	
 	if newRate >= 2.5 and lastRate < 2.5 then
@@ -592,6 +761,90 @@ StockMarketFolder:GetAttributeChangedSignal("CurrentRate"):Connect(function()
 	end
 	
 	lastRate = newRate
+end)
+
+local unlockMessages = {
+	MarketIntelUnlocked = {
+		banner = "MARKET INTEL UNLOCKED",
+		toast = "The ticker is live. Watch for hotter sell windows.",
+		color = THEME.info,
+	},
+	DetailedMarketUnlocked = {
+		banner = "MARKET TERMINAL UNLOCKED",
+		toast = "Target your best stock instead of dumping everything.",
+		color = THEME.gold,
+	},
+	SynergyUnlocked = {
+		banner = "HYBRID OUTPUTS ONLINE",
+		toast = "Start with one weird pair. Hybrid outputs create rarer stock.",
+		color = THEME.info,
+	},
+	ArtifactsUnlocked = {
+		banner = "ARTIFACTS UNLOCKED",
+		toast = "Your first relic should drop soon. Equip it on a producer for an immediate boost.",
+		color = THEME.gold,
+	},
+	ContractsUnlocked = {
+		banner = "CONTRACTS UNLOCKED",
+		toast = "Bulk buyers are now posting bigger payout jobs.",
+		color = THEME.gold,
+	},
+}
+
+local previousUnlockStates = {}
+local unlockAnnouncementReadyAt = tick() + 3
+for attributeName in pairs(unlockMessages) do
+	previousUnlockStates[attributeName] = isUnlocked(attributeName)
+	Player:GetAttributeChangedSignal(attributeName):Connect(function()
+		local nowUnlocked = isUnlocked(attributeName)
+		local wasUnlocked = previousUnlockStates[attributeName] == true
+		previousUnlockStates[attributeName] = nowUnlocked
+		if nowUnlocked and not wasUnlocked and tick() >= unlockAnnouncementReadyAt then
+			local message = unlockMessages[attributeName]
+			ShowBanner(message.banner, message.color, 4.5)
+			ShowToast(message.toast, "info", 4)
+		end
+	end)
+end
+
+local previousFirstSynergyActivated = Player:GetAttribute("FirstSynergyActivated") == true
+Player:GetAttributeChangedSignal("FirstSynergyActivated"):Connect(function()
+	local nowActive = Player:GetAttribute("FirstSynergyActivated") == true
+	if nowActive and not previousFirstSynergyActivated and tick() >= unlockAnnouncementReadyAt then
+		local hybridName = getActiveHybridItemName()
+		ShowBanner("HYBRID OUTPUT ONLINE", THEME.gold, 4.5)
+		if hybridName then
+			ShowToast(hybridName .. " is now coming off your line. Watch it for a stronger sell window.", "success", 4)
+		else
+			ShowToast("You just created rarer stock with a smarter layout.", "success", 4)
+		end
+	end
+	previousFirstSynergyActivated = nowActive
+end)
+
+local previousFirstArtifactFound = Player:GetAttribute("FirstArtifactFound") == true
+Player:GetAttributeChangedSignal("FirstArtifactFound"):Connect(function()
+	local nowFound = Player:GetAttribute("FirstArtifactFound") == true
+	if nowFound and not previousFirstArtifactFound and tick() >= unlockAnnouncementReadyAt then
+		ShowBanner("FIRST RELIC FOUND", THEME.gold, 4.5)
+		if lastArtifactDropName and lastArtifactDropName ~= "" then
+			ShowToast(lastArtifactDropName .. " dropped. Open a producer and equip it from the Equipment tab.", "success", 4.5)
+		else
+			ShowToast("A relic dropped. Open a producer and equip it from the Equipment tab.", "success", 4.5)
+		end
+		lastArtifactDropName = nil
+	end
+	previousFirstArtifactFound = nowFound
+end)
+
+local previousFirstArtifactEquipped = Player:GetAttribute("FirstArtifactEquipped") == true
+Player:GetAttributeChangedSignal("FirstArtifactEquipped"):Connect(function()
+	local nowEquipped = Player:GetAttribute("FirstArtifactEquipped") == true
+	if nowEquipped and not previousFirstArtifactEquipped and tick() >= unlockAnnouncementReadyAt then
+		ShowBanner("RELIC EQUIPPED", THEME.success, 4)
+		ShowToast("That producer is now stronger. Artifact bonuses apply immediately.", "success", 4)
+	end
+	previousFirstArtifactEquipped = nowEquipped
 end)
 
 initializeUI()

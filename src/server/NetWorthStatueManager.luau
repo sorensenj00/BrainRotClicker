@@ -21,7 +21,7 @@ local CONFIG = {
 	STATUE_SCALE = 3,
 	RAYCAST_HEIGHT = 300,
 	RAYCAST_DEPTH = 1200,
-	STATUE_VERSION = 3,
+	STATUE_VERSION = 4,
 	COIN_EMITTER_TEXTURE = "rbxassetid://1281285222",
 }
 
@@ -197,7 +197,38 @@ local function computeNetWorth(player)
 	return math.floor(money + storageValue + cartValue)
 end
 
-local function buildAvatarStatue(userId, pedestal, container, netWorth) -- BEMÆRK: netWorth er tilføjet!
+local function formatWorth(netWorth)
+	return tostring(math.floor(netWorth or 0)):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+end
+
+local function updateStatueBillboard(avatarModel, displayName, netWorth)
+	local bg = avatarModel and avatarModel:FindFirstChild("NetWorthTag")
+	if not bg then
+		return
+	end
+
+	local frameImage = bg:FindFirstChild("GoldFrame")
+	if not frameImage then
+		return
+	end
+
+	local titleLabel = frameImage:FindFirstChild("TitleLabel")
+	local nameLabel = frameImage:FindFirstChild("NameLabel")
+	local valueLabel = frameImage:FindFirstChild("ValueLabel")
+
+	if titleLabel and titleLabel:IsA("TextLabel") then
+		titleLabel.Text = "Island Tycoon Champion"
+	end
+	if nameLabel and nameLabel:IsA("TextLabel") then
+		nameLabel.Text = displayName or "Unknown Champion"
+	end
+	if valueLabel and valueLabel:IsA("TextLabel") then
+		valueLabel.Text = "$" .. formatWorth(netWorth)
+	end
+end
+
+local function buildAvatarStatue(player, pedestal, container, netWorth)
+	local userId = player.UserId
     local ok, avatarModel = pcall(function()
         return Players:CreateHumanoidModelFromUserId(userId)
     end)
@@ -249,8 +280,9 @@ local function buildAvatarStatue(userId, pedestal, container, netWorth) -- BEMÆ
     if hrp then
         local bg = Instance.new("BillboardGui")
         bg.Name = "NetWorthTag"
-        bg.Size = UDim2.new(0, 150, 0, 50)
+        bg.Size = UDim2.new(0, 230, 0, 86)
         bg.StudsOffset = Vector3.new(0, 4 * CONFIG.STATUE_SCALE, 0) -- Højden over hovedet
+        bg.AlwaysOnTop = true
         bg.Adornee = hrp
         bg.Parent = avatarModel
 
@@ -261,25 +293,41 @@ local function buildAvatarStatue(userId, pedestal, container, netWorth) -- BEMÆ
         frameImage.Image = "rbxassetid://2845688941"
         frameImage.Parent = bg
 
-        local txt = Instance.new("TextLabel")
-        txt.Size = UDim2.new(1, 0, 1, 0)
-        txt.BackgroundTransparency = 1
-        txt.TextScaled = true
-        txt.Font = Enum.Font.GothamBold
-        txt.TextColor3 = Color3.fromRGB(255, 255, 255)
-        txt.TextStrokeTransparency = 0.2 -- Lidt sort kant for læsbarhed
-        
-        local gradient = Instance.new("UIGradient")
-        gradient.Color = ColorSequence.new({
-            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 0)),
-            ColorSequenceKeypoint.new(1, Color3.fromRGB(204, 153, 0))
-        })
-        gradient.Parent = txt
-        
-        -- Formater tallet så det ser pænt ud (f.eks. 1000000 -> 1,000,000)
-        local formattedWorth = tostring(netWorth):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
-        txt.Text = "Highest Net Worth:\n$" .. formattedWorth
-        txt.Parent = frameImage
+        local titleLabel = Instance.new("TextLabel")
+        titleLabel.Name = "TitleLabel"
+        titleLabel.Size = UDim2.new(1, -20, 0, 20)
+        titleLabel.Position = UDim2.new(0, 10, 0, 8)
+        titleLabel.BackgroundTransparency = 1
+        titleLabel.Font = Enum.Font.GothamBold
+        titleLabel.TextColor3 = Color3.fromRGB(255, 239, 170)
+        titleLabel.TextSize = 14
+        titleLabel.TextStrokeTransparency = 0.4
+        titleLabel.Text = "Island Tycoon Champion"
+        titleLabel.Parent = frameImage
+
+        local nameLabel = Instance.new("TextLabel")
+        nameLabel.Name = "NameLabel"
+        nameLabel.Size = UDim2.new(1, -20, 0, 28)
+        nameLabel.Position = UDim2.new(0, 10, 0, 26)
+        nameLabel.BackgroundTransparency = 1
+        nameLabel.Font = Enum.Font.GothamBlack
+        nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+        nameLabel.TextScaled = true
+        nameLabel.TextStrokeTransparency = 0.2
+        nameLabel.Text = player.DisplayName
+        nameLabel.Parent = frameImage
+
+        local valueLabel = Instance.new("TextLabel")
+        valueLabel.Name = "ValueLabel"
+        valueLabel.Size = UDim2.new(1, -20, 0, 24)
+        valueLabel.Position = UDim2.new(0, 10, 1, -28)
+        valueLabel.BackgroundTransparency = 1
+        valueLabel.Font = Enum.Font.GothamBold
+        valueLabel.TextColor3 = Color3.fromRGB(255, 215, 0)
+        valueLabel.TextSize = 18
+        valueLabel.TextStrokeTransparency = 0.3
+        valueLabel.Text = "$" .. formatWorth(netWorth)
+        valueLabel.Parent = frameImage
     end
 
     -- 3. ROTATION (Gør at figuren drejer rundt om sig selv)
@@ -299,7 +347,11 @@ local function buildAvatarStatue(userId, pedestal, container, netWorth) -- BEMÆ
 
     -- 4. DANS
     if humanoid then
-        local animator = humanoid:FindFirstChild("Animator") or Instance.new("Animator", humanoid)
+        local animator = humanoid:FindFirstChild("Animator")
+        if not animator then
+            animator = Instance.new("Animator")
+            animator.Parent = humanoid
+        end
         local animation = Instance.new("Animation")
         animation.AnimationId = "rbxassetid://507771019" 
         local danceTrack = animator:LoadAnimation(animation)
@@ -342,21 +394,11 @@ local function refreshLeaderAndStatue()
     local currentAvatar = container:FindFirstChild("AvatarStatue")
     local isCurrentValid = currentAvatar and (currentAvatar:GetAttribute("StatueVersion") == CONFIG.STATUE_VERSION)
     if currentLeaderUserId == leader.UserId and isCurrentValid then
-        local bg = currentAvatar:FindFirstChild("NetWorthTag")
-        if bg then
-            local frameImage = bg:FindFirstChild("GoldFrame")
-            if frameImage then
-                local txt = frameImage:FindFirstChildOfClass("TextLabel")
-                if txt then
-                    local formattedWorth = tostring(leaderWorth):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
-                    txt.Text = "Highest Net Worth:\n$" .. formattedWorth
-                end
-            end
-        end
+        updateStatueBillboard(currentAvatar, leader.DisplayName, leaderWorth)
         return
     end
 
-    local newAvatar = buildAvatarStatue(leader.UserId, pedestal, container, leaderWorth)
+    local newAvatar = buildAvatarStatue(leader, pedestal, container, leaderWorth)
     if not newAvatar then
         return
     end

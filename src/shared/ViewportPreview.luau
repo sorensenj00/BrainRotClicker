@@ -111,13 +111,42 @@ function ViewportPreview.CreateSilhouette(model: Model, parent: GuiObject, size:
 	for _, desc in ipairs(previewModel:GetDescendants()) do
 		if desc:IsA("BasePart") then
 			desc.Color = targetColor
-			desc.Material = Enum.Material.Neon
-			-- Remove any decals or textures
+			desc.Material = Enum.Material.SmoothPlastic
+			desc.Reflectance = 0
+			desc.CastShadow = false
+			if desc:IsA("MeshPart") then
+				desc.TextureID = ""
+			end
+			-- Strip embedded visual children so locked previews stay fully dark.
 			for _, child in ipairs(desc:GetChildren()) do
-				if child:IsA("Texture") or child:IsA("Decal") then
+				if child:IsA("Texture") or child:IsA("Decal") or child:IsA("SurfaceAppearance") then
 					child:Destroy()
+				elseif child:IsA("SpecialMesh") then
+					child.TextureId = ""
+				elseif child:IsA("ParticleEmitter")
+					or child:IsA("Trail")
+					or child:IsA("Beam")
+					or child:IsA("Highlight")
+					or child:IsA("PointLight")
+					or child:IsA("SpotLight")
+					or child:IsA("SurfaceLight")
+				then
+					child.Enabled = false
 				end
 			end
+		elseif desc:IsA("SpecialMesh") then
+			desc.TextureId = ""
+		elseif desc:IsA("SurfaceAppearance") then
+			desc:Destroy()
+		elseif desc:IsA("Highlight")
+			or desc:IsA("ParticleEmitter")
+			or desc:IsA("Trail")
+			or desc:IsA("Beam")
+			or desc:IsA("PointLight")
+			or desc:IsA("SpotLight")
+			or desc:IsA("SurfaceLight")
+		then
+			desc.Enabled = false
 		end
 	end
 	

@@ -99,6 +99,10 @@ end
 local ChachingSound = createSound("rbxassetid://138081500", 0.5)
 local ErrorSound = createSound("rbxassetid://138090596", 0.3)
 
+local function getNotifier()
+	return _G.NotificationManager
+end
+
 --------------------------------------------------------------------------------
 -- LOCAL STATE
 --------------------------------------------------------------------------------
@@ -780,6 +784,74 @@ local function animatePurchase(card: Frame, success: boolean)
 	end
 end
 
+local function animateUnlockReveal(card: Frame)
+	local stroke = card:FindFirstChildWhichIsA("UIStroke")
+	local originalColor = stroke and stroke.Color or UIConfig.STROKE_COLOR
+
+	if stroke then
+		stroke.Color = UIConfig.GOLD_COLOR
+	end
+
+	local originalSize = card.Size
+	card.Size = UDim2.new(originalSize.X.Scale, originalSize.X.Offset, originalSize.Y.Scale, originalSize.Y.Offset - 8)
+	TweenService:Create(card, TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		Size = originalSize,
+	}):Play()
+
+	task.delay(0.45, function()
+		if stroke then
+			TweenService:Create(stroke, TweenInfo.new(0.25), {
+				Color = originalColor,
+			}):Play()
+		end
+	end)
+end
+
+local function showPurchaseFeedback(purchaseData)
+	local notifier = getNotifier()
+	if not purchaseData or not notifier then
+		return
+	end
+
+	local unitName = tostring(purchaseData.unitName or "New Unit")
+	local outputItemName = tostring(purchaseData.outputItemName or "stock")
+	local outputItemIcon = tostring(purchaseData.outputItemIcon or "")
+	local cycleTime = tonumber(purchaseData.outputCycleTime) or 0
+	local ownedBefore = tonumber(purchaseData.ownedBefore) or 0
+	local newLevel = tonumber(purchaseData.newLevel) or (ownedBefore + 1)
+
+	if notifier.ShowToast then
+		local actionText = ownedBefore <= 0 and "New producer online" or "Reinvested into"
+		local cadenceText = cycleTime > 0 and string.format(" every %.1fs", cycleTime) or ""
+		notifier.ShowToast(
+			string.format(
+				"%s: %s x%d. Makes %s %s%s",
+				actionText,
+				unitName,
+				newLevel,
+				outputItemIcon,
+				outputItemName,
+				cadenceText
+			),
+			"success",
+			4
+		)
+	end
+
+	if purchaseData.newUnlockName and notifier.ShowBanner then
+		notifier.ShowBanner("NEW UNIT REVEALED: " .. tostring(purchaseData.newUnlockName), UIConfig.GOLD_COLOR, 4.5)
+	end
+
+	if purchaseData.newUnlockName then
+		task.delay(0.2, function()
+			local unlockedCard = ShopButtons[tostring(purchaseData.newUnlockName)]
+			if unlockedCard then
+				animateUnlockReveal(unlockedCard)
+			end
+		end)
+	end
+end
+
 local function setupCardClick(card: Frame, unitName: string)
 	local clickArea = card:FindFirstChild("ClickArea")
 	if not clickArea then return end
@@ -807,10 +879,12 @@ local function setupCardClick(card: Frame, unitName: string)
 		if debounce then return end
 		debounce = true
 		
-		local success, message = BuyUnitRemote:InvokeServer(unitName)
+		local success, message, purchaseData = BuyUnitRemote:InvokeServer(unitName)
 		animatePurchase(card, success)
 		
-		if not success then
+		if success then
+			showPurchaseFeedback(purchaseData)
+		else
 			warn("Purchase failed: " .. tostring(message))
 		end
 		
@@ -834,13 +908,13 @@ local function refreshShopUI()
 	end
 	ShopButtons = {}
 	
-	-- Get ALL units sorted by price
-	local allUnits = ShopConfig.GetAllUnitsSorted()
-	
-	for i, unitData in allUnits do
+	-- Show unlocked units plus a single locked preview card.
+	local visibleUnits = ShopConfig.GetVisibleUnits(UnlockProgress)
+
+	for i, unitData in visibleUnits do
 		local unitName = unitData.name
 		local config = unitData.config
-		local isLocked = not ShopConfig.IsUnitUnlocked(unitName, UnlockProgress)
+		local isLocked = unitData.isLocked == true
 		
 		-- Create card
 		local card = createShopCard(unitName, config, i, isLocked)
@@ -1118,4 +1192,3 @@ local UIManager = require(script.Parent:WaitForChild("Managers"):WaitForChild("U
 UIManager.RegisterShop("MachineShop", function()
 	if ShopVisible then closeShop() else openShop() end
 end)
-

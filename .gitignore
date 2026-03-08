@@ -6,6 +6,7 @@
 /*.rbxl.lock
 
 sourcemap.json
+*.txt
 
 # GodAgent
 GodAgent/

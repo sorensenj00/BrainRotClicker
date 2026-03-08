@@ -25,6 +25,7 @@ local screenGui = nil
 local mainFrame = nil
 local listFrame = nil
 local statusLabel = nil
+local titleLabel = nil
 
 local latestSnapshot = {
 	Definitions = {},
@@ -73,6 +74,11 @@ end
 
 local function sortDefinitions(definitions)
 	table.sort(definitions, function(a, b)
+		local onboardingA = a.OnboardingOrder or 999
+		local onboardingB = b.OnboardingOrder or 999
+		if onboardingA ~= onboardingB then
+			return onboardingA < onboardingB
+		end
 		local orderA = a.Order or 9999
 		local orderB = b.Order or 9999
 		if orderA ~= orderB then
@@ -80,6 +86,13 @@ local function sortDefinitions(definitions)
 		end
 		return tostring(a.Title) < tostring(b.Title)
 	end)
+end
+
+local function shouldShowDefinition(def)
+	if Player:GetAttribute("TutorialComplete") == true then
+		return true
+	end
+	return def.OnboardingOrder ~= nil
 end
 
 local function clearList()
@@ -140,7 +153,9 @@ local function rebuildList()
 
 	local definitions = {}
 	for _, def in ipairs(latestSnapshot.Definitions or {}) do
-		table.insert(definitions, def)
+		if shouldShowDefinition(def) then
+			table.insert(definitions, def)
+		end
 	end
 	sortDefinitions(definitions)
 
@@ -262,7 +277,13 @@ local function rebuildList()
 		claimCorner.CornerRadius = UDim.new(0, 6)
 		claimCorner.Parent = claimButton
 
-		if claimed then
+		if def.AutoClaim == true then
+			claimButton.Text = claimed and "Done" or "Auto"
+			claimButton.BackgroundColor3 = claimed and Color3.fromRGB(55, 95, 60) or Color3.fromRGB(65, 65, 85)
+			claimButton.TextColor3 = claimed and Color3.fromRGB(180, 240, 190) or Color3.fromRGB(165, 165, 185)
+			claimButton.AutoButtonColor = false
+			claimButton.Active = false
+		elseif claimed then
 			claimButton.Text = "Claimed"
 			claimButton.BackgroundColor3 = Color3.fromRGB(55, 95, 60)
 			claimButton.TextColor3 = Color3.fromRGB(180, 240, 190)
@@ -338,16 +359,16 @@ local function createUI()
 	headerCorner.CornerRadius = UDim.new(0, 10)
 	headerCorner.Parent = header
 
-	local title = Instance.new("TextLabel")
-	title.Size = UDim2.new(1, -60, 1, 0)
-	title.Position = UDim2.fromOffset(12, 0)
-	title.BackgroundTransparency = 1
-	title.Text = "ACHIEVEMENTS"
-	title.TextXAlignment = Enum.TextXAlignment.Left
-	title.TextColor3 = Color3.fromRGB(245, 220, 120)
-	title.Font = Enum.Font.GothamBlack
-	title.TextSize = 20
-	title.Parent = header
+	titleLabel = Instance.new("TextLabel")
+	titleLabel.Size = UDim2.new(1, -60, 1, 0)
+	titleLabel.Position = UDim2.fromOffset(12, 0)
+	titleLabel.BackgroundTransparency = 1
+	titleLabel.Text = "ACHIEVEMENTS"
+	titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+	titleLabel.TextColor3 = Color3.fromRGB(245, 220, 120)
+	titleLabel.Font = Enum.Font.GothamBlack
+	titleLabel.TextSize = 20
+	titleLabel.Parent = header
 
 	local closeButton = Instance.new("TextButton")
 	closeButton.Size = UDim2.fromOffset(30, 30)
@@ -416,6 +437,9 @@ local function refreshSnapshot()
 	end)
 	if ok and type(data) == "table" then
 		latestSnapshot = data
+		if titleLabel then
+			titleLabel.Text = Player:GetAttribute("TutorialComplete") == true and "ACHIEVEMENTS" or "OBJECTIVES"
+		end
 		rebuildList()
 	end
 end
@@ -461,6 +485,18 @@ AchievementUpdatedEvent.OnClientEvent:Connect(function(snapshot)
 		return
 	end
 	latestSnapshot = snapshot
+	if titleLabel then
+		titleLabel.Text = Player:GetAttribute("TutorialComplete") == true and "ACHIEVEMENTS" or "OBJECTIVES"
+	end
+	if isOpen then
+		rebuildList()
+	end
+end)
+
+Player:GetAttributeChangedSignal("TutorialComplete"):Connect(function()
+	if titleLabel then
+		titleLabel.Text = Player:GetAttribute("TutorialComplete") == true and "ACHIEVEMENTS" or "OBJECTIVES"
+	end
 	if isOpen then
 		rebuildList()
 	end

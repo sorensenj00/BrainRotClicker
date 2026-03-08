@@ -306,6 +306,10 @@ local function recordCashBalanceAchievements(player)
 	end
 end
 
+local function isDetailedMarketUnlocked(player)
+	return player:GetAttribute("DetailedMarketUnlocked") == true
+end
+
 local function broadcastToTheMoon(player, totalEarned)
 	local chatMessage = string.format("%s just made bank! +%s", player.Name, formatMoneyShort(totalEarned))
 	ToTheMoonCelebrationEvent:FireAllClients({
@@ -333,7 +337,8 @@ function MarketManager.Init(services)
 	print("   MarketManager (Module) - Initializing")
 	Services = services or {}
 	
-	
+	SellItemFunction.OnServerInvoke = function(p, id, c) return MarketManager.SellItem(p, id, c) end
+	SellAllFunction.OnServerInvoke = function(p) return MarketManager.SellAll(p) end
 	BuyItemFunction.OnServerInvoke = function(p, id, c) return MarketManager.BuyItem(p, id, c) end
 	BuyToCartFunction.OnServerInvoke = function(p, id, c) return MarketManager.BuyToCart(p, id, c) end
 	SellFromCartFunction.OnServerInvoke = function(p, id, c) return MarketManager.SellFromCart(p, id, c) end
@@ -444,6 +449,94 @@ function MarketManager.BuyItem(player, itemId, count)
 	return actualAdded, totalCost
 end
 
+function MarketManager.SellItem(player, itemId, count)
+	if isDetailedMarketUnlocked(player) then
+		return 0, 0
+	end
+	if type(itemId) ~= "string" or type(count) ~= "number" then
+		return 0, 0
+	end
+	if count <= 0 then
+		return 0, 0
+	end
+
+	local itemInfo = ItemConfig.Items[itemId]
+	if not itemInfo then
+		return 0, 0
+	end
+
+	local itemStorage = rawget(Services, "ItemStorageManager")
+	local dataService = rawget(Services, "DataService")
+	if not itemStorage or not dataService then
+		return 0, 0
+	end
+
+	local requestedCount = math.max(0, math.floor(count))
+	local removed = itemStorage.RemoveFromStorage(player, itemId, requestedCount)
+	if removed <= 0 then
+		return 0, 0
+	end
+
+	local totalEarned = removed * getPlayerSellPrice(player, itemId)
+	dataService.AddMoney(player, totalEarned)
+	recordCashBalanceAchievements(player)
+	recordAchievements(player, "first_market_sale", 1)
+
+	adjustAMMPool(itemId, removed, -(totalEarned * 0.9))
+	applyLocalShock(player, itemId, removed, false)
+
+	ItemSoldEvent:FireClient(player, itemId, removed, totalEarned, "storage")
+	return removed, totalEarned
+end
+
+function MarketManager.SellAll(player)
+	if isDetailedMarketUnlocked(player) then
+		return 0, 0
+	end
+
+	local itemStorage = rawget(Services, "ItemStorageManager")
+	local dataService = rawget(Services, "DataService")
+	if not itemStorage or not dataService then
+		return 0, 0
+	end
+
+	local storageContents = itemStorage.GetStorageContents(player)
+	local itemsToSell = {}
+	for itemId, count in pairs(storageContents or {}) do
+		if type(count) == "number" and count > 0 and ItemConfig.Items[itemId] then
+			itemsToSell[itemId] = count
+		end
+	end
+
+	local totalSold = 0
+	local totalEarned = 0
+	local soldInventory = {}
+
+	for itemId, count in pairs(itemsToSell) do
+		local removed = itemStorage.RemoveFromStorage(player, itemId, count)
+		if removed > 0 then
+			local earned = removed * getPlayerSellPrice(player, itemId)
+			totalSold += removed
+			totalEarned += earned
+			soldInventory[itemId] = removed
+
+			adjustAMMPool(itemId, removed, -(earned * 0.9))
+			applyLocalShock(player, itemId, removed, false)
+		end
+	end
+
+	if totalEarned <= 0 then
+		return 0, 0
+	end
+
+	dataService.AddMoney(player, totalEarned)
+	recordCashBalanceAchievements(player)
+	recordAchievements(player, "first_market_sale", 1)
+
+	CartSoldEvent:FireClient(player, totalEarned, soldInventory, "storage")
+	return totalSold, totalEarned
+end
+
 --[[
 	SellCartContents: Sells a cart's inventory for the player.
 	Adjusts AMM pool: items enter pool, cash leaves pool.
@@ -475,6 +568,7 @@ function MarketManager.SellCartContents(player, cartInventory)
 			warn("MarketManager: DataService unavailable during SellCartContents payout for", player.Name)
 		end
 		recordAchievements(player, "first_cart_sale", 1)
+		recordAchievements(player, "first_market_sale", 1)
 		if currentRate >= 2.5 then
 			recordAchievements(player, "cart_sold_hyper_inflation", 1)
 		end
@@ -677,6 +771,7 @@ function MarketManager.SellFromCart(player, itemId, count)
 		recordCashBalanceAchievements(player)
 	end
 	recordAchievements(player, "first_cart_sale", 1)
+	recordAchievements(player, "first_market_sale", 1)
 	local localRate = getPlayerSellRate(player, itemId)
 	if localRate >= 2.5 and isFullBefore then
 		recordAchievements(player, "cart_sold_hyper_inflation", 1)

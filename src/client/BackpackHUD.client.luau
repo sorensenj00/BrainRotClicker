@@ -81,6 +81,18 @@ local StorageUsage = 0
 
 local StorageCapacity = 0 -- Updated via Player Attribute
 
+local function isArtifactsUnlocked()
+	return Player:GetAttribute("ArtifactsUnlocked") == true
+end
+
+local function isFirstArtifactFound()
+	return Player:GetAttribute("FirstArtifactFound") == true
+end
+
+local function isFirstArtifactEquipped()
+	return Player:GetAttribute("FirstArtifactEquipped") == true
+end
+
 --------------------------------------------------------------------------------
 -- HELPERS
 --------------------------------------------------------------------------------
@@ -549,7 +561,13 @@ local function refreshGrid()
 	else
 		-- ARTIFACT TAB
 		if infoLabel then
-			infoLabel.Text = "Artifacts collected"
+			if not isFirstArtifactFound() then
+				infoLabel.Text = "Your first relic should drop soon. Keep producing."
+			elseif not isFirstArtifactEquipped() then
+				infoLabel.Text = "Artifacts are equipped from a producer's Equipment panel."
+			else
+				infoLabel.Text = "Artifacts collected"
+			end
 		end
 
 		local display = {}
@@ -564,7 +582,11 @@ local function refreshGrid()
 		end
 
 		if #display == 0 then
-			createEmptyState("No matching artifacts")
+			if not isFirstArtifactFound() then
+				createEmptyState("Your first relic should drop soon")
+			else
+				createEmptyState("No matching artifacts")
+			end
 		end
 
 		for i, item in ipairs(display) do
@@ -822,7 +844,8 @@ local function createBackpackHUD()
 
 	local unitsTab = makeTab("UNITS", "Unit", 1)
 	local _itemsTab = makeTab("ITEMS", "Storage", 2)
-	local _artifactTab = makeTab("ARTIFACTS", "Artifact", 3)
+	local artifactTab = makeTab("ARTIFACTS", "Artifact", 3)
+	artifactTab.Visible = isArtifactsUnlocked()
 
 	unitsTab.BackgroundColor3 = UI_CONFIG.COLOR_TAB_ACTIVE
 	unitsTab.TextColor3 = Color3.fromRGB(25, 25, 30)
@@ -889,7 +912,11 @@ local function toggleBackpack(filterOverride)
 	BackpackVisible = not BackpackVisible
 	-- If opening with a specific filter, ensure it's visible and set filter
 	if filterOverride and typeof(filterOverride) == "string" then
-		CurrentFilter = filterOverride
+		if filterOverride == "Artifact" and not isArtifactsUnlocked() then
+			CurrentFilter = Player:GetAttribute("ManualLogisticsUnlocked") == true and "Storage" or "Unit"
+		else
+			CurrentFilter = filterOverride
+		end
 		BackpackVisible = true -- Force open if filter provided
 	end
 
@@ -958,6 +985,24 @@ if ItemProducedEvent then
 		-- For now, just drain the queue to avoid exhaustion warnings
 	end)
 end
+
+Player:GetAttributeChangedSignal("ArtifactsUnlocked"):Connect(function()
+	if not BackpackGui then
+		return
+	end
+	local mainPanel = BackpackGui:FindFirstChild("MainPanel")
+	local tabs = mainPanel and mainPanel:FindFirstChild("Tabs")
+	local artifactTab = tabs and tabs:FindFirstChild("Tab_Artifact")
+	if artifactTab then
+		artifactTab.Visible = isArtifactsUnlocked()
+	end
+	if not isArtifactsUnlocked() and CurrentFilter == "Artifact" then
+		CurrentFilter = Player:GetAttribute("ManualLogisticsUnlocked") == true and "Storage" or "Unit"
+		if BackpackVisible then
+			refreshGrid()
+		end
+	end
+end)
 
 print("✓ [BackpackHUD] Client script fully loaded and ready")
 

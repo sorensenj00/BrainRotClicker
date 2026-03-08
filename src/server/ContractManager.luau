@@ -44,9 +44,13 @@ local ContractLocks: {[string]: boolean} = {}
 local CONFIG = {
 	SPAWN_INTERVAL_MIN = 10 * 60,
 	SPAWN_INTERVAL_MAX = 15 * 60,
+	FIRST_CONTRACT_DELAY = 60,
+	FIRST_CONTRACT_REQUIRED_AMOUNT_MULTIPLIER = 0.35,
 	EXPIRATION_TICK = 1.0,
 	MAX_DELIVER_PER_CALL = 100000,
 }
+
+local InitialContractSpawned = false
 
 local function now()
 	return os.time()
@@ -111,6 +115,90 @@ local function getSpawnIntervalSeconds(): number
 		return math.floor(forced)
 	end
 	return math.random(CONFIG.SPAWN_INTERVAL_MIN, CONFIG.SPAWN_INTERVAL_MAX)
+end
+
+local function anyPlayerCanUseContracts(): boolean
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player:GetAttribute("ContractsUnlocked") == true then
+			return true
+		end
+	end
+	return false
+end
+
+local function getBestPlayerContractTarget(player: Player): (string?, number)
+	local bestItemId = nil
+	local bestCount = 0
+	local itemStorageManager = getService("ItemStorageManager")
+	local cartManager = getService("CartManager")
+	local storageContents = {}
+
+	if itemStorageManager and itemStorageManager.GetStorageContents then
+		storageContents = itemStorageManager.GetStorageContents(player) or {}
+		for itemId, count in pairs(storageContents) do
+			local numericCount = math.floor(tonumber(count) or 0)
+			if numericCount > bestCount then
+				bestItemId = itemId
+				bestCount = numericCount
+			end
+		end
+	end
+
+	if cartManager and cartManager.GetCartState then
+		local cart = cartManager.GetCartState(player)
+		if cart and type(cart.Inventory) == "table" then
+			for itemId, count in pairs(cart.Inventory) do
+				local combinedCount = math.floor(tonumber(count) or 0) + math.floor(tonumber(storageContents[itemId]) or 0)
+				if combinedCount > bestCount then
+					bestItemId = itemId
+					bestCount = combinedCount
+				end
+			end
+		end
+	end
+
+	return bestItemId, bestCount
+end
+
+local function getFlashTemplateForItem(itemId: string?): ContractConfig.ContractTemplate?
+	if not itemId then
+		return nil
+	end
+
+	local sector = ItemConfig.GetSectorByItemId(itemId)
+	local matchingTemplates = {}
+	for _, template in ipairs(ContractConfig.FlashOrderTemplates) do
+		if template.TargetSector == sector then
+			table.insert(matchingTemplates, template)
+		end
+	end
+
+	if #matchingTemplates == 0 then
+		return nil
+	end
+
+	return matchingTemplates[math.random(1, #matchingTemplates)]
+end
+
+local function getInitialContractContext(): {Template: ContractConfig.ContractTemplate?, TargetItemId: string?, RequiredAmountMultiplier: number}
+	local bestItemId = nil
+	local bestCount = 0
+
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player:GetAttribute("ContractsUnlocked") == true then
+			local itemId, count = getBestPlayerContractTarget(player)
+			if count > bestCount then
+				bestItemId = itemId
+				bestCount = count
+			end
+		end
+	end
+
+	return {
+		Template = getFlashTemplateForItem(bestItemId) or ContractConfig.PickRandomTemplate("FlashOrder"),
+		TargetItemId = bestItemId,
+		RequiredAmountMultiplier = CONFIG.FIRST_CONTRACT_REQUIRED_AMOUNT_MULTIPLIER,
+	}
 end
 
 local function removeContract(instanceId: string)
@@ -188,18 +276,20 @@ local function completeContract(contract: ContractConfig.ActiveContract)
 	removeContract(contract.InstanceId)
 end
 
-local function spawnContract()
-	local template = ContractConfig.PickRandomTemplate()
+local function spawnContract(spawnContext: {Template: ContractConfig.ContractTemplate?, TargetItemId: string?, RequiredAmountMultiplier: number?}?)
+	local template = (spawnContext and spawnContext.Template) or ContractConfig.PickRandomTemplate()
 	if not template then
-		return
+		return false
 	end
 
 	local contract = ContractConfig.BuildActiveContract(template, {
 		ServerCapacity = getServerCartCapacity(),
 		StartTime = now(),
+		TargetItemId = spawnContext and spawnContext.TargetItemId or nil,
+		RequiredAmountMultiplier = spawnContext and spawnContext.RequiredAmountMultiplier or nil,
 	})
 	if not contract then
-		return
+		return false
 	end
 
 	ActiveContracts[contract.InstanceId] = contract
@@ -209,6 +299,7 @@ local function spawnContract()
 		InstanceId = contract.InstanceId,
 		NewCurrentAmount = contract.CurrentAmount,
 	})
+	return true
 end
 
 local function getTemplateById(templateId: string): ContractConfig.ContractTemplate?
@@ -342,7 +433,24 @@ end
 local function runSpawnLoop()
 	task.spawn(function()
 		while true do
+			if not anyPlayerCanUseContracts() then
+				task.wait(60)
+				continue
+			end
+			if not InitialContractSpawned and next(ActiveContracts) == nil then
+				task.wait(CONFIG.FIRST_CONTRACT_DELAY)
+				if not anyPlayerCanUseContracts() or next(ActiveContracts) ~= nil then
+					continue
+				end
+				if spawnContract(getInitialContractContext()) then
+					InitialContractSpawned = true
+				end
+				continue
+			end
 			task.wait(getSpawnIntervalSeconds())
+			if not anyPlayerCanUseContracts() then
+				continue
+			end
 			spawnContract()
 		end
 	end)

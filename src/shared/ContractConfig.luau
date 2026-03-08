@@ -214,8 +214,16 @@ function ContractConfig.ResolveTargetItemId(template: ContractTemplate): string?
 	return pickRandom(fallback)
 end
 
-function ContractConfig.BuildActiveContract(template: ContractTemplate, context: {ServerCapacity: number, StartTime: number?}): ActiveContract?
-	local targetItemId = ContractConfig.ResolveTargetItemId(template)
+function ContractConfig.BuildActiveContract(
+	template: ContractTemplate,
+	context: {
+		ServerCapacity: number,
+		StartTime: number?,
+		TargetItemId: string?,
+		RequiredAmountMultiplier: number?,
+	}
+): ActiveContract?
+	local targetItemId = context.TargetItemId or ContractConfig.ResolveTargetItemId(template)
 	if not targetItemId then
 		return nil
 	end
@@ -223,6 +231,8 @@ function ContractConfig.BuildActiveContract(template: ContractTemplate, context:
 	local serverCapacity = context.ServerCapacity or 0
 	local tier = ContractConfig.GetTierForServerCapacity(serverCapacity)
 	local requiredAmount = ContractConfig.ComputeRequiredAmount(template, serverCapacity, tier)
+	local amountMultiplier = math.max(0.05, tonumber(context.RequiredAmountMultiplier) or 1)
+	requiredAmount = math.max(1, math.floor(requiredAmount * amountMultiplier))
 
 	local startTime = context.StartTime or os.time()
 	return {

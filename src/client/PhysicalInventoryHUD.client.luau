@@ -44,6 +44,10 @@ local CART_TAG = "PhysicalCartHUD"
 -- State tracking
 local ActiveHUDs: {[Instance]: {billboard: BillboardGui, type: string}} = {}
 
+local function isManualLogisticsUnlocked(): boolean
+	return Player:GetAttribute("ManualLogisticsUnlocked") == true
+end
+
 --------------------------------------------------------------------------------
 -- UI CREATION
 --------------------------------------------------------------------------------
@@ -241,6 +245,7 @@ local function isPlayerPlot(instance: Instance)
 end
 
 local function setupStorageHUD(part: Instance)
+	if not isManualLogisticsUnlocked() then return end
 	if not isPlayerPlot(part) then return end
 	if ActiveHUDs[part] then return end
 	
@@ -257,6 +262,7 @@ local function setupStorageHUD(part: Instance)
 end
 
 local function setupCartHUD(model: Instance)
+	if not isManualLogisticsUnlocked() then return end
 	if not isPlayerPlot(model) then return end
 	if ActiveHUDs[model] then return end
 	
@@ -303,7 +309,24 @@ end)
 CollectionService:GetInstanceAddedSignal(STORAGE_TAG):Connect(setupStorageHUD)
 CollectionService:GetInstanceAddedSignal(CART_TAG):Connect(setupCartHUD)
 
-for _, inst in CollectionService:GetTagged(STORAGE_TAG) do task.spawn(setupStorageHUD, inst) end
-for _, inst in CollectionService:GetTagged(CART_TAG) do task.spawn(setupCartHUD, inst) end
+local function initializeExistingHUDs()
+	if not isManualLogisticsUnlocked() then
+		return
+	end
+	for _, inst in CollectionService:GetTagged(STORAGE_TAG) do
+		task.spawn(setupStorageHUD, inst)
+	end
+	for _, inst in CollectionService:GetTagged(CART_TAG) do
+		task.spawn(setupCartHUD, inst)
+	end
+end
+
+initializeExistingHUDs()
+
+Player:GetAttributeChangedSignal("ManualLogisticsUnlocked"):Connect(function()
+	if isManualLogisticsUnlocked() then
+		initializeExistingHUDs()
+	end
+end)
 
 print("✓ PhysicalInventoryHUD initialized")

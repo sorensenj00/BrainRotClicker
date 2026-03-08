@@ -43,6 +43,61 @@ local DataService
 local DefinitionsById = {}
 local DefinitionsByGoal = {}
 
+local MARKET_INTEL_UNLOCK_LIFETIME_EARNINGS = 1500
+local MARKET_UNLOCK_LIFETIME_EARNINGS = 2500
+local MANUAL_LOGISTICS_UNLOCK_LIFETIME_EARNINGS = 3500
+local SYNERGY_UNLOCK_LIFETIME_EARNINGS = 4000
+local ARTIFACTS_UNLOCK_LIFETIME_EARNINGS = 8000
+local CONTRACTS_UNLOCK_LIFETIME_EARNINGS = 12000
+
+local CORE_UNLOCK_SEQUENCE = {
+	{
+		attribute = "MarketIntelUnlocked",
+		title = "Market Intel",
+		target = MARKET_INTEL_UNLOCK_LIFETIME_EARNINGS,
+		description = "Live trend intel and better sell callouts.",
+	},
+	{
+		attribute = "DetailedMarketUnlocked",
+		title = "Market Terminal",
+		target = MARKET_UNLOCK_LIFETIME_EARNINGS,
+		description = "Open the market terminal and target better sell windows.",
+	},
+	{
+		attribute = "ManualLogisticsUnlocked",
+		title = "Logistics",
+		target = MANUAL_LOGISTICS_UNLOCK_LIFETIME_EARNINGS,
+		description = "Cart throughput tools open up as your volume grows.",
+	},
+	{
+		attribute = "SynergyUnlocked",
+		title = "Synergies",
+		target = SYNERGY_UNLOCK_LIFETIME_EARNINGS,
+		description = "Pair weird units for rarer, higher-value outputs.",
+	},
+	{
+		attribute = "ArtifactsUnlocked",
+		title = "Artifacts",
+		target = ARTIFACTS_UNLOCK_LIFETIME_EARNINGS,
+		description = "Rare relics can start dropping from production.",
+	},
+	{
+		attribute = "ContractsUnlocked",
+		title = "Contracts",
+		target = CONTRACTS_UNLOCK_LIFETIME_EARNINGS,
+		description = "Bulk buyers appear with bigger payout asks.",
+	},
+}
+
+local MIDGAME_GOAL_SEQUENCE = {
+	"midgame_targeted_seller",
+	"midgame_expand_line",
+	"midgame_full_cart",
+	"midgame_first_synergy",
+	"midgame_cart_tier_two",
+	"midgame_first_contract",
+}
+
 local function deepCopy(tbl)
 	local copy = {}
 	for k, v in pairs(tbl) do
@@ -78,8 +133,40 @@ local function getDefaultState()
 		Progress = {},
 		Unlocked = {},
 		Claimed = {},
+		Meta = {},
 		LastUpdated = 0,
 	}
+end
+
+local function getLifetimeEarnings(player)
+	local ds = getDataService()
+	local rootData = ds and ds.GetData and ds.GetData(player)
+	return math.max(0, math.floor(tonumber(rootData and rootData.lifetimeEarnings) or 0))
+end
+
+local function getArtifactInventorySummary(player)
+	local ds = getDataService()
+	if not ds or not ds.GetComponentData then
+		return 0, false
+	end
+
+	local artifactData = ds.GetComponentData(player, "Artifacts")
+	if type(artifactData) ~= "table" then
+		return 0, false
+	end
+
+	local count = 0
+	local hasEquipped = false
+	for _, artifact in pairs(artifactData) do
+		if type(artifact) == "table" then
+			count += 1
+			if artifact.EquippedTo ~= nil then
+				hasEquipped = true
+			end
+		end
+	end
+
+	return count, hasEquipped
 end
 
 local function getState(player)
@@ -117,8 +204,193 @@ local function buildSnapshot(player)
 	}
 end
 
+local function getAchievementProgress(state, achievementId)
+	local progressMap = state and state.Progress or {}
+	return tonumber(progressMap[achievementId]) or 0
+end
+
+local function getMaxGoalProgress(state, goalType)
+	local highest = 0
+	local defs = DefinitionsByGoal[goalType] or {}
+	for _, def in ipairs(defs) do
+		highest = math.max(highest, getAchievementProgress(state, def.Id))
+	end
+	return highest
+end
+
+local function getOnboardingStage(state)
+	local highestStage = 0
+	local progressMap = state and state.Progress or {}
+
+	for _, def in ipairs(AchievementsConfig.GetDefinitions()) do
+		if def.OnboardingOrder then
+			local progressValue = tonumber(progressMap[def.Id]) or 0
+			if progressValue >= (def.TargetValue or 0) then
+				highestStage = math.max(highestStage, def.OnboardingOrder)
+			end
+		end
+	end
+
+	return highestStage
+end
+
+local function hasCompletedGoal(state, goalType)
+	local progressMap = state and state.Progress or {}
+
+	for _, def in ipairs(AchievementsConfig.GetDefinitions()) do
+		if def.GoalType == goalType then
+			local progressValue = tonumber(progressMap[def.Id]) or 0
+			if progressValue >= (def.TargetValue or 0) then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
+local function hasCompletedAchievement(state, achievementId)
+	local definition = DefinitionsById[achievementId]
+	if not definition then
+		return false
+	end
+	return getAchievementProgress(state, achievementId) >= (definition.TargetValue or 0)
+end
+
+local function getNextMidgameGoal(state, unlockStates, terminalIntroComplete, tutorialComplete)
+	if tutorialComplete ~= true or terminalIntroComplete ~= true then
+		return nil
+	end
+
+	for _, achievementId in ipairs(MIDGAME_GOAL_SEQUENCE) do
+		local definition = DefinitionsById[achievementId]
+		if definition and not hasCompletedAchievement(state, achievementId) then
+			local available = true
+
+			if achievementId == "midgame_full_cart" or achievementId == "midgame_cart_tier_two" then
+				available = unlockStates.ManualLogisticsUnlocked == true
+			elseif achievementId == "midgame_first_synergy" then
+				available = unlockStates.SynergyUnlocked == true
+			elseif achievementId == "midgame_first_contract" then
+				available = unlockStates.ContractsUnlocked == true
+			end
+
+			if available then
+				return definition
+			end
+
+			return nil
+		end
+	end
+
+	return nil
+end
+
+local function refreshPlayerUnlockAttributes(player, state)
+	if typeof(player) ~= "Instance" or not player:IsA("Player") then
+		return
+	end
+
+	local resolvedState = state or getState(player) or getDefaultState()
+	resolvedState.Meta = resolvedState.Meta or {}
+	local onboardingStage = getOnboardingStage(resolvedState)
+	local terminalIntroComplete = hasCompletedGoal(resolvedState, "first_cart_sale")
+	local firstSynergyActivated = hasCompletedGoal(resolvedState, "synergy_activated")
+	local synergyUniqueProgress = getMaxGoalProgress(resolvedState, "synergy_unique_active")
+	if synergyUniqueProgress >= 3 then
+		resolvedState.Meta.SynergyReferenceUnlocked = true
+	end
+	local synergyReferenceUnlocked = resolvedState.Meta.SynergyReferenceUnlocked == true
+	local tutorialComplete = onboardingStage >= 5
+	local lifetimeEarnings = getLifetimeEarnings(player)
+	local marketIntelUnlocked = lifetimeEarnings >= MARKET_INTEL_UNLOCK_LIFETIME_EARNINGS
+	local marketUnlocked = lifetimeEarnings >= MARKET_UNLOCK_LIFETIME_EARNINGS
+	local manualLogisticsUnlocked = lifetimeEarnings >= MANUAL_LOGISTICS_UNLOCK_LIFETIME_EARNINGS
+	local synergyUnlocked = lifetimeEarnings >= SYNERGY_UNLOCK_LIFETIME_EARNINGS
+	local artifactsUnlocked = lifetimeEarnings >= ARTIFACTS_UNLOCK_LIFETIME_EARNINGS
+	local contractsUnlocked = lifetimeEarnings >= CONTRACTS_UNLOCK_LIFETIME_EARNINGS
+	local _artifactCount, hasEquippedArtifact = getArtifactInventorySummary(player)
+	local firstArtifactFound = hasCompletedGoal(resolvedState, "artifact_drop")
+	if hasEquippedArtifact then
+		resolvedState.Meta.FirstArtifactEquipped = true
+	end
+	local firstArtifactEquipped = resolvedState.Meta.FirstArtifactEquipped == true
+	local synergyGuideStage = 0
+	if synergyUnlocked then
+		if synergyReferenceUnlocked then
+			synergyGuideStage = 3
+		elseif firstSynergyActivated then
+			synergyGuideStage = 2
+		else
+			synergyGuideStage = 1
+		end
+	end
+	local artifactGuideStage = 0
+	if artifactsUnlocked then
+		if firstArtifactEquipped then
+			artifactGuideStage = 3
+		elseif firstArtifactFound then
+			artifactGuideStage = 2
+		else
+			artifactGuideStage = 1
+		end
+	end
+	local unlockStates = {
+		MarketIntelUnlocked = marketIntelUnlocked,
+		DetailedMarketUnlocked = marketUnlocked,
+		ManualLogisticsUnlocked = manualLogisticsUnlocked,
+		SynergyUnlocked = synergyUnlocked,
+		ArtifactsUnlocked = artifactsUnlocked,
+		ContractsUnlocked = contractsUnlocked,
+	}
+	local nextGoal = getNextMidgameGoal(resolvedState, unlockStates, terminalIntroComplete, tutorialComplete)
+
+	local nextUnlock = nil
+	for _, unlockDef in ipairs(CORE_UNLOCK_SEQUENCE) do
+		if unlockStates[unlockDef.attribute] ~= true then
+			nextUnlock = unlockDef
+			break
+		end
+	end
+
+	player:SetAttribute("OnboardingStage", onboardingStage)
+	player:SetAttribute("TerminalIntroComplete", terminalIntroComplete)
+	player:SetAttribute("TutorialComplete", tutorialComplete)
+	player:SetAttribute("LifetimeEarnings", lifetimeEarnings)
+	player:SetAttribute("MarketIntelUnlocked", marketIntelUnlocked)
+	player:SetAttribute("DetailedMarketUnlocked", marketUnlocked)
+	player:SetAttribute("ManualLogisticsUnlocked", manualLogisticsUnlocked)
+	player:SetAttribute("SynergyUnlocked", synergyUnlocked)
+	player:SetAttribute("FirstSynergyActivated", firstSynergyActivated)
+	player:SetAttribute("SynergyGuideStage", synergyGuideStage)
+	player:SetAttribute("SynergyReferenceUnlocked", synergyReferenceUnlocked)
+	player:SetAttribute("ArtifactsUnlocked", artifactsUnlocked)
+	player:SetAttribute("FirstArtifactFound", firstArtifactFound)
+	player:SetAttribute("FirstArtifactEquipped", firstArtifactEquipped)
+	player:SetAttribute("ArtifactGuideStage", artifactGuideStage)
+	player:SetAttribute("ContractsUnlocked", contractsUnlocked)
+	player:SetAttribute("NextGoalName", nextGoal and nextGoal.Title or "")
+	player:SetAttribute("NextGoalDescription", nextGoal and nextGoal.Description or "")
+	player:SetAttribute("NextGoalTarget", nextGoal and (nextGoal.TargetValue or 0) or 0)
+	player:SetAttribute(
+		"NextGoalProgress",
+		nextGoal and math.min(getAchievementProgress(resolvedState, nextGoal.Id), nextGoal.TargetValue or 0) or 0
+	)
+	player:SetAttribute("NextUnlockName", nextUnlock and nextUnlock.title or "")
+	player:SetAttribute("NextUnlockTarget", nextUnlock and nextUnlock.target or lifetimeEarnings)
+	player:SetAttribute("NextUnlockProgress", nextUnlock and math.min(lifetimeEarnings, nextUnlock.target) or lifetimeEarnings)
+	player:SetAttribute("NextUnlockDescription", nextUnlock and nextUnlock.description or "All core systems unlocked.")
+end
+
+local evaluateAllUnlocks
+
 local function pushSnapshot(player)
-	AchievementUpdatedEvent:FireClient(player, buildSnapshot(player))
+	local snapshot = buildSnapshot(player)
+	if evaluateAllUnlocks then
+		evaluateAllUnlocks(player, snapshot.State)
+	end
+	refreshPlayerUnlockAttributes(player, snapshot.State)
+	AchievementUpdatedEvent:FireClient(player, snapshot)
 end
 
 local function attachMoneyBalanceObserver(player)
@@ -132,8 +404,10 @@ local function attachMoneyBalanceObserver(player)
 			return
 		end
 		AchievementsManager.SetProgress(player, "cash_balance_reached", money.Value)
+		refreshPlayerUnlockAttributes(player)
 		money:GetPropertyChangedSignal("Value"):Connect(function()
 			AchievementsManager.SetProgress(player, "cash_balance_reached", money.Value)
+			refreshPlayerUnlockAttributes(player)
 		end)
 	end)
 end
@@ -187,12 +461,59 @@ local function unlockIfNeeded(player, achievementId, definition, state)
 	end
 
 	state.Unlocked[achievementId] = true
+
+	if definition.AutoClaim == true then
+		local hasAdvancedPending = false
+		for _, reward in ipairs(definition.Rewards or {}) do
+			local ok, err, isPending = awardReward(player, reward)
+			if not ok then
+				warn(string.format("AchievementsManager: failed to auto-claim %s for %s: %s", achievementId, player.Name, tostring(err)))
+				break
+			end
+			if isPending then
+				hasAdvancedPending = true
+			end
+		end
+
+		state.Claimed[achievementId] = true
+		AchievementNotifyEvent:FireClient(player, {
+			Action = "ObjectiveComplete",
+			AchievementId = achievementId,
+			Title = definition.Title,
+			Rewards = definition.Rewards,
+			HasAdvancedPending = hasAdvancedPending,
+		})
+		return true
+	end
+
 	AchievementNotifyEvent:FireClient(player, {
 		Action = "Unlocked",
 		AchievementId = achievementId,
 		Title = definition.Title,
 	})
 	return true
+end
+
+evaluateAllUnlocks = function(player, state)
+	if type(state) ~= "table" then
+		return
+	end
+
+	state.Progress = state.Progress or {}
+	state.Unlocked = state.Unlocked or {}
+	state.Claimed = state.Claimed or {}
+	state.Meta = state.Meta or {}
+
+	local changed = false
+	for _, definition in ipairs(AchievementsConfig.GetDefinitions()) do
+		if unlockIfNeeded(player, definition.Id, definition, state) then
+			changed = true
+		end
+	end
+
+	if changed then
+		state.LastUpdated = os.time()
+	end
 end
 
 function AchievementsManager.RecordProgress(player, goalType, amount)
@@ -218,6 +539,11 @@ function AchievementsManager.RecordProgress(player, goalType, amount)
 	state.Progress = state.Progress or {}
 	state.Unlocked = state.Unlocked or {}
 	state.Claimed = state.Claimed or {}
+	state.Meta = state.Meta or {}
+
+	if goalType == "synergy_unique_active" and numericValue >= 3 then
+		state.Meta.SynergyReferenceUnlocked = true
+	end
 
 	local changed = false
 	for _, def in ipairs(defs) do
@@ -288,6 +614,10 @@ function AchievementsManager.ClaimReward(player, achievementId)
 		return false, "Unknown achievement"
 	end
 
+	if definition.AutoClaim == true then
+		return false, "Automatically claimed"
+	end
+
 	local state = getState(player)
 	if not state then
 		return false, "Data unavailable"
@@ -344,6 +674,10 @@ function AchievementsManager.GetSnapshot(player)
 	return buildSnapshot(player)
 end
 
+function AchievementsManager.RefreshPlayerUnlockAttributes(player)
+	refreshPlayerUnlockAttributes(player)
+end
+
 function AchievementsManager.Init(services)
 	print("   AchievementsManager (Module) - Initializing")
 	Services = services or {}
@@ -358,6 +692,7 @@ function AchievementsManager.Init(services)
 					ds.SetComponentData(player, COMPONENT_KEY, deepCopy(getDefaultState()))
 				end
 				task.defer(function()
+					refreshPlayerUnlockAttributes(player)
 					pushSnapshot(player)
 				end)
 			end,
@@ -380,12 +715,14 @@ function AchievementsManager.Init(services)
 
 	Players.PlayerAdded:Connect(function(player)
 		task.defer(function()
+			refreshPlayerUnlockAttributes(player)
 			pushSnapshot(player)
 		end)
 		attachMoneyBalanceObserver(player)
 	end)
 
 	for _, player in ipairs(Players:GetPlayers()) do
+		refreshPlayerUnlockAttributes(player)
 		attachMoneyBalanceObserver(player)
 	end
 

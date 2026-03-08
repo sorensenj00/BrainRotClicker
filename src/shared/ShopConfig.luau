@@ -30,7 +30,7 @@ export type MilestoneInfo = {
 }
 
 -- Constants
-local INITIAL_UNLOCKED = 5 -- How many units are unlocked from the start
+local INITIAL_UNLOCKED = 3 -- How many units are unlocked from the start
 local PRICE_MULTIPLIER = 1.15 -- Default 15% increase per owned unit
 
 -- Milestone definitions (Adventure Capitalist-inspired)

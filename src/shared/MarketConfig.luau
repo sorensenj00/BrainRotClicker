@@ -24,6 +24,7 @@ MarketConfig.CONFIG = {
 	BAILOUT_FLOOR = 0.8,     -- Minimum rate for welfare-protected players
 	IMPACT_FACTOR = 0.0000001, -- How much each sold DOLLAR (not unit) depresses price (Tiny because volume is in millions now)
 	RECOVERY_RATE = 0.005,    -- Natural price recovery per read cycle
+	BID_ASK_SPREAD = 0.05,    -- 5% spread between buy and sell to prevent instant arbitrage
 
 	-- Synthetic Volatility (keeps market alive at low player count)
 	JITTER_SPEED = 0.3,      -- Perlin noise time multiplier (lower = slower waves)
